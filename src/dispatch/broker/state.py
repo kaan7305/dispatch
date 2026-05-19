@@ -1,0 +1,40 @@
+"""In-memory broker state.
+
+The abstractions are deliberately narrow so a future swap to a real
+store (Postgres for dispatches, Redis for live connections) lands here
+and nowhere else. Restart loses everything for now.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from uuid import UUID
+
+from fastapi import WebSocket
+
+from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus
+
+
+@dataclass
+class DispatchRecord:
+    payload: DispatchPayload
+    status: DispatchStatus = DispatchStatus.pending
+    events: list[DispatchEvent] = field(default_factory=list)
+    watchers: list[WebSocket] = field(default_factory=list)
+
+
+@dataclass
+class BrokerState:
+    # user_id → currently-connected recipient daemon WS
+    agents: dict[str, WebSocket] = field(default_factory=dict)
+    # user_id → list of dispatch_ids queued while daemon was offline
+    pending_for_offline: dict[str, list[UUID]] = field(
+        default_factory=lambda: defaultdict(list)
+    )
+    # dispatch_id → record
+    dispatches: dict[UUID, DispatchRecord] = field(default_factory=dict)
+    # known user_ids (auto-registered on first login)
+    users: set[str] = field(default_factory=set)
+
+
+STATE = BrokerState()

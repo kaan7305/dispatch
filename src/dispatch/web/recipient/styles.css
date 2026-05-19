@@ -1,0 +1,126 @@
+:root {
+  --bg: #0f1115;
+  --panel: #181b22;
+  --panel-2: #1f232c;
+  --text: #e6e8ee;
+  --muted: #8a93a6;
+  --border: #2a2f3a;
+  --accent: #7aa2ff;
+  --tool: #f0b86e;
+  --result: #6ee7b7;
+  --error: #f87171;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 960px; margin: 0 auto; padding: 32px 24px 96px; }
+header h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.01em; }
+.role {
+  font-size: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: var(--muted);
+  margin-left: 8px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.subtitle { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+h2 { font-size: 16px; color: var(--muted); margin: 0 0 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+#inbox { display: flex; flex-direction: column; gap: 14px; }
+
+.dispatch-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.dispatch-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.dispatch-id { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+.task-text { font-size: 14px; margin: 6px 0 4px; }
+.meta { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+.dispatch-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+
+button {
+  border: 0;
+  border-radius: 6px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-allow { background: var(--result); color: #0b0e14; }
+.btn-deny  { background: var(--error);  color: #0b0e14; }
+
+.status { font-size: 12px; color: var(--muted); padding: 2px 8px; border-radius: 4px; background: var(--panel-2); }
+.status.running { color: var(--accent); }
+.status.done { color: var(--result); }
+.status.error { color: var(--error); }
+
+.events { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.event {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+}
+.event .tag {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.event-agent_text .tag { color: var(--accent); }
+.event-tool_use   .tag { color: var(--tool); }
+.event-tool_result .tag { color: var(--result); }
+.event-permission_request .tag { color: var(--tool); }
+.event-permission_response .tag { color: var(--result); }
+.event-done .tag { color: var(--result); }
+.event-error .tag { color: var(--error); }
+
+.event-tool_use { border-left: 3px solid var(--tool); }
+.event-tool_result { border-left: 3px solid var(--result); }
+.event-tool_result.error { border-left-color: var(--error); }
+.event-permission_request { border-left: 3px solid var(--tool); background: #1d1d18; }
+.event-permission_request.allowed { border-left-color: var(--result); }
+.event-permission_request.denied  { border-left-color: var(--error); }
+.event-error { border-left: 3px solid var(--error); }
+
+.event .body { white-space: pre-wrap; }
+.event .name { font-family: var(--mono); font-weight: 600; color: var(--tool); margin-bottom: 4px; }
+.event pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.permission-summary strong { font-family: var(--mono); color: var(--tool); }
+.permission-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.permission-actions button { padding: 6px 12px; font-size: 12px; }
+.permission-decided { font-size: 12px; color: var(--muted); font-style: italic; }
+
+.truncated { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
