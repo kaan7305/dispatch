@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dispatch</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Dispatch</h1>
+      <p class="subtitle">Send agentic tasks to teammates. Their daemon runs them on their machine after they approve, and you watch the agent work live.</p>
+    </header>
+
+    <section id="auth-section" class="panel">
+      <form id="login-form">
+        <label for="email">Sign in with your email</label>
+        <div class="row">
+          <input id="email" name="email" type="email" required placeholder="you@example.com" autocomplete="email" />
+          <button type="submit" id="login-btn">Send link</button>
+          <button type="button" id="logout" hidden>Sign out</button>
+        </div>
+      </form>
+      <div id="auth-status" class="status idle">not signed in</div>
+      <div id="link-sent" class="link-sent" hidden>
+        <p id="link-sent-message"></p>
+        <a id="dev-link" class="dev-link" target="_blank" rel="noopener" hidden>Open sign-in link →</a>
+      </div>
+      <details id="token-details" hidden>
+        <summary>Show my token (for daemon CLI)</summary>
+        <pre id="token-display"></pre>
+        <button id="copy-token" type="button">Copy</button>
+      </details>
+    </section>
+
+    <div id="logged-in-view" hidden>
+      <section id="compose-section" class="panel">
+        <h2>Compose</h2>
+        <form id="compose-form">
+          <label for="recipient">Recipient email</label>
+          <input id="recipient" type="email" required placeholder="teammate@example.com" autocomplete="off" />
+          <label for="task">Task</label>
+          <textarea id="task" rows="4" required placeholder="What should their agent do?"></textarea>
+          <div class="actions">
+            <button type="submit">Send dispatch</button>
+            <span id="compose-status" class="status idle"></span>
+          </div>
+        </form>
+      </section>
+
+      <section id="inbox-section">
+        <h2>Inbox <span class="hint" id="daemon-hint">install &amp; run the daemon to receive dispatches</span></h2>
+        <div id="inbox-list"></div>
+      </section>
+
+      <section id="outbox-section">
+        <h2>Sent</h2>
+        <div id="outbox-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

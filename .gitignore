@@ -27,3 +27,5 @@ Thumbs.db
 
 # Agent workspace (will be created at runtime)
 workspace/
+dist/
+build/

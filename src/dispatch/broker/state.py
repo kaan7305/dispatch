@@ -1,40 +1,29 @@
-"""In-memory broker state.
+"""Runtime-only state for the broker.
 
-The abstractions are deliberately narrow so a future swap to a real
-store (Postgres for dispatches, Redis for live connections) lands here
-and nowhere else. Restart loses everything for now.
+Things that can't (or shouldn't) survive a restart live here:
+  - Live WebSocket connections to recipient daemons.
+  - Live WebSocket connections from sender watchers (per dispatch).
+  - Live WebSocket connections from recipient browsers (per user inbox).
+
+Everything that should survive (dispatches, events, queued offline
+dispatches, users, magic links) is in store.py.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
 from uuid import UUID
 
 from fastapi import WebSocket
 
-from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus
-
 
 @dataclass
-class DispatchRecord:
-    payload: DispatchPayload
-    status: DispatchStatus = DispatchStatus.pending
-    events: list[DispatchEvent] = field(default_factory=list)
-    watchers: list[WebSocket] = field(default_factory=list)
-
-
-@dataclass
-class BrokerState:
-    # user_id → currently-connected recipient daemon WS
+class RuntimeState:
+    # user_id → connected recipient daemon WS
     agents: dict[str, WebSocket] = field(default_factory=dict)
-    # user_id → list of dispatch_ids queued while daemon was offline
-    pending_for_offline: dict[str, list[UUID]] = field(
-        default_factory=lambda: defaultdict(list)
-    )
-    # dispatch_id → record
-    dispatches: dict[UUID, DispatchRecord] = field(default_factory=dict)
-    # known user_ids (auto-registered on first login)
-    users: set[str] = field(default_factory=set)
+    # dispatch_id → list of sender WS watchers (one per browser tab)
+    watchers: dict[UUID, list[WebSocket]] = field(default_factory=dict)
+    # user_id → list of recipient inbox WSes (one per browser tab)
+    recipient_watchers: dict[str, list[WebSocket]] = field(default_factory=dict)
 
 
-STATE = BrokerState()
+STATE = RuntimeState()
