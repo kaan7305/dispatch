@@ -32,7 +32,7 @@ from fastapi import (
 )
 from fastapi.staticfiles import StaticFiles
 
-from dispatch.broker.state import STATE, DispatchRecord
+from dispatch.broker.state import STATE, DispatchRecord, FriendRequest
 from dispatch.shared.identity import IdentityError, issue_token, verify_token
 from dispatch.shared.schema import (
     DispatchCreateRequest,
@@ -45,7 +45,11 @@ from dispatch.shared.schema import (
 
 logger = logging.getLogger("dispatch.broker")
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "sender"
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    STATIC_DIR = Path(_sys._MEIPASS) / "dispatch" / "web" / "sender"
+else:
+    STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "sender"
 
 app = FastAPI(title="Dispatch broker")
 
@@ -362,6 +366,84 @@ async def _broadcast_status(record: DispatchRecord) -> None:
         record,
         {"type": "dispatch_status", "data": {"status": record.status.value}},
     )
+
+
+# ----------------------------------------------------------------------------
+# Friends
+# ----------------------------------------------------------------------------
+
+
+@app.post("/friends/request")
+async def send_friend_request(
+    body: dict, sender: str = Depends(authed_user)
+) -> dict:
+    to_user = (body.get("to_user_id") or "").strip()
+    if not to_user:
+        raise HTTPException(status_code=422, detail="to_user_id required")
+    if to_user == sender:
+        raise HTTPException(status_code=422, detail="Cannot add yourself")
+    if to_user in STATE.friends[sender]:
+        return {"status": "already_friends"}
+
+    # Check for duplicate pending request.
+    for req in STATE.friend_requests.values():
+        if req.from_user == sender and req.to_user == to_user:
+            return {"status": "already_requested", "request_id": req.request_id}
+
+    req = FriendRequest(from_user=sender, to_user=to_user)
+    STATE.friend_requests[req.request_id] = req
+    STATE.users.add(to_user)
+
+    # Push to recipient daemon if online.
+    agent_ws = STATE.agents.get(to_user)
+    if agent_ws:
+        try:
+            await agent_ws.send_text(
+                json.dumps({"type": "friend_request", "request_id": req.request_id, "from_user": sender})
+            )
+        except Exception:
+            logger.exception("failed to push friend request to daemon")
+
+    return {"status": "sent", "request_id": req.request_id}
+
+
+@app.get("/friends/requests")
+async def list_friend_requests(user_id: str = Depends(authed_user)) -> dict:
+    incoming = [
+        {"request_id": r.request_id, "from_user": r.from_user, "created_at": r.created_at.isoformat()}
+        for r in STATE.friend_requests.values()
+        if r.to_user == user_id
+    ]
+    return {"requests": incoming}
+
+
+@app.post("/friends/accept/{request_id}")
+async def accept_friend_request(
+    request_id: str, user_id: str = Depends(authed_user)
+) -> dict:
+    req = STATE.friend_requests.get(request_id)
+    if not req or req.to_user != user_id:
+        raise HTTPException(status_code=404, detail="Request not found")
+    STATE.friends[req.from_user].add(req.to_user)
+    STATE.friends[req.to_user].add(req.from_user)
+    del STATE.friend_requests[request_id]
+    return {"status": "accepted", "friend": req.from_user}
+
+
+@app.post("/friends/decline/{request_id}")
+async def decline_friend_request(
+    request_id: str, user_id: str = Depends(authed_user)
+) -> dict:
+    req = STATE.friend_requests.get(request_id)
+    if not req or req.to_user != user_id:
+        raise HTTPException(status_code=404, detail="Request not found")
+    del STATE.friend_requests[request_id]
+    return {"status": "declined"}
+
+
+@app.get("/friends")
+async def list_friends(user_id: str = Depends(authed_user)) -> dict:
+    return {"friends": sorted(STATE.friends[user_id])}
 
 
 # Static mount goes last so it doesn't shadow the routes above.

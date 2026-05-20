@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dispatch · sender</title>
+  <title>Dispatch</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -13,9 +13,10 @@
       <p class="subtitle">Send an agentic task to a teammate. Their daemon will run it on their machine after they approve.</p>
     </header>
 
+    <!-- AUTH -->
     <section id="auth-section" class="panel">
       <form id="login-form">
-        <label for="username">Sign in as</label>
+        <label for="username">SIGN IN AS</label>
         <div class="row">
           <input id="username" name="username" required placeholder="your-username" autocomplete="username" />
           <button type="submit">Sign in</button>
@@ -30,11 +31,43 @@
       </details>
     </section>
 
+    <!-- FRIENDS -->
+    <section id="friends-section" class="panel" hidden>
+      <div class="section-header">
+        <h2>Friends</h2>
+        <button id="add-friend-btn" type="button">+ Add friend</button>
+      </div>
+
+      <!-- Add friend form (hidden by default) -->
+      <form id="add-friend-form" hidden>
+        <div class="row">
+          <input id="add-friend-input" placeholder="their-username" autocomplete="off" required />
+          <button type="submit">Send request</button>
+          <button type="button" id="cancel-add-friend">Cancel</button>
+        </div>
+        <div id="add-friend-status" class="status idle"></div>
+      </form>
+
+      <!-- Incoming friend requests -->
+      <div id="friend-requests-section" hidden>
+        <h3>Pending requests</h3>
+        <div id="friend-requests"></div>
+      </div>
+
+      <!-- Friend list -->
+      <div id="friends-list">
+        <p class="empty-state" id="no-friends">No friends yet. Add someone to get started.</p>
+      </div>
+    </section>
+
+    <!-- COMPOSE (shown when a friend is selected) -->
     <section id="compose-section" class="panel" hidden>
+      <div class="section-header">
+        <h2>Send task to <span id="compose-recipient-name"></span></h2>
+        <button id="cancel-compose" type="button">✕</button>
+      </div>
       <form id="compose-form">
-        <label for="recipient">Recipient username</label>
-        <input id="recipient" required placeholder="teammate-username" autocomplete="off" />
-        <label for="task">Task</label>
+        <label for="task">TASK</label>
         <textarea id="task" rows="4" required placeholder="What should their agent do?"></textarea>
         <div class="actions">
           <button type="submit">Send dispatch</button>
@@ -43,6 +76,7 @@
       </form>
     </section>
 
+    <!-- ACTIVE DISPATCHES -->
     <section id="dispatches-section" hidden>
       <h2>Active dispatches</h2>
       <div id="dispatches"></div>

@@ -153,3 +153,64 @@ h2 { font-size: 16px; color: var(--muted); margin: 24px 0 12px; letter-spacing: 
 }
 
 .truncated { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+/* ── Friends ────────────────────────────────────────────────── */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-header h2 { margin: 0; }
+#add-friend-btn {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+#cancel-add-friend, #cancel-compose {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+.friend-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.friend-name { font-weight: 600; font-size: 15px; }
+.send-btn {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.send-btn:hover { background: var(--accent); color: #0b0e14; }
+
+.empty-state { color: var(--muted); font-size: 14px; margin: 8px 0; }
+
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 12px 0 8px; }
+
+.request-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.request-row span { flex: 1; }
+.accept-btn { background: var(--result); color: #0b0e14; padding: 5px 12px; font-size: 13px; }
+.decline-btn { background: transparent; color: var(--error); border: 1px solid var(--error); padding: 5px 12px; font-size: 13px; }

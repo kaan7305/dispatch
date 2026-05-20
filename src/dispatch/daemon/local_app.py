@@ -23,7 +23,11 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatu
 
 logger = logging.getLogger("dispatch.daemon.local")
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "recipient"
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    STATIC_DIR = Path(_sys._MEIPASS) / "dispatch" / "web" / "recipient"
+else:
+    STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "recipient"
 
 
 @dataclass

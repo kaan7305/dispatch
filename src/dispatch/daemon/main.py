@@ -94,15 +94,23 @@ async def serve_local_ui(state: LocalState, port: int) -> uvicorn.Server:
         host="127.0.0.1",
         port=port,
         log_level="warning",
-        lifespan="on",
+        lifespan="off",
     )
     server = uvicorn.Server(config)
-    asyncio.create_task(server.serve())
-    # Wait for it to actually be ready.
-    for _ in range(40):
+    serve_task = asyncio.create_task(server.serve())
+    # Wait up to 15 s for uvicorn to bind (longer inside PyInstaller bundles).
+    for _ in range(300):
         await asyncio.sleep(0.05)
         if server.started:
             return server
+        if serve_task.done():
+            break
+    if not server.started:
+        from pathlib import Path
+        exc = serve_task.exception() if serve_task.done() and not serve_task.cancelled() else None
+        Path("/tmp/dispatch_daemon.log").write_text(
+            f"Local UI (port {port}) did not start. Exception: {exc}"
+        )
     return server
 
 
@@ -150,6 +158,7 @@ async def handle_broker(
     ws: "websockets.WebSocketClientProtocol",
     state: LocalState,
     workspace: Path,
+    on_friend_request=None,
 ) -> None:
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
         await ws.send(
@@ -187,6 +196,8 @@ async def handle_broker(
             asyncio.create_task(
                 process_dispatch(payload, state, workspace, send_status, send_event)
             )
+        elif msg.get("type") == "friend_request" and on_friend_request:
+            on_friend_request(msg.get("from_user", "unknown"))
 
 
 async def process_dispatch(
