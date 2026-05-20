@@ -18,9 +18,9 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
-        # Bundle the recipient + sender web UIs into the app.
-        (str(WEB_DIR / "recipient"), "dispatch/web/recipient"),
-        (str(WEB_DIR / "sender"),    "dispatch/web/sender"),
+        # Bundle the web UIs into the app.
+        (str(WEB_DIR / "app"),    "dispatch/web/app"),
+        (str(WEB_DIR / "sender"), "dispatch/web/sender"),
     ],
     hiddenimports=[
         # rumps / PyObjC
@@ -66,6 +66,7 @@ a = Analysis(
         "anyio",
         "anyio._backends._asyncio",
         "anyio._backends._trio",
+        "asyncpg",
     ],
     hookspath=[],
     hooksconfig={},
