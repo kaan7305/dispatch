@@ -1,9 +1,9 @@
 """Recipient daemon — pure WebSocket client.
 
 Usage:
-  dispatch-daemon --broker https://your-broker --token <jwt>
-  # or
-  python -m dispatch.daemon --broker ... --token ...
+  dispatch-daemon                       # uses saved config from ~/.dispatch/config.json
+  dispatch-daemon --broker URL --token JWT   # explicit; also saves config for next time
+  python -m dispatch.daemon ...         # equivalent if installed in a venv
 
 What it does:
   - Connects to the broker via WebSocket as the authenticated user.
@@ -14,7 +14,7 @@ What it does:
       3. If accepted, runs run_dispatch() — destructive tool calls cause a
          `permission_request` event to flow back through the broker to the
          UI, where the user clicks Allow / Deny. The decision returns via
-         a `tool_consent` message from the broker.
+         a `tool_approval` message from the broker.
       4. Streams every executor event back to the broker.
 
 The Claude Agent SDK runs in this process using THIS user's
@@ -48,9 +48,28 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatu
 DESTRUCTIVE_TOOLS = frozenset({"Write", "Edit", "Bash"})
 DEFAULT_WORKSPACE = Path.cwd() / "workspace"
 DISPATCH_DECISION_TIMEOUT_S = 300.0     # how long the recipient has to accept/reject
-TOOL_CONSENT_TIMEOUT_S = 120.0          # how long they have to allow/deny one tool call
+TOOL_APPROVAL_TIMEOUT_S = 120.0          # how long they have to allow/deny one tool call
+CONFIG_PATH = Path.home() / ".dispatch" / "config.json"
 
 logger = logging.getLogger("dispatch.daemon")
+
+
+def _load_config() -> dict:
+    """Reads ~/.dispatch/config.json. Returns {} if absent or malformed."""
+    try:
+        return json.loads(CONFIG_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_config(broker: str, token: str) -> None:
+    """Persists broker + token so the next run can be a bare `dispatch-daemon`."""
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.write_text(json.dumps({"broker": broker, "token": token}, indent=2))
+        CONFIG_PATH.chmod(0o600)  # bearer token — keep it private
+    except OSError:
+        logger.warning("could not save config to %s", CONFIG_PATH)
 
 
 @dataclass
@@ -58,7 +77,7 @@ class DaemonState:
     # dispatch_id (str) → Future resolved with "accept" | "reject"
     pending_decisions: dict[str, asyncio.Future] = field(default_factory=dict)
     # (dispatch_id, request_id) → Future resolved with "allow" | "deny"
-    pending_consents: dict[tuple[str, str], asyncio.Future] = field(default_factory=dict)
+    pending_approvals: dict[tuple[str, str], asyncio.Future] = field(default_factory=dict)
 
 
 def _broker_ws_url(broker: str, token: str) -> str:
@@ -68,16 +87,18 @@ def _broker_ws_url(broker: str, token: str) -> str:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    # Resolution order for broker/token: CLI flag > env var > saved config file.
+    config = _load_config()
     parser = argparse.ArgumentParser(prog="dispatch-daemon")
     parser.add_argument(
         "--broker",
-        default=os.environ.get("DISPATCH_BROKER", "http://localhost:8000"),
-        help="Broker base URL (http or https). Default: $DISPATCH_BROKER or http://localhost:8000",
+        default=os.environ.get("DISPATCH_BROKER") or config.get("broker") or "http://localhost:8000",
+        help="Broker base URL. Default: $DISPATCH_BROKER, then ~/.dispatch/config.json, then localhost.",
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("DISPATCH_TOKEN"),
-        help="JWT bearer token from the broker login page. Default: $DISPATCH_TOKEN",
+        default=os.environ.get("DISPATCH_TOKEN") or config.get("token"),
+        help="JWT bearer token. Default: $DISPATCH_TOKEN, then ~/.dispatch/config.json.",
     )
     parser.add_argument(
         "--workspace",
@@ -89,8 +110,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def run_session(args: argparse.Namespace) -> int:
     if not args.token:
-        print("error: --token is required (or set DISPATCH_TOKEN)", file=sys.stderr)
+        print(
+            "error: no token. Sign in on the broker's web page, then either:\n"
+            "  - run the one-line installer it shows you, or\n"
+            "  - run: dispatch-daemon --broker <url> --token <jwt>",
+            file=sys.stderr,
+        )
         return 2
+
+    # Remember broker + token so future runs can be a bare `dispatch-daemon`.
+    _save_config(args.broker, args.token)
+
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(
             "warning: ANTHROPIC_API_KEY is not set; the agent will fail to run unless "
@@ -109,7 +139,7 @@ async def run_session(args: argparse.Namespace) -> int:
         async with websockets.connect(ws_url, max_size=None) as ws:
             print(
                 f"[daemon] connected. Open {args.broker} in a browser to see incoming "
-                "dispatches and respond to consent prompts."
+                "dispatches and respond to approval prompts."
             )
             await handle_broker(ws, state, workspace)
     except websockets.InvalidStatus as e:
@@ -172,11 +202,11 @@ async def handle_broker(
             if fut and not fut.done() and decision in ("accept", "reject"):
                 fut.set_result(decision)
 
-        elif mtype == "tool_consent":
+        elif mtype == "tool_approval":
             did = msg.get("dispatch_id")
             req_id = msg.get("request_id")
             decision = msg.get("decision")
-            fut = state.pending_consents.get((did, req_id))
+            fut = state.pending_approvals.get((did, req_id))
             if fut and not fut.done() and decision in ("allow", "deny"):
                 fut.set_result(decision)
 
@@ -210,7 +240,7 @@ async def process_dispatch(
 
     await send_status(payload.dispatch_id, DispatchStatus.accepted)
 
-    # Step 2 — per-tool consent.
+    # Step 2 — per-tool approval.
     async def can_use_tool(
         tool_name: str,
         tool_input: dict[str, Any],
@@ -221,7 +251,7 @@ async def process_dispatch(
 
         request_id = str(uuid.uuid4())
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        state.pending_consents[(dispatch_id, request_id)] = fut
+        state.pending_approvals[(dispatch_id, request_id)] = fut
         await send_event(
             payload.dispatch_id,
             {
@@ -234,11 +264,11 @@ async def process_dispatch(
             },
         )
         try:
-            decision = await asyncio.wait_for(fut, timeout=TOOL_CONSENT_TIMEOUT_S)
+            decision = await asyncio.wait_for(fut, timeout=TOOL_APPROVAL_TIMEOUT_S)
         except asyncio.TimeoutError:
             decision = "deny"
         finally:
-            state.pending_consents.pop((dispatch_id, request_id), None)
+            state.pending_approvals.pop((dispatch_id, request_id), None)
 
         await send_event(
             payload.dispatch_id,

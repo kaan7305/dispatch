@@ -33,7 +33,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from dispatch.broker.email import send_magic_link
@@ -114,7 +114,19 @@ async def login(req: LoginRequest) -> dict:
 
 
 def _public_url() -> str:
-    return os.environ.get("DISPATCH_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    """The broker's externally-reachable base URL.
+
+    Used to build magic-link emails and the /install.sh one-liner.
+    Priority: explicit DISPATCH_PUBLIC_URL → Railway's auto-injected
+    RAILWAY_PUBLIC_DOMAIN → localhost.
+    """
+    explicit = os.environ.get("DISPATCH_PUBLIC_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    railway = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if railway:
+        return f"https://{railway}"
+    return "http://localhost:8000"
 
 
 def _normalize_email(raw: str) -> Optional[str]:
@@ -160,6 +172,75 @@ async def auth_magic(token: str):
     return RedirectResponse(
         url=f"/?login_token={jwt_token}&user_id={email}", status_code=302
     )
+
+
+def _daemon_install_spec() -> str:
+    """What `pipx install` should be pointed at to get the daemon.
+
+    Default assumes a public GitHub repo. Override DISPATCH_DAEMON_INSTALL
+    with anything pip understands (a different repo, a wheel URL, etc.).
+    """
+    return os.environ.get(
+        "DISPATCH_DAEMON_INSTALL",
+        "git+https://github.com/your-org/dispatch.git",
+    )
+
+
+@app.get("/install.sh")
+async def install_script() -> PlainTextResponse:
+    """One-shot recipient installer.
+
+    Usage on the recipient's machine:
+        curl -fsSL <broker>/install.sh | bash -s -- <jwt>
+
+    It installs pipx (if needed), installs the daemon, saves broker+token
+    to ~/.dispatch/config.json, and starts the daemon. Subsequent runs are
+    just `dispatch-daemon`.
+    """
+    broker = _public_url()
+    spec = _daemon_install_spec()
+    script = f"""#!/usr/bin/env bash
+set -e
+
+BROKER="{broker}"
+INSTALL_SPEC="{spec}"
+TOKEN="${{1:-$DISPATCH_TOKEN}}"
+
+if [ -z "$TOKEN" ]; then
+  echo "dispatch: no token supplied." >&2
+  echo "  usage: curl -fsSL $BROKER/install.sh | bash -s -- <your-token>" >&2
+  exit 1
+fi
+
+echo "dispatch: installing the recipient daemon..."
+
+# 1. Ensure pipx is available.
+if ! command -v pipx >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    brew install pipx
+  else
+    python3 -m pip install --user pipx
+  fi
+fi
+if command -v pipx >/dev/null 2>&1; then PIPX="pipx"; else PIPX="python3 -m pipx"; fi
+$PIPX ensurepath >/dev/null 2>&1 || true
+
+# 2. Install (or upgrade) the daemon.
+$PIPX install --force "$INSTALL_SPEC"
+
+# 3. Save broker + token so future runs are just `dispatch-daemon`.
+mkdir -p "$HOME/.dispatch"
+umask 077
+cat > "$HOME/.dispatch/config.json" <<EOF
+{{"broker": "$BROKER", "token": "$TOKEN"}}
+EOF
+
+# 4. Start it.
+DAEMON="$(command -v dispatch-daemon || echo "$HOME/.local/bin/dispatch-daemon")"
+echo "dispatch: installed. starting daemon (next time, just run: dispatch-daemon)"
+exec "$DAEMON"
+"""
+    return PlainTextResponse(content=script, media_type="text/x-shellscript")
 
 
 @app.get("/health")
@@ -510,7 +591,7 @@ async def _broadcast_status(
 
 
 # ----------------------------------------------------------------------------
-# WebSocket: recipient's inbox + consent UI
+# WebSocket: recipient's inbox + approval UI
 # ----------------------------------------------------------------------------
 
 
@@ -523,7 +604,7 @@ async def inbox(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
       {dispatch_id, type, data}                                   -- a per-dispatch event/status
     Client → server messages (forwarded verbatim to the daemon):
       {type: "dispatch_decision", dispatch_id, decision}          -- accept|reject
-      {type: "tool_consent",      dispatch_id, request_id, decision}  -- allow|deny
+      {type: "tool_approval",      dispatch_id, request_id, decision}  -- allow|deny
     """
     user_id = _verify_ws(token)
     if user_id is None:
@@ -574,7 +655,7 @@ async def inbox(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
 
 
 async def _handle_inbox_message(user_id: str, msg: dict) -> None:
-    """Forward a consent decision from the recipient's browser to the daemon.
+    """Forward a approval decision from the recipient's browser to the daemon.
 
     Only forward if (a) the dispatch belongs to this user, and (b) the daemon
     is connected. If the daemon is offline the decision is silently dropped
@@ -582,7 +663,7 @@ async def _handle_inbox_message(user_id: str, msg: dict) -> None:
     they restart it.
     """
     mtype = msg.get("type")
-    if mtype not in ("dispatch_decision", "tool_consent"):
+    if mtype not in ("dispatch_decision", "tool_approval"):
         return
     raw_id = msg.get("dispatch_id")
     if not raw_id:
@@ -597,12 +678,12 @@ async def _handle_inbox_message(user_id: str, msg: dict) -> None:
 
     daemon_ws = STATE.agents.get(user_id)
     if daemon_ws is None:
-        logger.warning("consent dropped: daemon offline for %s", user_id)
+        logger.warning("approval dropped: daemon offline for %s", user_id)
         return
     try:
         await daemon_ws.send_text(json.dumps(msg))
     except Exception:
-        logger.exception("failed to forward consent to daemon")
+        logger.exception("failed to forward approval to daemon")
 
 
 # Static mount last so it doesn't shadow the routes above.

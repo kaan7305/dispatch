@@ -1,6 +1,6 @@
 // Dispatch — unified web app.
 // One UI, one WebSocket per role:
-//   /inbox?token=JWT             — live inbox + consent for things sent to me
+//   /inbox?token=JWT             — live inbox + approval for things sent to me
 //   /dispatch/{id}/watch?token=  — live watch for things I sent (one per dispatch)
 
 const STORAGE_TOKEN = "dispatch_token";
@@ -10,7 +10,8 @@ let token = localStorage.getItem(STORAGE_TOKEN);
 let userId = localStorage.getItem(STORAGE_USER);
 
 const authStatus = document.getElementById("auth-status");
-const tokenDetails = document.getElementById("token-details");
+const daemonSetup = document.getElementById("daemon-setup");
+const installCmd = document.getElementById("install-cmd");
 const tokenDisplay = document.getElementById("token-display");
 const logoutBtn = document.getElementById("logout");
 const loginBtn = document.getElementById("login-btn");
@@ -54,8 +55,9 @@ function refreshAuth() {
     authStatus.textContent = `signed in as ${userId}`;
     authStatus.className = "status done";
     loggedInView.hidden = false;
-    tokenDetails.hidden = false;
+    daemonSetup.hidden = false;
     tokenDisplay.textContent = token;
+    installCmd.textContent = `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
     logoutBtn.hidden = false;
     loginBtn.hidden = true;
     document.getElementById("email").disabled = true;
@@ -67,8 +69,9 @@ function refreshAuth() {
       authStatus.className = "status idle";
     }
     loggedInView.hidden = true;
-    tokenDetails.hidden = true;
+    daemonSetup.hidden = true;
     tokenDisplay.textContent = "";
+    installCmd.textContent = "";
     logoutBtn.hidden = true;
     loginBtn.hidden = false;
     document.getElementById("email").disabled = false;
@@ -123,11 +126,11 @@ logoutBtn.addEventListener("click", () => {
   refreshAuth();
 });
 
-document.getElementById("copy-token").addEventListener("click", async () => {
+document.getElementById("copy-install").addEventListener("click", async (e) => {
   try {
-    await navigator.clipboard.writeText(token || "");
-    composeStatus.textContent = "token copied";
-    composeStatus.className = "status done";
+    await navigator.clipboard.writeText(installCmd.textContent || "");
+    e.target.textContent = "copied ✓";
+    setTimeout(() => { e.target.textContent = "Copy install command"; }, 1500);
   } catch (_) {}
 });
 
@@ -272,7 +275,7 @@ function attachPermissionButtons(dispatchId, data, eventEl) {
     decided.textContent = decision === "allow" ? "you allowed" : "you denied";
     eventEl.classList.add(decision === "allow" ? "allowed" : "denied");
     sendInbox({
-      type: "tool_consent",
+      type: "tool_approval",
       dispatch_id: dispatchId,
       request_id: data.id,
       decision,
@@ -357,8 +360,8 @@ function labelFor(type) {
     agent_text: "agent",
     tool_use: "tool call",
     tool_result: "tool result",
-    permission_request: "consent required",
-    permission_response: "consent decided",
+    permission_request: "approval required",
+    permission_response: "approval decided",
     dispatch_status: "status",
     done: "done",
     error: "error",

@@ -123,15 +123,45 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 details summary { cursor: pointer; color: var(--muted); margin-top: 12px; font-size: 13px; }
-#token-display {
+details summary code {
+  font-family: var(--mono);
   background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.daemon-setup {
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.daemon-setup-label { margin: 0 0 8px; font-size: 13px; color: var(--text); }
+
+#install-cmd {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+  color: var(--result);
+}
+
+#token-display {
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px;
   font-size: 11px;
   word-break: break-all;
   white-space: pre-wrap;
-  margin: 8px 0;
+  margin: 8px 0 0;
+  color: var(--muted);
 }
 
 #inbox-list, #outbox-list { display: flex; flex-direction: column; gap: 12px; }

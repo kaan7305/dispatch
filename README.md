@@ -2,7 +2,7 @@
 
 Peer-to-peer agentic task courier. Any user can compose a task in natural
 language, name a recipient, and the recipient's local daemon runs it on
-their machine — with explicit consent on the dispatch itself and on every
+their machine — with explicit approval on the dispatch itself and on every
 destructive tool call.
 
 The **broker** is a multi-tenant service (Postgres-backed FastAPI). Anyone
@@ -41,7 +41,7 @@ receive and execute dispatches. The web UI is shared by both roles.
             ┌──────────────────────────────────────────────────┐
             │  RECIPIENT DAEMON  (`dispatch-daemon` CLI)       │
             │    - Pure WebSocket client to the broker         │
-            │    - Awaits accept/reject and per-tool consent   │
+            │    - Awaits accept/reject and per-tool approval   │
             │      decisions forwarded from the broker UI      │
             │    - Runs the agent with the user's API key      │
             └──────────────────────────────────────────────────┘
@@ -56,10 +56,10 @@ Notes:
   through the browser tab connected to the broker.
 - `run_dispatch()` is transport-agnostic: the daemon imports and uses it
   exactly as a single-process server would.
-- Per-tool consent flows: daemon emits `permission_request` over the
+- Per-tool approval flows: daemon emits `permission_request` over the
   broker WS → broker fans out to the recipient's `/inbox` WS → browser
   shows Allow/Deny → decision returns via `/inbox` → broker forwards as
-  `tool_consent` to daemon → daemon's `can_use_tool` callback unblocks.
+  `tool_approval` to daemon → daemon's `can_use_tool` callback unblocks.
 
 ---
 
@@ -154,49 +154,56 @@ The broker exposes `/health` for Railway's health checks (configured in
 
 ## Recipient daemon — installing it on a teammate's machine
 
-The daemon is a single command after installation. They no longer need to
-clone the repo, manage a venv, or remember the `python -m dispatch.daemon`
-incantation.
+To receive dispatches, a user runs a small background daemon on their own
+machine. Setup is one copy-pasted command.
 
-### Option 1 — pipx from the GitHub repo (recommended)
+### The one-line install (recommended)
+
+1. The recipient opens the broker URL in a browser and signs in with their
+   email (magic link).
+2. Once signed in, the page shows a ready-to-run command under **To receive
+   dispatches**. It looks like:
+
+   ```bash
+   curl -fsSL https://your-broker/install.sh | bash -s -- <their-token>
+   ```
+
+3. They paste that into a terminal and press enter. It:
+   - installs `pipx` if missing,
+   - installs the `dispatch-daemon` command,
+   - saves the broker URL + token to `~/.dispatch/config.json`,
+   - starts the daemon.
+
+**Every run after that is just:**
 
 ```bash
-brew install pipx                                                     # one-time
-pipx install git+https://github.com/your-org/dispatch.git             # one-time
-
-dispatch-daemon \\
-    --broker https://your-broker-url \\
-    --token <jwt-from-the-broker-login-page>
+dispatch-daemon
 ```
 
-`pipx` creates an isolated venv per command, so the daemon's dependencies
-don't pollute the system Python.
+No flags — the daemon reads `~/.dispatch/config.json`. (Resolution order is
+CLI flag → env var → config file, so `--broker` / `--token` still override.)
 
-### Option 2 — pipx from a local clone
+### Manual install (if they'd rather not pipe curl to bash)
 
 ```bash
-git clone https://github.com/your-org/dispatch.git
-pipx install ./dispatch
-dispatch-daemon --broker https://your-broker-url --token <jwt>
+brew install pipx
+pipx install git+https://github.com/your-org/dispatch.git
+dispatch-daemon --broker https://your-broker --token <jwt>   # saves config; later runs need no flags
 ```
 
-### Option 3 — plain venv (legacy)
+`python -m dispatch.daemon ...` also still works inside a plain venv.
 
-The `python -m dispatch.daemon ...` invocation still works for anyone who'd
-rather manage their own venv.
+### Configuring the installer's source
 
-### How the recipient gets a token
-
-Visit the broker's public URL in a browser, type their email, click **Send
-link**. In dev mode (no email provider configured) the link is shown on the
-page; in production they'll receive it by email. Clicking it signs them in,
-and the page reveals the JWT they need for the daemon. Copy → paste into
-`--token`.
+`/install.sh` points `pipx install` at whatever `DISPATCH_DAEMON_INSTALL` is
+set to on the broker (default: a public GitHub repo). Point it at your repo,
+or a wheel URL, when you deploy.
 
 ### Recipient-side environment
 
-Their `.env` (or shell) only needs `ANTHROPIC_API_KEY=…`. The daemon
-defaults are fine for everything else.
+The recipient's machine only needs `ANTHROPIC_API_KEY` in the environment
+(the agent runs there, on their key). Everything else has a default or comes
+from the saved config.
 
 ---
 
@@ -230,14 +237,14 @@ Active dispatches
         agent               Looking at the test directory…
         tool call           Bash { command: "ls tests/" }
         tool result         fixture_a.json  fixture_b.json
-        consent requested   Awaiting recipient's decision on Write
-        consent decided     Write: allow
+        approval requested   Awaiting recipient's decision on Write
+        approval decided     Write: allow
         ...
         done                4 turns · $0.04
 ```
 
 You never see the recipient's local file system; you see the agent's
-reasoning, its tool calls, the recipient's consent decisions, and the
+reasoning, its tool calls, the recipient's approval decisions, and the
 results.
 
 ---
@@ -258,7 +265,7 @@ results.
 - **Recipient daemon → broker**, `wss://<broker>/agent/connect?token=<jwt>`
   - Broker → daemon: `{type:"new_dispatch", payload:{...DispatchPayload...}}`
   - Daemon → broker: `{type:"dispatch_status", dispatch_id, status}` and `{type:"dispatch_event", dispatch_id, event:{...DispatchEvent...}}`
-- **Recipient browser ↔ broker**, `wss://<broker>/inbox?token=<jwt>` — server streams inbox updates and per-dispatch events; client sends `dispatch_decision` and `tool_consent` frames.
+- **Recipient browser ↔ broker**, `wss://<broker>/inbox?token=<jwt>` — server streams inbox updates and per-dispatch events; client sends `dispatch_decision` and `tool_approval` frames.
 
 ### DispatchEvent shape (uniform across all layers)
 
@@ -309,32 +316,32 @@ results.
 ```
 src/dispatch/
   shared/
-    schema.py        DispatchPayload, DispatchEvent, DispatchStatus, LoginRequest
+    schema.py        DispatchPayload, DispatchEvent, DispatchStatus, models
     identity.py      JWT issue/verify (HS256, configurable secret)
   executor/
     executor.py      run_dispatch() — transport-agnostic, reused by daemon
   broker/
-    state.py         in-memory users / dispatches / live agent connections
-    app.py           FastAPI broker + sender static mount
+    schema.sql       Postgres tables (idempotent, run on startup)
+    store.py         Postgres data access (asyncpg) — the only SQL in the app
+    state.py         runtime-only WS connections (agents, watchers, inboxes)
+    email.py         magic-link email (Resend, or console in dev)
+    app.py           FastAPI broker: auth, dispatch routing, WS endpoints
   daemon/
-    main.py          CLI entry point + WS client to broker
-    local_app.py     local FastAPI for the recipient's consent UI
+    main.py          dispatch-daemon CLI — pure WS client, no UI
   web/
-    sender/          login + compose + watch (served by broker)
-    recipient/       inbox + consent UI (served by daemon)
+    app/             the single unified web UI (served by the broker)
 ```
 
 ---
 
 ## Limitations on purpose (next things)
 
-- In-memory state only; restart loses everything.
-- Login takes any username — no real authentication. Swap `/auth/login` for
-  a GitHub/Google OAuth callback to harden.
-- One recipient per dispatch; no fan-out.
-- No signed payloads (tokens cover identity for the demo).
-- No persistent dispatch history; sender's "Active dispatches" view doesn't
-  survive a page refresh.
+- One recipient per dispatch; no fan-out to many.
+- No signed payloads — JWT bearer covers identity, but the broker is a
+  trusted relay. Sender-side keypairs would make it end-to-end verifiable.
+- No cancel / revoke for an in-flight dispatch.
+- Magic-link login trusts whoever controls the email inbox; fine for a team
+  tool, not a substitute for SSO.
 
 ---
 

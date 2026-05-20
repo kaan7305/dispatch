@@ -27,11 +27,15 @@
         <p id="link-sent-message"></p>
         <a id="dev-link" class="dev-link" target="_blank" rel="noopener" hidden>Open sign-in link →</a>
       </div>
-      <details id="token-details" hidden>
-        <summary>Show my token (for daemon CLI)</summary>
-        <pre id="token-display"></pre>
-        <button id="copy-token" type="button">Copy</button>
-      </details>
+      <div id="daemon-setup" class="daemon-setup" hidden>
+        <p class="daemon-setup-label">To <strong>receive</strong> dispatches, run this once on your machine:</p>
+        <pre id="install-cmd"></pre>
+        <button id="copy-install" type="button">Copy install command</button>
+        <details>
+          <summary>Already installed? Just run <code>dispatch-daemon</code>. (or show raw token)</summary>
+          <pre id="token-display"></pre>
+        </details>
+      </div>
     </section>
 
     <div id="logged-in-view" hidden>

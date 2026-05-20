@@ -5,7 +5,7 @@ session, runs the task, and yields normalized DispatchEvents. Knows
 nothing about HTTP, WebSockets, or the frontend — the same generator
 will be called by the future recipient daemon.
 
-Permission policy ("which tools require human consent?") is NOT decided
+Permission policy ("which tools require human approval?") is NOT decided
 here. The caller injects a `can_use_tool` callback if it wants to gate
 tool execution. The executor just wires it through to the SDK.
 """
