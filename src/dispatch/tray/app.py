@@ -253,7 +253,8 @@ class DispatchTrayApp(rumps.App):
 
     @rumps.clicked("Open Dispatch")
     def open_sender(self, _: rumps.MenuItem) -> None:
-        open_native_window(SENDER_UI_URL, "Dispatch")
+        url = f"{SENDER_UI_URL}?token={self.config.token}&user_id={self.config.username}"
+        open_native_window(url, "Dispatch")
 
     @rumps.clicked("Incoming tasks")
     def open_consent(self, _: rumps.MenuItem) -> None:

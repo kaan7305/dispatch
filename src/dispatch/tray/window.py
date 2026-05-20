@@ -8,6 +8,8 @@ from __future__ import annotations
 import rumps
 from AppKit import (
     NSApp,
+    NSApplicationActivationPolicyRegular,
+    NSApplicationActivationPolicyAccessory,
     NSBackingStoreBuffered,
     NSMakeRect,
     NSURL,
@@ -33,22 +35,31 @@ _STYLE = (
 
 def open_native_window(url: str, title: str = "Dispatch", width: int = 1000, height: int = 680) -> None:
     """Open a native Mac window with an embedded web view. Main thread only."""
-    frame = NSMakeRect(160, 160, width, height)
+    try:
+        win_frame = NSMakeRect(160, 160, width, height)
+        web_frame = NSMakeRect(0, 0, width, height)
 
-    win = NSWindow.alloc().initWithContentRect_styleMask_backing_deferred_(
-        frame, _STYLE, NSBackingStoreBuffered, False
-    )
-    win.setTitle_(title)
-    win.setReleasedWhenClosed_(False)
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            win_frame, _STYLE, NSBackingStoreBuffered, False
+        )
+        win.setTitle_(title)
+        win.setReleasedWhenClosed_(False)
 
-    web = WKWebView.alloc().initWithFrame_(frame)
-    web.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
+        web = WKWebView.alloc().initWithFrame_(web_frame)
+        web.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
 
-    win.setContentView_(web)
-    win.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+        win.setContentView_(web)
 
-    _open_windows.append(win)
+        # Temporarily switch from accessory (menu-bar-only) to regular so the
+        # window actually comes to front on screen.
+        NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+        win.makeKeyAndOrderFront_(None)
+        NSApp.activateIgnoringOtherApps_(True)
+
+        _open_windows.append(win)
+    except Exception as exc:
+        from pathlib import Path
+        Path("/tmp/dispatch_window.log").write_text(str(exc))
 
 
 def schedule_window(url: str, title: str = "Dispatch") -> None:
