@@ -1,11 +1,56 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dispatch"
+name = "dispatch-agent"
 version = "0.1.0"
+description = "Peer-to-peer agentic task courier — recipient daemon"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
+authors = [{ name = "Dispatch authors" }]
+keywords = ["ai", "agents", "claude", "dispatch", "peer-to-peer"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "claude-agent-sdk>=0.2,<0.3",
+  "pydantic>=2.7",
+  "pyjwt>=2.10",
+  "websockets>=13",
+  "asyncpg>=0.30",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+# Single command. Hides the python -m dispatch.daemon plumbing.
+dispatch-daemon = "dispatch.daemon.main:main"
+# Tray app entry point (macOS menu bar).
+dispatch-tray = "dispatch.tray.app:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/dispatch"
+Issues = "https://github.com/your-org/dispatch/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["dispatch*"]
+
+[tool.setuptools.package-data]
+# Ship the web assets (the broker serves these as static) and the
+# Postgres schema (the broker runs this on startup) inside the wheel.
+"dispatch" = [
+  "web/**/*",
+  "broker/schema.sql",
+]

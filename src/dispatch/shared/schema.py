@@ -54,7 +54,15 @@ class DispatchCreateRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=64)
+    """Dev-mode login. Kept for CLI and tests; not exposed in the UI."""
+
+    username: str = Field(..., min_length=1, max_length=128)
+
+
+class MagicLinkRequest(BaseModel):
+    """Magic-link sign-in request body."""
+
+    email: str = Field(..., min_length=3, max_length=254)
 
 
 DispatchEventType = Literal[

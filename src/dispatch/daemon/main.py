@@ -1,22 +1,23 @@
 """Recipient daemon.
 
 Usage:
-  python -m dispatch.daemon \\
-    --broker http://localhost:8000 \\
-    --token <jwt> \\
-    --ui-port 8001
+  dispatch-daemon --broker https://your-broker --token <jwt>
+  # or
+  python -m dispatch.daemon --broker ... --token ...
 
 What it does:
-  - Hosts a local web UI on --ui-port (consent + execution view).
-  - Connects to the broker over WebSocket at /agent/connect.
-  - For each new dispatch:
-      1. Prompts the local UI for accept/reject.
-      2. If accepted, runs the agent via run_dispatch() with a
-         can_use_tool callback that asks the local UI for Allow/Deny
-         on Write/Edit/Bash.
-      3. Streams every event back to the broker so the sender sees it.
+  - Connects to the broker via WebSocket as the authenticated user.
+  - For each `new_dispatch` from the broker:
+      1. Sends `dispatch_status: delivered`.
+      2. Waits for `dispatch_decision: accept` or `reject` from the broker
+         (which the recipient triggered in the unified web UI).
+      3. If accepted, runs run_dispatch() — destructive tool calls cause a
+         `permission_request` event to flow back through the broker to the
+         UI, where the user clicks Allow / Deny. The decision returns via
+         a `tool_consent` message from the broker.
+      4. Streams every executor event back to the broker.
 
-The Claude Agent SDK runs on this machine using THIS user's
+The Claude Agent SDK runs in this process using THIS user's
 ANTHROPIC_API_KEY. The broker never touches the API key.
 """
 from __future__ import annotations
@@ -28,7 +29,8 @@ import logging
 import os
 import signal
 import sys
-import webbrowser
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -47,18 +49,28 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatu
 
 DESTRUCTIVE_TOOLS = frozenset({"Write", "Edit", "Bash"})
 DEFAULT_WORKSPACE = Path.cwd() / "workspace"
+DISPATCH_DECISION_TIMEOUT_S = 300.0     # how long the recipient has to accept/reject
+TOOL_CONSENT_TIMEOUT_S = 120.0          # how long they have to allow/deny one tool call
 
 logger = logging.getLogger("dispatch.daemon")
 
 
-def _broker_ws_url(broker: str, path: str, token: str) -> str:
+@dataclass
+class DaemonState:
+    # dispatch_id (str) → Future resolved with "accept" | "reject"
+    pending_decisions: dict[str, asyncio.Future] = field(default_factory=dict)
+    # (dispatch_id, request_id) → Future resolved with "allow" | "deny"
+    pending_consents: dict[tuple[str, str], asyncio.Future] = field(default_factory=dict)
+
+
+def _broker_ws_url(broker: str, token: str) -> str:
     p = urlparse(broker)
     scheme = "wss" if p.scheme == "https" else "ws"
-    return urlunparse((scheme, p.netloc, path, "", f"token={token}", ""))
+    return urlunparse((scheme, p.netloc, "/agent/connect", "", f"token={token}", ""))
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="dispatch.daemon")
+    parser = argparse.ArgumentParser(prog="dispatch-daemon")
     parser.add_argument(
         "--broker",
         default=os.environ.get("DISPATCH_BROKER", "http://localhost:8000"),
@@ -67,7 +79,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--token",
         default=os.environ.get("DISPATCH_TOKEN"),
-        help="JWT bearer token. Default: $DISPATCH_TOKEN",
+        help="JWT bearer token from the broker login page. Default: $DISPATCH_TOKEN",
     )
     parser.add_argument(
         "--ui-port",
@@ -79,11 +91,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--workspace",
         default=os.environ.get("DISPATCH_WORKSPACE", str(DEFAULT_WORKSPACE)),
         help="Working directory the agent operates in. Default: ./workspace",
-    )
-    parser.add_argument(
-        "--no-open",
-        action="store_true",
-        help="Don't try to open the local UI in a browser automatically.",
     )
     return parser.parse_args(argv)
 
@@ -106,7 +113,6 @@ async def serve_local_ui(state: LocalState, port: int) -> uvicorn.Server:
         if serve_task.done():
             break
     if not server.started:
-        from pathlib import Path
         exc = serve_task.exception() if serve_task.done() and not serve_task.cancelled() else None
         Path("/tmp/dispatch_daemon.log").write_text(
             f"Local UI (port {port}) did not start. Exception: {exc}"
@@ -120,28 +126,24 @@ async def run_session(args: argparse.Namespace) -> int:
         return 2
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(
-            "warning: ANTHROPIC_API_KEY is not set; the agent will fail to run.",
+            "warning: ANTHROPIC_API_KEY is not set; the agent will fail to run unless "
+            "the Claude Code CLI has its own session.",
             file=sys.stderr,
         )
 
     workspace = Path(args.workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
+    print(f"[daemon] workspace: {workspace}")
 
-    state = LocalState()
-    server = await serve_local_ui(state, args.ui_port)
-    ui_url = f"http://127.0.0.1:{args.ui_port}"
-    print(f"[daemon] local consent UI: {ui_url}")
-    if not args.no_open:
-        try:
-            webbrowser.open(ui_url)
-        except Exception:
-            pass
-
-    ws_url = _broker_ws_url(args.broker, "/agent/connect", args.token)
+    state = DaemonState()
+    ws_url = _broker_ws_url(args.broker, args.token)
     print(f"[daemon] connecting to broker: {args.broker}")
     try:
         async with websockets.connect(ws_url, max_size=None) as ws:
-            print("[daemon] connected. Waiting for dispatches…")
+            print(
+                f"[daemon] connected. Open {args.broker} in a browser to see incoming "
+                "dispatches and respond to consent prompts."
+            )
             await handle_broker(ws, state, workspace)
     except websockets.InvalidStatus as e:
         print(f"[daemon] handshake failed: {e}", file=sys.stderr)
@@ -149,14 +151,12 @@ async def run_session(args: argparse.Namespace) -> int:
     except OSError as e:
         print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
         return 4
-    finally:
-        server.should_exit = True
     return 0
 
 
 async def handle_broker(
     ws: "websockets.WebSocketClientProtocol",
-    state: LocalState,
+    state: DaemonState,
     workspace: Path,
     on_friend_request=None,
 ) -> None:
@@ -187,7 +187,9 @@ async def handle_broker(
             msg = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if msg.get("type") == "new_dispatch":
+        mtype = msg.get("type")
+
+        if mtype == "new_dispatch":
             try:
                 payload = DispatchPayload(**msg["payload"])
             except Exception:
@@ -196,36 +198,55 @@ async def handle_broker(
             asyncio.create_task(
                 process_dispatch(payload, state, workspace, send_status, send_event)
             )
-        elif msg.get("type") == "friend_request" and on_friend_request:
+        elif mtype == "friend_request" and on_friend_request:
             on_friend_request(msg.get("from_user", "unknown"))
+
+        elif mtype == "dispatch_decision":
+            did = msg.get("dispatch_id")
+            decision = msg.get("decision")
+            fut = state.pending_decisions.get(did)
+            if fut and not fut.done() and decision in ("accept", "reject"):
+                fut.set_result(decision)
+
+        elif mtype == "tool_consent":
+            did = msg.get("dispatch_id")
+            req_id = msg.get("request_id")
+            decision = msg.get("decision")
+            fut = state.pending_consents.get((did, req_id))
+            if fut and not fut.done() and decision in ("allow", "deny"):
+                fut.set_result(decision)
 
 
 async def process_dispatch(
     payload: DispatchPayload,
-    state: LocalState,
+    state: DaemonState,
     workspace: Path,
     send_status,
     send_event,
 ) -> None:
-    print(f"[daemon] new dispatch from {payload.sender_id}: {payload.task!r}")
-    decision_fut = state.add_dispatch(payload)
+    dispatch_id = str(payload.dispatch_id)
+    print(f"[daemon] new dispatch {dispatch_id[:8]}… from {payload.sender_id}: {payload.task!r}")
+
+    # Step 1 — top-level Accept / Reject.
+    decision_fut: asyncio.Future = asyncio.get_running_loop().create_future()
+    state.pending_decisions[dispatch_id] = decision_fut
     await send_status(payload.dispatch_id, DispatchStatus.delivered)
 
     try:
-        top_decision = await asyncio.wait_for(decision_fut, timeout=300)
+        top_decision = await asyncio.wait_for(decision_fut, timeout=DISPATCH_DECISION_TIMEOUT_S)
     except asyncio.TimeoutError:
-        state.mark_status(payload.dispatch_id, DispatchStatus.expired)
         await send_status(payload.dispatch_id, DispatchStatus.expired)
         return
+    finally:
+        state.pending_decisions.pop(dispatch_id, None)
 
     if top_decision != "accept":
-        state.mark_status(payload.dispatch_id, DispatchStatus.denied)
         await send_status(payload.dispatch_id, DispatchStatus.denied)
         return
 
-    state.mark_status(payload.dispatch_id, DispatchStatus.accepted)
     await send_status(payload.dispatch_id, DispatchStatus.accepted)
 
+    # Step 2 — per-tool consent.
     async def can_use_tool(
         tool_name: str,
         tool_input: dict[str, Any],
@@ -234,17 +255,27 @@ async def process_dispatch(
         if tool_name not in DESTRUCTIVE_TOOLS:
             return PermissionResultAllow(updated_input=tool_input)
 
-        # Forward the prompt to the sender so they can see it.
+        request_id = str(uuid.uuid4())
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        state.pending_consents[(dispatch_id, request_id)] = fut
         await send_event(
             payload.dispatch_id,
             {
                 "type": "permission_request",
-                "data": {"tool": tool_name, "input": tool_input},
+                "data": {
+                    "id": request_id,
+                    "tool": tool_name,
+                    "input": tool_input,
+                },
             },
         )
-        _req_id, decision = await state.request_tool_consent(
-            payload.dispatch_id, tool_name, tool_input
-        )
+        try:
+            decision = await asyncio.wait_for(fut, timeout=TOOL_CONSENT_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            decision = "deny"
+        finally:
+            state.pending_consents.pop((dispatch_id, request_id), None)
+
         await send_event(
             payload.dispatch_id,
             {
@@ -256,34 +287,35 @@ async def process_dispatch(
             return PermissionResultAllow(updated_input=tool_input)
         return PermissionResultDeny(message="Recipient denied", interrupt=False)
 
-    state.mark_status(payload.dispatch_id, DispatchStatus.running)
+    # Step 3 — actually run the agent.
     await send_status(payload.dispatch_id, DispatchStatus.running)
-
     final = DispatchStatus.completed
     try:
         async for event in run_dispatch(
             payload, cwd=str(workspace), can_use_tool=can_use_tool
         ):
-            state.record_event(payload.dispatch_id, event)
             await send_event(payload.dispatch_id, event)
             if event["type"] == "error":
                 final = DispatchStatus.failed
     except Exception as exc:
         logger.exception("executor crashed")
         final = DispatchStatus.failed
-        err_event: DispatchEvent = {
-            "type": "error",
-            "data": {"message": str(exc), "exception": type(exc).__name__},
-        }
-        state.record_event(payload.dispatch_id, err_event)
-        await send_event(payload.dispatch_id, err_event)
+        await send_event(
+            payload.dispatch_id,
+            {
+                "type": "error",
+                "data": {"message": str(exc), "exception": type(exc).__name__},
+            },
+        )
 
-    state.mark_status(payload.dispatch_id, final)
     await send_status(payload.dispatch_id, final)
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     args = parse_args()
 
     loop = asyncio.new_event_loop()

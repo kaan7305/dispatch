@@ -4,5 +4,6 @@ claude-agent-sdk>=0.2,<0.3
 pydantic>=2.7
 pyjwt>=2.10
 websockets>=13
+asyncpg>=0.30
 rumps>=0.4
 certifi

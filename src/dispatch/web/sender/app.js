@@ -3,6 +3,15 @@
 const STORAGE_TOKEN   = "dispatch_token";
 const STORAGE_USER_ID = "dispatch_user_id";
 
+// Auto-sign in from URL params injected by the tray app.
+(function () {
+  const p = new URLSearchParams(location.search);
+  if (p.get("token") && p.get("user_id")) {
+    localStorage.setItem(STORAGE_TOKEN, p.get("token"));
+    localStorage.setItem(STORAGE_USER_ID, p.get("user_id"));
+  }
+})();
+
 let token  = localStorage.getItem(STORAGE_TOKEN);
 let userId = localStorage.getItem(STORAGE_USER_ID);
 let selectedRecipient = null;
