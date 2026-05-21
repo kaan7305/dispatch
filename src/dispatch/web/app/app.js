@@ -5,6 +5,7 @@
 
 const STORAGE_TOKEN = "dispatch_token";
 const STORAGE_USER = "dispatch_user_id";
+const PENDING_INVITE_KEY = "dispatch_pending_invite";
 
 let token = localStorage.getItem(STORAGE_TOKEN);
 let userId = localStorage.getItem(STORAGE_USER);
@@ -28,12 +29,13 @@ let inboxWs = null;
 const inboxCards = new Map();   // dispatch_id → card element wrapper
 const outboxCards = new Map();  // dispatch_id → card element wrapper
 
-// --- bootstrap: did we just come back from /auth/magic? ---
-(function consumeLoginRedirect() {
+// --- bootstrap: process /auth/magic and /invite/{token} redirects ---
+(function consumeRedirects() {
   const params = new URLSearchParams(location.search);
   const incomingToken = params.get("login_token");
   const incomingUser = params.get("user_id");
   const error = params.get("auth_error");
+  const invite = params.get("invite");
 
   if (incomingToken && incomingUser) {
     token = incomingToken;
@@ -41,7 +43,11 @@ const outboxCards = new Map();  // dispatch_id → card element wrapper
     localStorage.setItem(STORAGE_TOKEN, token);
     localStorage.setItem(STORAGE_USER, userId);
   }
-  if (incomingToken || incomingUser || error) {
+  if (invite) {
+    // Stash it — survives the magic-link login round-trip.
+    localStorage.setItem(PENDING_INVITE_KEY, invite);
+  }
+  if (incomingToken || incomingUser || error || invite) {
     history.replaceState({}, "", location.pathname);
   }
   if (error === "invalid_or_expired") {
@@ -63,6 +69,8 @@ function refreshAuth() {
     document.getElementById("email").disabled = true;
     linkSent.hidden = true;
     openInboxStream();
+    loadContacts();
+    maybeShowPendingInvite();
   } else {
     if (!authStatus.classList.contains("error")) {
       authStatus.textContent = "not signed in";
@@ -132,6 +140,214 @@ document.getElementById("copy-install").addEventListener("click", async (e) => {
     e.target.textContent = "copied ✓";
     setTimeout(() => { e.target.textContent = "Copy install command"; }, 1500);
   } catch (_) {}
+});
+
+// ---------------- contacts: invitations & trust ----------------
+
+function authHeaders() {
+  return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+}
+
+document.getElementById("invite-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = document.getElementById("invite-email").value.trim();
+  if (!email) return;
+  const status = document.getElementById("invite-status");
+  const devLinkEl = document.getElementById("invite-dev-link");
+  status.className = "status running";
+  status.textContent = "sending…";
+  devLinkEl.hidden = true;
+  try {
+    const res = await fetch("/invitations", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ to_email: email }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+    const body = await res.json();
+    status.className = "status done";
+    if (body.delivered) {
+      status.textContent = `invite emailed to ${body.to_email}`;
+    } else {
+      status.textContent = `dev mode — invite link for ${body.to_email}:`;
+      devLinkEl.href = body.dev_link;
+      devLinkEl.hidden = false;
+    }
+    document.getElementById("invite-email").value = "";
+    loadContacts();
+  } catch (err) {
+    status.className = "status error";
+    status.textContent = `invite failed: ${err.message}`;
+  }
+});
+
+async function loadContacts() {
+  if (!token) return;
+  try {
+    const res = await fetch("/trust", { headers: authHeaders() });
+    if (res.ok) renderTrust((await res.json()).trust);
+  } catch (_) {}
+  try {
+    const res = await fetch("/invitations", { headers: authHeaders() });
+    if (res.ok) renderReceivedInvites((await res.json()).received);
+  } catch (_) {}
+}
+
+function renderTrust(trust) {
+  const list = document.getElementById("trust-list");
+  list.innerHTML = "";
+  if (!trust.length) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "No contacts yet. Invite someone, or accept an invitation.";
+    list.appendChild(p);
+    return;
+  }
+  for (const t of trust) {
+    const el = document.createElement("div");
+    el.className = "contact-card";
+    const arrow = t.direction === "outgoing"
+      ? "you can dispatch to them"
+      : "they can dispatch to you";
+    const tools = (t.scopes.tools || []).join(", ") || "none";
+    const head = document.createElement("div");
+    head.className = "contact-head";
+    head.innerHTML =
+      `<span class="dot ${t.peer_online ? "on" : "off"}"></span>` +
+      `<strong>${escapeHtml(t.peer)}</strong>` +
+      `<span class="contact-dir">${arrow}</span>`;
+    const revoke = document.createElement("button");
+    revoke.className = "btn-deny btn-sm";
+    revoke.textContent = "Revoke";
+    revoke.addEventListener("click", async () => {
+      revoke.disabled = true;
+      try {
+        await fetch(`/trust/${t.trust_link_id}`, { method: "DELETE", headers: authHeaders() });
+      } finally {
+        loadContacts();
+      }
+    });
+    head.appendChild(revoke);
+    el.appendChild(head);
+    const scopes = document.createElement("div");
+    scopes.className = "contact-scopes";
+    scopes.textContent = `tools: ${tools} · approval: ${t.scopes.approval || "manual"}`;
+    el.appendChild(scopes);
+    list.appendChild(el);
+  }
+}
+
+function renderReceivedInvites(received) {
+  const box = document.getElementById("received-invites");
+  box.innerHTML = "";
+  for (const inv of received) {
+    const el = document.createElement("div");
+    el.className = "invite-card";
+    const text = document.createElement("span");
+    text.innerHTML = `<strong>${escapeHtml(inv.from_user)}</strong> invited you to connect.`;
+    const review = document.createElement("button");
+    review.className = "btn-allow btn-sm";
+    review.textContent = "Review";
+    review.addEventListener("click", () => showInvitePanel(inv.token));
+    el.appendChild(text);
+    el.appendChild(review);
+    box.appendChild(el);
+  }
+}
+
+// --- invite acceptance panel ---
+
+let activeInviteToken = null;
+
+function maybeShowPendingInvite() {
+  const pending = localStorage.getItem(PENDING_INVITE_KEY);
+  if (pending) showInvitePanel(pending);
+}
+
+async function showInvitePanel(inviteToken) {
+  activeInviteToken = inviteToken;
+  const section = document.getElementById("invite-accept-section");
+  const detail = document.getElementById("invite-detail");
+  const scopes = document.getElementById("invite-scopes");
+  const acceptBtn = document.getElementById("invite-accept-btn");
+  const declineBtn = document.getElementById("invite-decline-btn");
+  const status = document.getElementById("invite-accept-status");
+  status.textContent = "";
+  status.className = "status idle";
+  try {
+    const res = await fetch(`/invitations/${inviteToken}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const inv = await res.json();
+    const usable = inv.status === "pending" && !inv.expired;
+    if (usable) {
+      detail.innerHTML =
+        `<strong>${escapeHtml(inv.from_user)}</strong> wants to be able to send you ` +
+        `Dispatches — agentic tasks that run on your machine. Choose what their ` +
+        `dispatches may do, then accept.`;
+    } else {
+      detail.textContent = `This invitation is ${inv.expired ? "expired" : inv.status}.`;
+    }
+    scopes.hidden = !usable;
+    acceptBtn.hidden = !usable;
+    declineBtn.hidden = !usable;
+    section.hidden = false;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    detail.textContent = `Could not load invitation: ${err.message}`;
+    scopes.hidden = true;
+    acceptBtn.hidden = true;
+    declineBtn.hidden = true;
+    section.hidden = false;
+  }
+}
+
+function chosenScopes() {
+  const tools = [
+    ...document.querySelectorAll("#invite-scopes .tool-checks input:checked"),
+  ].map((c) => c.value);
+  const approval = document.querySelector(
+    "#invite-scopes input[name=approval]:checked"
+  ).value;
+  return { tools, paths: [], approval, max_dispatches_per_day: 50, expires_at: null };
+}
+
+function clearInvitePanel() {
+  document.getElementById("invite-accept-section").hidden = true;
+  localStorage.removeItem(PENDING_INVITE_KEY);
+  activeInviteToken = null;
+}
+
+document.getElementById("invite-accept-btn").addEventListener("click", async () => {
+  if (!activeInviteToken) return;
+  const status = document.getElementById("invite-accept-status");
+  status.className = "status running";
+  status.textContent = "accepting…";
+  try {
+    const res = await fetch(`/invitations/${activeInviteToken}/accept`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ scopes: chosenScopes() }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
+    clearInvitePanel();
+    loadContacts();
+  } catch (err) {
+    status.className = "status error";
+    status.textContent = `accept failed: ${err.message}`;
+  }
+});
+
+document.getElementById("invite-decline-btn").addEventListener("click", async () => {
+  if (!activeInviteToken) return;
+  try {
+    await fetch(`/invitations/${activeInviteToken}/decline`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+  } finally {
+    clearInvitePanel();
+    loadContacts();
+  }
 });
 
 // ---------------- compose ----------------
@@ -351,6 +567,7 @@ function setStatus(el, status) {
     denied: "error",
     failed: "error",
     expired: "error",
+    cancelled: "error",
   };
   el.className = `status ${map[status] || "idle"}`;
 }

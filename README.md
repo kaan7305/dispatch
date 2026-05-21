@@ -1,313 +1,217 @@
 # Dispatch
 
-Peer-to-peer agentic task courier. Any user can compose a task in natural
-language, name a recipient, and the recipient's local daemon runs it on
-their machine — with explicit approval on the dispatch itself and on every
-destructive tool call.
+A peer-to-peer courier for **agentic work**. One person describes a task in
+natural language and names a recipient; the recipient's machine runs it with
+a local AI agent — but only if the two people have an explicit, scoped,
+revocable **trust relationship**, the dispatch is **cryptographically signed**
+by the sender's device, and the recipient **approves** it.
 
-The **broker** is a multi-tenant service (Postgres-backed FastAPI). Anyone
-with an account can send to anyone else with an account. The **daemon** is
-a small background process each user runs on their own machine to actually
-receive and execute dispatches. The web UI is shared by both roles.
+A dispatch never runs on a machine unless all three hold:
+
+1. an accepted **trust edge** exists from sender to recipient,
+2. the dispatch carries a valid **signature** from a device of that sender,
+3. it stays within the **scope** that edge grants — and destructive tool
+   calls get a per-call human **approval**.
 
 ---
 
-## Architecture
+## Components
+
+| Component | What it is |
+|---|---|
+| **Broker** | Multi-tenant FastAPI service, Postgres-backed. Issues identity, routes dispatches, enforces trust policy, relays events. Never holds a signing key; never touches a recipient's filesystem. |
+| **Daemon** (`dispatch-daemon`) | A small background process each user runs on their own machine. Holds that machine's Ed25519 device key, signs the user's outgoing dispatches, verifies incoming ones, and runs the agent. |
+| **Web UI** | Served by the broker. One page: sign in, manage contacts, compose, watch sent dispatches, act on your inbox. |
+| **Agent** | A Claude Agent SDK session the daemon opens per accepted dispatch. Transient — created on accept, gone when the task ends. |
+
+Every user is both a sender and a recipient; everyone runs a daemon.
+
+---
+
+## The three enforcement layers
+
+Trust is enforced in three independent places. A compromised broker cannot
+forge a trusted sender, because Layer 2 happens entirely on the recipient's
+machine against a key the broker can't substitute.
 
 ```
-   browser     ┌──────────────────────────────────────────────────┐
-   (sender +   │  Unified web UI   (served by the broker)         │
-    recipient) │    /              login · compose · inbox · sent │
-                └──────────────────────────────────────────────────┘
-                                │ HTTPS / WSS
-                                ▼
-            ┌──────────────────────────────────────────────────┐
-            │  BROKER  (FastAPI · dispatch.broker.app)         │
-            │  HTTP                                            │
-            │    POST /auth/request   → emails a magic link    │
-            │    GET  /auth/magic     → exchanges for JWT      │
-            │    POST /dispatch       sender creates dispatch  │
-            │    GET  /dispatches     history list             │
-            │    GET  /dispatch/{id}  full record              │
-            │  WebSocket                                       │
-            │    /agent/connect       recipient daemon         │
-            │    /inbox               recipient browser        │
-            │    /dispatch/{id}/watch sender browser           │
-            │  Storage                                         │
-            │    Postgres (users, dispatches, events, magic)   │
-            └──────────────────────────────────────────────────┘
-                                │ WSS
-                                ▼
-            ┌──────────────────────────────────────────────────┐
-            │  RECIPIENT DAEMON  (`dispatch-daemon` CLI)       │
-            │    - Pure WebSocket client to the broker         │
-            │    - Awaits accept/reject and per-tool approval   │
-            │      decisions forwarded from the broker UI      │
-            │    - Runs the agent with the user's API key      │
-            └──────────────────────────────────────────────────┘
-                                │
-                                ▼
-                       Claude Agent SDK
-                       (Read/Write/Edit/Bash/Glob/Grep)
+   browser ── HTTPS/WSS ──▶  BROKER  ── WSS ──▶  RECIPIENT DAEMON ──▶ Claude Agent SDK
+                              │                       │
+   Layer 1 ───────────────────┘                       │
+   "Is there an accepted trust edge? In scope?         │
+    Under the rate limit?"  → else 403/429             │
+                                                       │
+   Layer 2 ────────────────────────────────────────────┘
+   "Is the signature valid? Key pinned? Nonce fresh & unseen?"  → else reject
+                                                       │
+   Layer 3 ────────────────────────────────────────────┘
+   "Does the human approve this specific tool call?"  → manual / auto per scope
 ```
 
-Notes:
-- The daemon has no UI of its own. All recipient interaction happens
-  through the browser tab connected to the broker.
-- `run_dispatch()` is transport-agnostic: the daemon imports and uses it
-  exactly as a single-process server would.
-- Per-tool approval flows: daemon emits `permission_request` over the
-  broker WS → broker fans out to the recipient's `/inbox` WS → browser
-  shows Allow/Deny → decision returns via `/inbox` → broker forwards as
-  `tool_approval` to daemon → daemon's `can_use_tool` callback unblocks.
+---
+
+## Concepts
+
+- **User** — identified by email. Created on first sign-in.
+- **Device** — one per machine running the daemon. Has an Ed25519 keypair;
+  the private key never leaves the machine (OS keychain, or a 0600 file).
+- **Invitation** — an emailed, single-use, expiring link. How a trust edge
+  is born.
+- **Trust edge** — a directed `from_user → to_user` relationship. Created
+  when the recipient accepts an invitation. Per-direction: B accepting A's
+  invite lets *A dispatch to B*, nothing more.
+- **Scopes** — what an edge permits, set by the recipient (the trustor):
+  ```json
+  {
+    "tools": ["Read", "Glob", "Grep"],     // subset of Read/Write/Edit/Bash/Glob/Grep
+    "paths": ["~/work"],                   // file-path allowlist ([] = no path limit)
+    "approval": "manual",                  // "manual" = approve every tool call | "auto"
+    "max_dispatches_per_day": 50,
+    "expires_at": null
+  }
+  ```
+  New edges default to least privilege: read-only tools, manual approval.
+- **Dispatch** — one task. Signed by the sender's device, authorized by an
+  edge, executed by the recipient's daemon.
 
 ---
 
-## Two ways to run the broker
+## Running the broker
 
-The broker is a small FastAPI service. You can run it locally for development,
-or deploy it to Railway for a stable public URL that your team can reach.
+The broker needs Postgres. Run it locally for development or deploy it.
 
----
-
-## A) Run the broker locally (development)
-
-You need Postgres available. Easiest path is Docker:
+### A) Locally
 
 ```bash
 docker run -d --name dispatch-pg \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dispatch \
-  -p 5432:5432 postgres:16
-```
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dispatch -p 5432:5432 postgres:16
 
-Then:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# edit .env:
-#   DISPATCH_JWT_SECRET=<any 32+ char string>
-#   DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/dispatch
+cp .env.example .env        # set DISPATCH_JWT_SECRET; DATABASE_URL points at the docker pg
 
 uvicorn --app-dir src dispatch.broker.app:app --env-file .env --host 0.0.0.0 --port 8000
 ```
 
-Open <http://localhost:8000>.
+Open <http://localhost:8000>. For a teammate on another machine:
+`cloudflared tunnel --url http://localhost:8000` (or `ngrok http 8000`).
 
-For a teammate on another machine to reach you locally, use a tunnel:
+### B) Railway (managed)
+
+1. Push the repo to GitHub; create a Railway project from it (Nixpacks
+   auto-detects Python and uses the `Procfile`).
+2. Add the **PostgreSQL** plugin. Wire it: on the broker service, add a
+   variable `DATABASE_URL = ${{Postgres.DATABASE_URL}}`.
+3. Set `DISPATCH_JWT_SECRET` (`openssl rand -hex 32`). `RAILWAY_PUBLIC_DOMAIN`
+   is auto-injected — the broker uses it as its public URL, so magic links
+   and the install one-liner are correct without extra config.
+4. Settings → Networking → Generate Domain. `/health` is the healthcheck.
+
+The broker schema is idempotent (`broker/schema.sql`, `CREATE TABLE IF NOT
+EXISTS` + `ADD COLUMN IF NOT EXISTS`) and runs on every startup — no
+migration step.
+
+### Environment
+
+| Var | Where | Notes |
+|---|---|---|
+| `DISPATCH_JWT_SECRET` | Broker | 32+ random chars. Rotating it invalidates all tokens. |
+| `DATABASE_URL` | Broker | Postgres URL. Auto-set by Railway's plugin. |
+| `DISPATCH_PUBLIC_URL` | Broker (optional) | Public base URL; falls back to `RAILWAY_PUBLIC_DOMAIN`, then localhost. |
+| `RESEND_API_KEY`, `RESEND_FROM` | Broker (optional) | Real email for magic links + invitations. Without it, links are returned in the API response (dev mode). |
+| `DISPATCH_DAEMON_INSTALL` | Broker (optional) | What `/install.sh` points `pipx install` at. Default: a GitHub repo URL. |
+| `ANTHROPIC_API_KEY` | Daemon | The recipient runs the agent on their own key. |
+| `DISPATCH_WORKSPACE` | Daemon (optional) | Agent working directory. Default `./workspace`. |
+| `DISPATCH_HOME` | Daemon (optional) | Where config + device key live. Default `~/.dispatch`. |
+| `DISPATCH_KEY_BACKEND` | Daemon (optional) | `file` to store the device key in a 0600 file instead of the OS keychain. |
+
+---
+
+## Installing the daemon
+
+Everyone — sender and recipient — runs a daemon. After signing in to the
+broker, the page shows a one-line installer:
 
 ```bash
-ngrok http 8000             # or:  cloudflared tunnel --url http://localhost:8000
+curl -fsSL https://your-broker/install.sh | bash -s -- <your-token>
 ```
 
----
-
-## B) Deploy the broker to Railway (recommended)
-
-Production-ish setup with a stable URL and managed Postgres:
-
-1. **Push the repo to GitHub.** Railway deploys from a repo.
-2. **Create a Railway project.** <https://railway.app/new> → Deploy from GitHub
-   repo → pick this repo. Railway detects Python, installs `requirements.txt`,
-   and uses the `Procfile` (already in the repo) to start uvicorn.
-3. **Add Postgres.** In the same project: New → Database → Add PostgreSQL.
-   Railway injects `DATABASE_URL` automatically; the broker uses it on boot.
-4. **Set environment variables** on the broker service:
-   - `DISPATCH_JWT_SECRET` — a random 32+ char string (`openssl rand -hex 32`).
-   - That's it. `DATABASE_URL` and `PORT` come from Railway automatically.
-5. **Get the public URL.** Settings → Networking → Generate Domain. Railway
-   gives you something like `https://dispatch-production-1234.up.railway.app`.
-   Hand that URL to your teammate.
-
-The broker exposes `/health` for Railway's health checks (configured in
-`railway.json`). It returns 200 only when the database connection is alive.
-
-### Cost
-
-- Hobby tier ($5/mo, includes $5 of usage credit) is sufficient for a
-  multi-person demo.
-- Postgres add-on uses some of that credit; usually well under $5/mo at this
-  scale.
-
-### Local config files that drive the Railway deploy
-
-| File | Purpose |
-|---|---|
-| `Procfile` | Tells the platform how to start the web service. |
-| `railway.json` | Health check path, restart policy. |
-| `runtime.txt` | Pins Python 3.11. |
-| `.dockerignore` | Excludes `.venv`, `.env`, `workspace/`, etc. from builds. |
-
----
-
-## Required environment
-
-| Env var | Required on | Notes |
-|---|---|---|
-| `DISPATCH_JWT_SECRET` | Broker | 32+ random chars. Rotating it invalidates all issued tokens. |
-| `DATABASE_URL` | Broker | Postgres URL. Auto-set by Railway Postgres add-on. |
-| `ANTHROPIC_API_KEY` | Recipient daemon | The recipient pays for their own agent runs. |
-| `DISPATCH_WORKSPACE` | Recipient daemon (optional) | Working directory for the agent. Default `./workspace`. |
-| `DISPATCH_BROKER` / `DISPATCH_TOKEN` | Recipient daemon (optional) | Override CLI args. |
-
-## Recipient daemon — installing it on a teammate's machine
-
-To receive dispatches, a user runs a small background daemon on their own
-machine. Setup is one copy-pasted command.
-
-### The one-line install (recommended)
-
-1. The recipient opens the broker URL in a browser and signs in with their
-   email (magic link).
-2. Once signed in, the page shows a ready-to-run command under **To receive
-   dispatches**. It looks like:
-
-   ```bash
-   curl -fsSL https://your-broker/install.sh | bash -s -- <their-token>
-   ```
-
-3. They paste that into a terminal and press enter. It:
-   - installs `pipx` if missing,
-   - installs the `dispatch-daemon` command,
-   - saves the broker URL + token to `~/.dispatch/config.json`,
-   - starts the daemon.
-
-**Every run after that is just:**
+It installs `pipx` if needed, installs the `dispatch-daemon` command, saves
+broker + token to `~/.dispatch/config.json`, and starts the daemon. On first
+run it generates this machine's Ed25519 device keypair and enrolls the
+public key with the broker. Every later run is just:
 
 ```bash
 dispatch-daemon
 ```
 
-No flags — the daemon reads `~/.dispatch/config.json`. (Resolution order is
-CLI flag → env var → config file, so `--broker` / `--token` still override.)
-
-### Manual install (if they'd rather not pipe curl to bash)
-
-```bash
-brew install pipx
-pipx install git+https://github.com/your-org/dispatch.git
-dispatch-daemon --broker https://your-broker --token <jwt>   # saves config; later runs need no flags
-```
-
-`python -m dispatch.daemon ...` also still works inside a plain venv.
-
-### Configuring the installer's source
-
-`/install.sh` points `pipx install` at whatever `DISPATCH_DAEMON_INSTALL` is
-set to on the broker (default: a public GitHub repo). Point it at your repo,
-or a wheel URL, when you deploy.
-
-### Recipient-side environment
-
-The recipient's machine only needs `ANTHROPIC_API_KEY` in the environment
-(the agent runs there, on their key). Everything else has a default or comes
-from the saved config.
+Manual install: `pipx install git+<repo>` then `dispatch-daemon --broker URL
+--token JWT`. `python -m dispatch.daemon ...` also works in a venv.
 
 ---
 
-### Sending a dispatch
+## Using it
 
-You and the recipient both open the same broker URL in your browsers, both
-sign in. Your daemon is running in the background (if you ever want to
-receive). Theirs is running too. In the **Compose** form, type their email
-as the recipient and a task description, hit **Send dispatch**.
+1. **Sign in** — enter your email, click the magic link.
+2. **Run your daemon** — the install one-liner, once.
+3. **Invite** — in Contacts, invite a teammate by email. They get a link.
+4. **They accept** — opening the link, they choose the scopes they grant you
+   (tools, approval mode) and accept. Now a trust edge `you → them` exists.
+5. **Compose** — pick them as recipient, describe the task, send.
+   - Layer 1: the broker checks the edge, scope, and rate limit.
+   - The broker asks *your* daemon to sign the dispatch.
+   - Layer 2: their daemon verifies the signature before surfacing it.
+6. **They accept the dispatch** in their Inbox; the agent runs, restricted to
+   the edge's tools and paths. Destructive calls prompt them (Layer 3) unless
+   the edge is `approval: auto`.
+7. **Watch** — the full event stream (reasoning, tool calls, results,
+   approvals) appears live in your Sent card and their Inbox card.
 
-What happens, in real time:
-
-1. You see a new card under **Sent** with status `pending → delivered`.
-2. Their **Inbox** lights up with the task. Two buttons: **Accept**, **Reject**.
-3. They accept → status flips to `accepted → running`. The agent starts.
-4. Each destructive tool call (`Write`, `Edit`, `Bash`) pauses the agent
-   and shows them an **Allow / Deny** prompt inline. Allow it → tool runs.
-5. The full event stream — reasoning, tool calls, tool results — appears
-   live in **both** your **Sent** card and their **Inbox** card. You see
-   what the agent is doing; you don't see their file system directly.
-
----
-
-## What you see (sender)
-
-```
-Active dispatches
-└── → teammate · running
-    Task: "Bootstrap the test fixtures in this repo"
-        status              accepted → running
-        agent               Looking at the test directory…
-        tool call           Bash { command: "ls tests/" }
-        tool result         fixture_a.json  fixture_b.json
-        approval requested   Awaiting recipient's decision on Write
-        approval decided     Write: allow
-        ...
-        done                4 turns · $0.04
-```
-
-You never see the recipient's local file system; you see the agent's
-reasoning, its tool calls, the recipient's approval decisions, and the
-results.
+Revoke a contact any time (`Revoke` in Contacts) — it cancels anything
+in flight on that edge and refuses new dispatches immediately.
 
 ---
 
-## Wire protocols
+## API
 
-### Sender HTTP
+### HTTP
 
-| Verb | Path                  | Auth   | Body / Returns |
-| ---- | --------------------- | ------ | -------------- |
-| POST | `/auth/login`         | none   | `{username}` → `{user_id, token}` |
-| POST | `/dispatch`           | Bearer | `{recipient_id, task, expires_in_seconds?, metadata?}` → `{dispatch_id, status}` |
-| GET  | `/dispatch/{id}`      | Bearer | full record |
+| Verb | Path | Auth | Purpose |
+|---|---|---|---|
+| POST | `/auth/request` | – | email a magic link |
+| GET | `/auth/magic?token=` | – | exchange link for a JWT |
+| POST | `/auth/login` | – | dev/CLI login (username → JWT) |
+| GET | `/install.sh` | – | the daemon installer script |
+| GET | `/health` | – | liveness + DB check |
+| POST | `/devices/enroll` | Bearer | register a device public key |
+| GET / DELETE | `/devices`, `/devices/{id}` | Bearer | list / revoke devices |
+| POST / GET | `/invitations` | Bearer | send / list invitations |
+| GET | `/invitations/{token}` | – | invitation detail |
+| POST | `/invitations/{token}/accept` \| `/decline` | Bearer | resolve an invitation |
+| GET | `/trust` | Bearer | my contacts (accepted edges) |
+| PATCH / DELETE | `/trust/{id}` | Bearer | edit scopes (trustor only) / revoke |
+| POST | `/dispatch` | Bearer | create a dispatch (Layers 1 + signing) |
+| GET | `/dispatch/{id}`, `/dispatches` | Bearer | record / history |
 
-### WebSockets
+### WebSocket
 
-- **Sender → broker**, `wss://<broker>/dispatch/{id}/watch?token=<jwt>` — broker streams DispatchEvents.
-- **Recipient daemon → broker**, `wss://<broker>/agent/connect?token=<jwt>`
-  - Broker → daemon: `{type:"new_dispatch", payload:{...DispatchPayload...}}`
-  - Daemon → broker: `{type:"dispatch_status", dispatch_id, status}` and `{type:"dispatch_event", dispatch_id, event:{...DispatchEvent...}}`
-- **Recipient browser ↔ broker**, `wss://<broker>/inbox?token=<jwt>` — server streams inbox updates and per-dispatch events; client sends `dispatch_decision` and `tool_approval` frames.
+- `/agent/connect?token=` — the daemon. First frame: `{type:"hello",device_id}`.
+  Broker → daemon: `new_dispatch`, `sign_request`, `cancel_dispatch`,
+  `dispatch_decision`, `tool_approval`. Daemon → broker: `signed`,
+  `dispatch_status`, `dispatch_event`.
+- `/inbox?token=` — the recipient's browser. Streams inbox + per-dispatch
+  events; sends `dispatch_decision` and `tool_approval`.
+- `/dispatch/{id}/watch?token=` — the sender's browser; streams events.
 
-### DispatchEvent shape (uniform across all layers)
+### Signing
 
-```json
-{ "type": "agent_text",         "data": { "text": "..." } }
-{ "type": "tool_use",           "data": { "name": "Bash", "input": {...} } }
-{ "type": "tool_result",        "data": { "content": "...", "is_error": false } }
-{ "type": "permission_request", "data": { "id": "...", "tool": "Write", "input": {...} } }
-{ "type": "permission_response","data": { "tool": "Write", "decision": "allow" } }
-{ "type": "dispatch_status",    "data": { "status": "running" } }
-{ "type": "done",               "data": { "subtype": "success", "duration_ms": 4200, ... } }
-{ "type": "error",              "data": { "exception": "...", "message": "..." } }
-```
-
-### DispatchPayload (signed-over envelope)
-
-```json
-{
-  "dispatch_id": "8e3a...",
-  "sender_id": "you",
-  "recipient_id": "teammate",
-  "task": "...",
-  "created_at": "2026-05-19T18:00:00Z",
-  "expires_at": "2026-05-19T19:00:00Z",
-  "metadata": {}
-}
-```
-
----
-
-## Safety model (current)
-
-- The recipient's agent runs with `permission_mode="default"`. Read-only
-  tools (`Read`, `Glob`, `Grep`) are auto-approved. `Write`, `Edit`, and
-  `Bash` require a click in the recipient's broker UI tab; auto-deny after 120s.
-- The recipient must `Accept` the whole dispatch before any agent runs.
-  Auto-expire after 5 minutes if not answered.
-- The agent runs with `cwd=./workspace` by default. `Bash` itself is **not**
-  sandboxed to that directory — clicking Allow on a shell command means
-  trusting it the way you'd trust typing it yourself.
-- Tokens are JWTs signed with `DISPATCH_JWT_SECRET`. Anyone with the secret
-  can forge tokens; keep it on the broker only.
+The signed canonical payload (`shared/signing.py`, deterministic sorted-key
+JSON) covers: `instruction`, `sender_device`, `recipient_user`,
+`target_device`, `nonce`, `created_at`. The sender's daemon signs it
+(Ed25519); the recipient's daemon rebuilds the identical bytes and verifies
+against the sender device's public key — **pinned on first sight (TOFU)** in
+`~/.dispatch/pins.json`, so the broker can't swap a key later. Replay is
+caught by a per-`(device,nonce)` guard; staleness by a 5-minute window.
 
 ---
 
@@ -316,49 +220,69 @@ results.
 ```
 src/dispatch/
   shared/
-    schema.py        DispatchPayload, DispatchEvent, DispatchStatus, models
-    identity.py      JWT issue/verify (HS256, configurable secret)
+    schema.py     DispatchPayload, DispatchEvent, DispatchStatus, Scopes, …
+    identity.py   JWT issue/verify (HS256)
+    crypto.py     Ed25519 keypair / sign / verify (PyNaCl)
+    signing.py    canonical dispatch payload — what a signature covers
   executor/
-    executor.py      run_dispatch() — transport-agnostic, reused by daemon
+    executor.py   run_dispatch() — opens the agent session, scoped tools
   broker/
-    schema.sql       Postgres tables (idempotent, run on startup)
-    store.py         Postgres data access (asyncpg) — the only SQL in the app
-    state.py         runtime-only WS connections (agents, watchers, inboxes)
-    email.py         magic-link email (Resend, or console in dev)
-    app.py           FastAPI broker: auth, dispatch routing, WS endpoints
+    schema.sql    Postgres tables (idempotent)
+    store.py      all SQL (asyncpg): users, devices, trust, dispatches, …
+    state.py      runtime-only WS connections
+    email.py      magic-link + invitation email (Resend, or dev console)
+    app.py        FastAPI broker — auth, devices, trust, dispatch, WS
   daemon/
-    main.py          dispatch-daemon CLI — pure WS client, no UI
-  web/
-    app/             the single unified web UI (served by the broker)
+    main.py       dispatch-daemon — WS client, signer, verifier, runner
+    identity.py   device keypair, keychain, enrollment, key pins
+  web/app/        the unified web UI
 ```
 
 ---
 
-## Limitations on purpose (next things)
+## Security model & honest limitations
 
-- One recipient per dispatch; no fan-out to many.
-- No signed payloads — JWT bearer covers identity, but the broker is a
-  trusted relay. Sender-side keypairs would make it end-to-end verifiable.
-- No cancel / revoke for an in-flight dispatch.
-- Magic-link login trusts whoever controls the email inbox; fine for a team
-  tool, not a substitute for SSO.
+What the design **does** guarantee:
+
+- No dispatch runs without an accepted, in-scope, unexpired trust edge.
+- A dispatch is cryptographically tied to a device of the named sender; a
+  compromised broker cannot forge a sender or swap a pinned key.
+- The agent is confined to the edge's tools and (when set) path allowlist.
+- Revocation is immediate and cancels in-flight work.
+
+What it **does not** — known limitations, not papered over:
+
+- **Signing proves origin, not authorship.** Because composing happens in the
+  browser and the daemon signs what's relayed, a fully-compromised broker
+  could get a sender's daemon to sign a task the sender didn't type. Closing
+  this needs a trusted compose surface (composing in the daemon) — the design
+  doc's Phase 7 / §14 item.
+- **Key pinning is TOFU.** A broker compromised *before* a device's first
+  contact could seed a wrong key. Pin-at-trust-establishment would harden it.
+- **`DELETE /devices`** drops the device's connection (stopping its running
+  agents) but doesn't re-status individual dispatches — no per-dispatch
+  device tracking. `DELETE /trust` *is* precise.
+- **`Bash` is not path-checkable.** The `paths` allowlist is enforced on
+  `Read/Write/Edit/Glob/Grep`; granting `Bash` grants shell, full stop.
+- **No end-to-end encryption.** The broker relays plaintext instructions.
+  E2E (libsodium sealed boxes) is deferred (Phase 7).
+- In-memory replay-nonce set on the daemon resets on restart; the 5-minute
+  freshness window bounds the exposure.
 
 ---
 
 ## Troubleshooting
 
-- **`ModuleNotFoundError: dispatch`** — run with `--app-dir src` (broker) or
-  `python -m dispatch.daemon` from the repo root (daemon).
-- **Daemon: `handshake failed: 1008`** — your token is invalid or expired,
-  or the broker is running with a different `DISPATCH_JWT_SECRET` than the
-  one that issued the token.
-- **Daemon: `could not reach broker`** — `--broker` URL is wrong, the
-  broker isn't running, or your firewall/tunnel is blocking it.
-- **Recipient sees nothing in their inbox** — make sure their daemon is
-  running and connected (it logs `connected. Open https://broker… in a
-  browser…` when ready), and that they're signed into the broker URL in
-  a browser as the same user.
-- **Sender sees nothing after sending** — check the broker logs.
-  `pending → delivered` requires the recipient daemon to be connected
-  before the dispatch is created; otherwise the dispatch sits queued and
-  flips to `delivered` when the daemon next connects.
+- **`ModuleNotFoundError: dispatch`** — broker: run with `--app-dir src`;
+  daemon: `python -m dispatch.daemon` from the repo root, or use the
+  installed `dispatch-daemon`.
+- **`database: down` from `/health`** — `DATABASE_URL` unset or unreachable.
+- **Daemon `handshake failed` / 1008** — token invalid/expired, or the broker
+  has a different `DISPATCH_JWT_SECRET` than issued the token.
+- **`POST /dispatch` → 403** — no accepted trust edge to that recipient.
+  Invite them and have them accept first.
+- **`POST /dispatch` → 503** — your own daemon is offline; it has to sign.
+- **Dispatch rejected with `SignatureRejected`** — signature/nonce/freshness
+  failed, or the sender device's key changed since it was pinned.
+- **Recipient's inbox empty** — their daemon must be connected and they must
+  be signed in to the broker as the same user.

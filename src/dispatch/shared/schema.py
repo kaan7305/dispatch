@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime, timezone
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep")
 
 
 def utcnow() -> datetime:
@@ -30,6 +32,7 @@ class DispatchStatus(str, enum.Enum):
     denied = "denied"          # recipient pressed Reject (top-level)
     failed = "failed"          # exception during execution
     expired = "expired"        # past expires_at without acceptance
+    cancelled = "cancelled"    # trust edge revoked while in-flight
 
 
 class DispatchPayload(BaseModel):
@@ -63,6 +66,50 @@ class MagicLinkRequest(BaseModel):
     """Magic-link sign-in request body."""
 
     email: str = Field(..., min_length=3, max_length=254)
+
+
+class DeviceEnrollRequest(BaseModel):
+    """Daemon → broker body for POST /devices/enroll."""
+
+    label: str = Field(..., min_length=1, max_length=128)
+    public_key: str = Field(..., description="Ed25519 public key, base64-encoded")
+
+
+class Scopes(BaseModel):
+    """Per-trust-edge permissions. New edges default to least privilege:
+    read-only tools, manual approval of every tool call."""
+
+    tools: list[str] = Field(default_factory=lambda: ["Read", "Glob", "Grep"])
+    paths: list[str] = Field(default_factory=list)
+    approval: Literal["manual", "auto"] = "manual"
+    max_dispatches_per_day: int = Field(default=50, ge=1, le=10000)
+    expires_at: Optional[datetime] = None
+
+    @field_validator("tools")
+    @classmethod
+    def _known_tools(cls, value: list[str]) -> list[str]:
+        unknown = [t for t in value if t not in VALID_TOOLS]
+        if unknown:
+            raise ValueError(f"unknown tools: {unknown}; valid: {list(VALID_TOOLS)}")
+        return value
+
+
+class InvitationCreateRequest(BaseModel):
+    """Body for POST /invitations."""
+
+    to_email: str = Field(..., min_length=3, max_length=254)
+
+
+class AcceptInvitationRequest(BaseModel):
+    """Body for POST /invitations/{token}/accept. Omit scopes for defaults."""
+
+    scopes: Optional[Scopes] = None
+
+
+class TrustScopesUpdate(BaseModel):
+    """Body for PATCH /trust/{id}."""
+
+    scopes: Scopes
 
 
 DispatchEventType = Literal[

@@ -30,11 +30,10 @@ from claude_agent_sdk import (
 
 from dispatch.shared.schema import DispatchEvent, DispatchPayload
 
-# Tools auto-approved when no can_use_tool callback is provided.
-DEFAULT_ALLOWED_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-# Subset auto-approved when a callback IS provided. The callback gates
-# everything outside this list (Write, Edit, Bash by default).
-READ_ONLY_ALLOWED_TOOLS: list[str] = ["Read", "Glob", "Grep"]
+# Every built-in tool the agent could have. Anything not in the caller's
+# `allowed_tools` is sent to the SDK as a disallowed tool — the agent
+# cannot use it at all.
+ALL_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 TOOL_RESULT_TRUNCATE_BYTES = 8 * 1024
 
 
@@ -106,23 +105,33 @@ async def run_dispatch(
     payload: DispatchPayload,
     *,
     cwd: str | Path | None = None,
+    allowed_tools: list[str] | None = None,
     can_use_tool: CanUseTool | None = None,
 ) -> AsyncIterator[DispatchEvent]:
-    # `allowed_tools` maps to --allowedTools, which AUTO-APPROVES the
-    # named tools and bypasses can_use_tool. So when a callback is
-    # provided we pre-approve only read-only tools and let the callback
-    # gate the rest. Without a callback we fall back to acceptEdits and
-    # auto-approve the full set so the generator is still usable from a
-    # script.
+    """Run one dispatch.
+
+    `allowed_tools` is the set of tools the agent may use at all (the
+    trust edge's scope). Anything outside it is sent as a disallowed
+    tool so the agent can't even attempt it.
+
+    With `can_use_tool` set, NO tool is auto-approved — every in-scope
+    call is routed through the callback, which the caller uses to enforce
+    path scope and the manual/auto approval policy. Without a callback
+    (script use) the in-scope tools are auto-accepted.
+    """
+    in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
+    disallowed = [t for t in ALL_TOOLS if t not in in_scope]
+
     if can_use_tool is not None:
-        allowed = READ_ONLY_ALLOWED_TOOLS
+        sdk_allowed_tools: list[str] = []   # nothing auto-approved
         permission_mode = "default"
     else:
-        allowed = DEFAULT_ALLOWED_TOOLS
+        sdk_allowed_tools = in_scope
         permission_mode = "acceptEdits"
 
     options = ClaudeAgentOptions(
-        allowed_tools=allowed,
+        allowed_tools=sdk_allowed_tools,
+        disallowed_tools=disallowed,
         permission_mode=permission_mode,
         cwd=cwd,
         can_use_tool=can_use_tool,

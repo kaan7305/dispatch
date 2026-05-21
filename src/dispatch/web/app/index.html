@@ -38,7 +38,50 @@
       </div>
     </section>
 
+    <section id="invite-accept-section" class="panel" hidden>
+      <h2>Invitation</h2>
+      <p id="invite-detail"></p>
+      <div id="invite-scopes" class="scope-chooser">
+        <label>Tools this person's dispatches may use</label>
+        <div class="tool-checks">
+          <label><input type="checkbox" value="Read" checked /> Read</label>
+          <label><input type="checkbox" value="Glob" checked /> Glob</label>
+          <label><input type="checkbox" value="Grep" checked /> Grep</label>
+          <label><input type="checkbox" value="Write" /> Write</label>
+          <label><input type="checkbox" value="Edit" /> Edit</label>
+          <label><input type="checkbox" value="Bash" /> Bash</label>
+        </div>
+        <label>Tool approval</label>
+        <div class="approval-choice">
+          <label><input type="radio" name="approval" value="manual" checked /> Manual — approve every tool call</label>
+          <label><input type="radio" name="approval" value="auto" /> Auto — no per-tool prompts</label>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="invite-accept-btn" class="btn-allow">Accept</button>
+        <button id="invite-decline-btn" class="btn-deny">Decline</button>
+        <span id="invite-accept-status" class="status idle"></span>
+      </div>
+    </section>
+
     <div id="logged-in-view" hidden>
+      <section id="contacts-section" class="panel">
+        <div class="section-header">
+          <h2>Contacts</h2>
+        </div>
+        <form id="invite-form">
+          <label for="invite-email">Invite someone (lets them send dispatches to you)</label>
+          <div class="row">
+            <input id="invite-email" type="email" placeholder="teammate@example.com" autocomplete="off" />
+            <button type="submit">Invite</button>
+          </div>
+          <span id="invite-status" class="status idle"></span>
+          <a id="invite-dev-link" class="dev-link" target="_blank" rel="noopener" hidden>Open invite link →</a>
+        </form>
+        <div id="received-invites"></div>
+        <div id="trust-list"></div>
+      </section>
+
       <section id="compose-section" class="panel">
         <h2>Compose</h2>
         <form id="compose-form">

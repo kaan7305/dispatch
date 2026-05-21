@@ -233,3 +233,66 @@ details summary code {
 .permission-decided { font-size: 12px; color: var(--muted); font-style: italic; }
 
 .truncated { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+/* ── Contacts / trust ─────────────────────────────────────────── */
+.section-header { display: flex; align-items: center; justify-content: space-between; }
+.section-header h2 { margin: 0; }
+
+#invite-form { margin: 4px 0 14px; }
+#invite-dev-link { margin-top: 8px; }
+
+.contact-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.contact-head { display: flex; align-items: center; gap: 8px; }
+.contact-head strong { font-size: 14px; }
+.contact-dir { color: var(--muted); font-size: 12px; }
+.contact-head .btn-sm { margin-left: auto; }
+.contact-scopes {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.on  { background: var(--result); }
+.dot.off { background: var(--border); }
+
+.invite-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1d1d18;
+  border: 1px solid var(--tool);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.invite-card .btn-sm { margin-left: auto; }
+
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
+
+/* ── Invitation acceptance panel ──────────────────────────────── */
+#invite-accept-section { border-color: var(--tool); }
+.scope-chooser { margin: 12px 0; }
+.scope-chooser label { margin-top: 14px; }
+.tool-checks, .approval-choice { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.tool-checks label, .approval-choice label {
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-checks input, .approval-choice input { width: auto; }
+.approval-choice { flex-direction: column; gap: 6px; }

@@ -46,3 +46,63 @@ CREATE TABLE IF NOT EXISTS magic_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_magic_links_email ON magic_links(email);
+
+-- ============================================================================
+-- Trust & device network (added additively; references users(user_id) TEXT).
+-- ============================================================================
+
+-- A user may run the daemon on several machines; each is a device with its
+-- own Ed25519 signing keypair. Only the public key is ever stored here.
+CREATE TABLE IF NOT EXISTS devices (
+    device_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    label       TEXT NOT NULL,
+    public_key  BYTEA NOT NULL,                  -- Ed25519 public key, set once at enrollment
+    status      TEXT NOT NULL DEFAULT 'active',  -- active | revoked
+    last_seen   TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
+
+-- Directed trust edges: from_user may dispatch to to_user, within scopes.
+CREATE TABLE IF NOT EXISTS trust_links (
+    trust_link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_user     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    to_user       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    status        TEXT NOT NULL DEFAULT 'pending',  -- pending | accepted | revoked
+    scopes        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (from_user, to_user)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trust_to   ON trust_links(to_user)   WHERE status = 'accepted';
+CREATE INDEX IF NOT EXISTS idx_trust_from ON trust_links(from_user) WHERE status = 'accepted';
+
+-- How a trust edge gets created: an emailed single-use invite token.
+CREATE TABLE IF NOT EXISTS invitations (
+    invitation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_user     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    to_email      TEXT NOT NULL,
+    token         TEXT UNIQUE NOT NULL,            -- high-entropy, single-use
+    status        TEXT NOT NULL DEFAULT 'pending', -- pending | accepted | declined | expired
+    expires_at    TIMESTAMPTZ NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
+
+-- Trust-layer columns on dispatches. Nullable so pre-trust-layer rows and the
+-- schema's own idempotent re-runs stay valid.
+ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS trust_link_id UUID REFERENCES trust_links(trust_link_id);
+ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS sender_device UUID REFERENCES devices(device_id);
+ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS target_device UUID REFERENCES devices(device_id);
+ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS nonce         TEXT;
+ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS signature     BYTEA;
+
+-- Replay guard: a (sender_device, nonce) pair may be used at most once.
+-- Partial so the legacy rows (both columns NULL) are exempt.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_nonce
+    ON dispatches(sender_device, nonce)
+    WHERE sender_device IS NOT NULL AND nonce IS NOT NULL;
