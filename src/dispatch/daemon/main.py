@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import signal
+import ssl
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
+import certifi
 import websockets
 from claude_agent_sdk import (
     PermissionResultAllow,
@@ -124,6 +126,16 @@ def _broker_ws_url(broker: str, token: str) -> str:
     return urlunparse((scheme, p.netloc, "/agent/connect", "", f"token={token}", ""))
 
 
+def _ssl_context_for(url: str) -> ssl.SSLContext | None:
+    """Use certifi's CA bundle for TLS so macOS Pythons (which often
+    ship without a populated system CA store) can verify the broker's
+    certificate. Returns None for non-TLS URLs so plain ws:// still
+    works for local dev."""
+    if url.startswith("wss://"):
+        return ssl.create_default_context(cafile=certifi.where())
+    return None
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Resolution order for broker/token: CLI flag > env var > saved config file.
     config = _load_config()
@@ -189,9 +201,10 @@ async def run_session(args: argparse.Namespace) -> int:
 
     state = DaemonState()
     ws_url = _broker_ws_url(args.broker, args.token)
+    ssl_ctx = _ssl_context_for(ws_url)
     print(f"[daemon] connecting to broker: {args.broker}")
     try:
-        async with websockets.connect(ws_url, max_size=None) as ws:
+        async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
             # First frame identifies this device to the broker.
             await ws.send(json.dumps({"type": "hello", "device_id": device_id}))
             print(
