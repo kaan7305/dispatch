@@ -250,10 +250,15 @@ cat > "$HOME/.dispatch/config.json" <<EOF
 {{"broker": "$BROKER", "token": "$TOKEN"}}
 EOF
 
-# 4. Start it.
+# 4. Start it. If the installer's shell has an ANTHROPIC_API_KEY exported,
+#    pass it through so the daemon persists it to ~/.dispatch/config.json.
 DAEMON="$(command -v dispatch-daemon || echo "$HOME/.local/bin/dispatch-daemon")"
 echo "dispatch: installed. starting daemon (next time, just run: dispatch-daemon)"
-exec "$DAEMON"
+if [ -n "${{ANTHROPIC_API_KEY:-}}" ]; then
+  exec "$DAEMON" --anthropic-key "$ANTHROPIC_API_KEY"
+else
+  exec "$DAEMON"
+fi
 """
     return PlainTextResponse(content=script, media_type="text/x-shellscript")
 

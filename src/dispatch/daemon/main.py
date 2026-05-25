@@ -155,6 +155,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("DISPATCH_WORKSPACE", str(DEFAULT_WORKSPACE)),
         help="Working directory the agent operates in. Default: ./workspace",
     )
+    parser.add_argument(
+        "--anthropic-key",
+        default=os.environ.get("ANTHROPIC_API_KEY") or config.get("anthropic_api_key"),
+        help=(
+            "Anthropic API key the agent uses. "
+            "Saved to ~/.dispatch/config.json on first use — "
+            "bare `dispatch-daemon` reads it on later runs."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -178,14 +187,26 @@ async def run_session(args: argparse.Namespace) -> int:
         print(f"[daemon] device enrollment failed: {exc}", file=sys.stderr)
         return 5
 
-    # Remember broker + token + device so future runs can be a bare
-    # `dispatch-daemon`.
-    _save_config(broker=args.broker, token=args.token, device_id=device_id)
+    # If the user passed --anthropic-key (or env / saved config supplied one),
+    # make sure the agent SDK sees it AND it gets persisted so future bare
+    # `dispatch-daemon` runs Just Work.
+    if args.anthropic_key:
+        os.environ["ANTHROPIC_API_KEY"] = args.anthropic_key
+
+    # Remember broker + token + device + api key so future runs can be a
+    # bare `dispatch-daemon`. (None values are skipped by _save_config.)
+    _save_config(
+        broker=args.broker,
+        token=args.token,
+        device_id=device_id,
+        anthropic_api_key=args.anthropic_key,
+    )
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(
-            "warning: ANTHROPIC_API_KEY is not set; the agent will fail to run unless "
-            "the Claude Code CLI has its own session.",
+            "warning: ANTHROPIC_API_KEY is not set. Set it once with:\n"
+            "    dispatch-daemon --anthropic-key sk-ant-...\n"
+            "or export it in your shell. Without it the agent will fail to run.",
             file=sys.stderr,
         )
 
