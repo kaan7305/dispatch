@@ -37,13 +37,15 @@ from fastapi import (
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from dispatch.broker.email import send_invitation, send_magic_link
+from dispatch.broker.clerk import ClerkAuthError, extract_email, verify_clerk_token
+from dispatch.broker.email import send_invitation
 from dispatch.broker.state import STATE
 from dispatch.broker.store import STORE, StoredDispatch
 from dispatch.shared import crypto
 from dispatch.shared.identity import IdentityError, issue_token, verify_token
 from dispatch.shared.schema import (
     AcceptInvitationRequest,
+    ClerkExchangeRequest,
     DeviceEnrollRequest,
     DispatchCreateRequest,
     DispatchEvent,
@@ -51,15 +53,12 @@ from dispatch.shared.schema import (
     DispatchStatus,
     InvitationCreateRequest,
     LoginRequest,
-    MagicLinkRequest,
     Scopes,
     TrustScopesUpdate,
     utcnow,
 )
 
 INVITATION_TTL_DAYS = 7
-
-MAGIC_LINK_TTL_MINUTES = 15
 
 SIGN_TIMEOUT_S = 20.0
 
@@ -151,42 +150,52 @@ def _normalize_email(raw: str) -> Optional[str]:
     return email
 
 
-@app.post("/auth/request")
-async def auth_request(req: MagicLinkRequest) -> dict:
-    """Send a one-time magic-link email. If RESEND_API_KEY isn't set, the
-    link comes back in the response body (development convenience)."""
-    email = _normalize_email(req.email)
-    if not email:
-        raise HTTPException(status_code=400, detail="Invalid email")
+@app.post("/auth/clerk")
+async def auth_clerk(req: ClerkExchangeRequest) -> dict:
+    """Exchange a Clerk session JWT for a Dispatch JWT.
 
-    token = secrets.token_urlsafe(32)
-    expires_at = utcnow() + timedelta(minutes=MAGIC_LINK_TTL_MINUTES)
-    await STORE.create_magic_link(token, email, expires_at)
+    Browser flow: Clerk handles Google sign-in client-side, the SPA grabs
+    the session token via Clerk.session.getToken(), POSTs it here. The
+    broker verifies it against Clerk's JWKS, pulls the verified email out
+    of the claims, upserts the user, and returns a long-lived Dispatch
+    JWT — the same shape the daemon's install command bakes in."""
+    try:
+        claims = verify_clerk_token(req.clerk_token)
+        email = extract_email(claims)
+    except ClerkAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
 
-    link = f"{_public_url()}/auth/magic?token={token}"
-    result = await send_magic_link(email, link)
-
-    body: dict = {"status": "sent", "delivered": result.delivered, "email": email}
-    if not result.delivered and result.dev_link:
-        body["dev_link"] = result.dev_link
-    return body
+    normalized = _normalize_email(email)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Clerk returned an invalid email")
+    await STORE.upsert_user(normalized)
+    return {"user_id": normalized, "token": issue_token(normalized)}
 
 
-@app.get("/auth/magic")
-async def auth_magic(token: str):
-    """User clicks the magic link → exchange token for a JWT, then redirect
-    to the SPA with the JWT in the query string. The SPA picks it up,
-    stores it in localStorage, and strips the query string."""
-    email = await STORE.consume_magic_link(token)
-    if not email:
-        return RedirectResponse(url="/?auth_error=invalid_or_expired", status_code=302)
-    await STORE.upsert_user(email)
-    jwt_token = issue_token(email)
-    # We pass the JWT back via the redirect query string. The frontend
-    # extracts and removes it from the URL on load.
-    return RedirectResponse(
-        url=f"/?login_token={jwt_token}&user_id={email}", status_code=302
+@app.get("/config.js")
+async def config_js() -> PlainTextResponse:
+    """Tiny script the SPA loads before app.js so it knows which Clerk
+    instance to talk to. Read from env so secrets/URLs stay out of the
+    static assets."""
+    publishable = os.environ.get("CLERK_PUBLISHABLE_KEY", "")
+    frontend_api = (
+        os.environ.get("CLERK_FRONTEND_API", "")
+        .strip()
+        .rstrip("/")
+        .removeprefix("https://")
+        .removeprefix("http://")
     )
+    template = os.environ.get("CLERK_JWT_TEMPLATE", "dispatch")
+    body = (
+        "window.DISPATCH_CONFIG = "
+        + json.dumps({
+            "clerk_publishable_key": publishable,
+            "clerk_frontend_api": frontend_api,
+            "clerk_jwt_template": template,
+        })
+        + ";"
+    )
+    return PlainTextResponse(content=body, media_type="application/javascript")
 
 
 def _daemon_install_spec() -> str:

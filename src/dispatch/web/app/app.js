@@ -16,9 +16,6 @@ const installCmd = document.getElementById("install-cmd");
 const tokenDisplay = document.getElementById("token-display");
 const logoutBtn = document.getElementById("logout");
 const loginBtn = document.getElementById("login-btn");
-const linkSent = document.getElementById("link-sent");
-const linkSentMessage = document.getElementById("link-sent-message");
-const devLink = document.getElementById("dev-link");
 const loggedInView = document.getElementById("logged-in-view");
 const composeStatus = document.getElementById("compose-status");
 const inboxList = document.getElementById("inbox-list");
@@ -29,30 +26,14 @@ let inboxWs = null;
 const inboxCards = new Map();   // dispatch_id → card element wrapper
 const outboxCards = new Map();  // dispatch_id → card element wrapper
 
-// --- bootstrap: process /auth/magic and /invite/{token} redirects ---
+// Stash any /invite/{token}?invite=… param so it survives the Clerk
+// sign-in round-trip and gets picked up after we're logged in.
 (function consumeRedirects() {
   const params = new URLSearchParams(location.search);
-  const incomingToken = params.get("login_token");
-  const incomingUser = params.get("user_id");
-  const error = params.get("auth_error");
   const invite = params.get("invite");
-
-  if (incomingToken && incomingUser) {
-    token = incomingToken;
-    userId = incomingUser;
-    localStorage.setItem(STORAGE_TOKEN, token);
-    localStorage.setItem(STORAGE_USER, userId);
-  }
   if (invite) {
-    // Stash it — survives the magic-link login round-trip.
     localStorage.setItem(PENDING_INVITE_KEY, invite);
-  }
-  if (incomingToken || incomingUser || error || invite) {
     history.replaceState({}, "", location.pathname);
-  }
-  if (error === "invalid_or_expired") {
-    authStatus.className = "status error";
-    authStatus.textContent = "that link was invalid or expired — try again";
   }
 })();
 
@@ -66,8 +47,6 @@ function refreshAuth() {
     installCmd.textContent = `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
     logoutBtn.hidden = false;
     loginBtn.hidden = true;
-    document.getElementById("email").disabled = true;
-    linkSent.hidden = true;
     openInboxStream();
     loadContacts();
     maybeShowPendingInvite();
@@ -82,47 +61,72 @@ function refreshAuth() {
     installCmd.textContent = "";
     logoutBtn.hidden = true;
     loginBtn.hidden = false;
-    document.getElementById("email").disabled = false;
     closeInboxStream();
   }
 }
 refreshAuth();
 
-// ---------------- auth flow ----------------
+// ---------------- Clerk auth flow ----------------
 
-document.getElementById("login-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const email = document.getElementById("email").value.trim();
-  if (!email) return;
-  authStatus.className = "status running";
-  authStatus.textContent = "sending link…";
-  linkSent.hidden = true;
-  devLink.hidden = true;
+const CONFIG = window.DISPATCH_CONFIG || {};
+const CLERK_TEMPLATE = CONFIG.clerk_jwt_template || "dispatch";
+
+function waitForClerkScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Clerk) return resolve();
+    if (!CONFIG.clerk_publishable_key) {
+      return reject(new Error(
+        "Clerk is not configured — set CLERK_PUBLISHABLE_KEY and " +
+        "CLERK_FRONTEND_API on the broker."
+      ));
+    }
+    window.addEventListener("clerk-script-loaded", () => resolve(), { once: true });
+  });
+}
+
+let clerkReady = null;
+function ensureClerk() {
+  if (!clerkReady) {
+    clerkReady = (async () => {
+      await waitForClerkScript();
+      await window.Clerk.load();
+      // Sync any in-progress Clerk session into our broker JWT.
+      window.Clerk.addListener(({ user }) => {
+        if (user && !token) exchangeClerkForBrokerJwt();
+        if (!user && token) clearLocalSession();
+      });
+      if (window.Clerk.user && !token) await exchangeClerkForBrokerJwt();
+    })();
+  }
+  return clerkReady;
+}
+
+async function exchangeClerkForBrokerJwt() {
   try {
-    const res = await fetch("/auth/request", {
+    const clerkToken = await window.Clerk.session.getToken({ template: CLERK_TEMPLATE });
+    if (!clerkToken) throw new Error("Clerk returned no session token");
+    const res = await fetch("/auth/clerk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ clerk_token: clerkToken }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
-    authStatus.className = "status done";
-    authStatus.textContent = "link sent";
-    if (body.delivered) {
-      linkSentMessage.textContent = `Check ${body.email} for a sign-in link. It expires in 15 minutes.`;
-    } else {
-      linkSentMessage.textContent = "Dev mode: no email sent. Click the link below to sign in.";
-      devLink.href = body.dev_link;
-      devLink.hidden = false;
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`;
+      throw new Error(detail);
     }
-    linkSent.hidden = false;
+    const body = await res.json();
+    token = body.token;
+    userId = body.user_id;
+    localStorage.setItem(STORAGE_TOKEN, token);
+    localStorage.setItem(STORAGE_USER, userId);
+    refreshAuth();
   } catch (err) {
     authStatus.className = "status error";
     authStatus.textContent = `sign-in failed: ${err.message}`;
   }
-});
+}
 
-logoutBtn.addEventListener("click", () => {
+function clearLocalSession() {
   token = null;
   userId = null;
   localStorage.removeItem(STORAGE_TOKEN);
@@ -132,7 +136,32 @@ logoutBtn.addEventListener("click", () => {
   inboxList.innerHTML = "";
   outboxList.innerHTML = "";
   refreshAuth();
+}
+
+loginBtn.addEventListener("click", async () => {
+  authStatus.className = "status running";
+  authStatus.textContent = "opening sign-in…";
+  try {
+    await ensureClerk();
+    if (window.Clerk.user) {
+      await exchangeClerkForBrokerJwt();
+    } else {
+      window.Clerk.openSignIn({ afterSignInUrl: location.pathname });
+    }
+  } catch (err) {
+    authStatus.className = "status error";
+    authStatus.textContent = `sign-in failed: ${err.message}`;
+  }
 });
+
+logoutBtn.addEventListener("click", async () => {
+  try { await ensureClerk(); await window.Clerk.signOut(); } catch (_) {}
+  clearLocalSession();
+});
+
+// Bootstrap Clerk on page load so a returning user (Clerk session still
+// valid, broker JWT cleared) gets re-authed without clicking sign-in.
+ensureClerk().catch(() => { /* surfaced when user clicks Sign in */ });
 
 document.getElementById("copy-install").addEventListener("click", async (e) => {
   try {

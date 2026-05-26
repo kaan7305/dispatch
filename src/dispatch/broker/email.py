@@ -1,4 +1,4 @@
-"""Transactional email for Dispatch (magic links, invitations).
+"""Transactional email for Dispatch (invitations only).
 
 If RESEND_API_KEY is set, real emails go out via Resend's HTTP API.
 Otherwise the link is logged and returned in the API response so the
@@ -69,19 +69,6 @@ def _button_html(intro: str, link: str, label: str, footer: str) -> str:
         '<p style="color:#888;font-size:13px">Or paste this URL into your browser:</p>'
         f'<p style="color:#888;font-size:13px;word-break:break-all">{link}</p>'
         f'<p style="color:#888;font-size:13px">{footer}</p></div>'
-    )
-
-
-async def send_magic_link(to_email: str, link: str) -> SendResult:
-    return await _send(
-        to_email,
-        "Your Dispatch sign-in link",
-        _button_html("Click this link to sign in to Dispatch:", link, "Sign in",
-                     "This link expires in 15 minutes and can only be used once. "
-                     "If you didn't request it, ignore this email."),
-        f"Sign in to Dispatch:\n\n{link}\n\n"
-        "Expires in 15 minutes, single use. If you didn't request it, ignore this.",
-        link,
     )
 
 

@@ -37,15 +37,9 @@ CREATE TABLE IF NOT EXISTS pending_for_offline (
     PRIMARY KEY (user_id, dispatch_id)
 );
 
-CREATE TABLE IF NOT EXISTS magic_links (
-    token       TEXT PRIMARY KEY,
-    email       TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at  TIMESTAMPTZ NOT NULL,
-    used_at     TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_magic_links_email ON magic_links(email);
+-- Magic-link auth removed; sign-in is now Clerk (Google OAuth). The
+-- broker still mints daemon JWTs via DISPATCH_JWT_SECRET. Old deployments
+-- can drop the legacy table manually:  DROP TABLE IF EXISTS magic_links;
 
 -- ============================================================================
 -- Trust & device network (added additively; references users(user_id) TEXT).

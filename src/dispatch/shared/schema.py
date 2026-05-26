@@ -62,10 +62,11 @@ class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=128)
 
 
-class MagicLinkRequest(BaseModel):
-    """Magic-link sign-in request body."""
+class ClerkExchangeRequest(BaseModel):
+    """Body for POST /auth/clerk. The SPA sends the Clerk session JWT and
+    gets back a broker-issued Dispatch JWT in exchange."""
 
-    email: str = Field(..., min_length=3, max_length=254)
+    clerk_token: str = Field(..., min_length=10)
 
 
 class DeviceEnrollRequest(BaseModel):

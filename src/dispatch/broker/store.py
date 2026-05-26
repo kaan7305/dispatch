@@ -273,37 +273,6 @@ class Store:
             )
             return [r["dispatch_id"] for r in rows]
 
-    # ---------------- magic links ----------------
-
-    async def create_magic_link(
-        self, token: str, email: str, expires_at
-    ) -> None:
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO magic_links (token, email, expires_at)
-                VALUES ($1, $2, $3)
-                """,
-                token, email, expires_at,
-            )
-
-    async def consume_magic_link(self, token: str) -> Optional[str]:
-        """Returns the email if the token is valid (unused, unexpired) and
-        marks it used atomically. Returns None otherwise."""
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                UPDATE magic_links
-                SET used_at = NOW()
-                WHERE token = $1
-                  AND used_at IS NULL
-                  AND expires_at > NOW()
-                RETURNING email
-                """,
-                token,
-            )
-            return row["email"] if row else None
-
     # ---------------- devices ----------------
 
     async def enroll_device(
