@@ -1,5 +1,29 @@
-// Recipient local UI. Same-origin localhost — no auth header needed since
-// the daemon's local server only binds 127.0.0.1.
+// Recipient local UI. Bound to 127.0.0.1, plus a per-launch bearer token
+// the tray app delivers via URL fragment. Without the token, a drive-by
+// page hitting our origin can't drive the daemon.
+
+const TOKEN_KEY = "dispatch_local_token";
+const STORAGE_TOKEN_KEY = "dispatch_local_token_session";
+
+function readTokenFromFragment() {
+  // Bootstrap once: ?t=… in query OR #t=… in fragment.
+  const params = new URLSearchParams(location.search);
+  let t = params.get("t");
+  if (!t && location.hash.startsWith("#t=")) t = location.hash.slice(3);
+  if (t) {
+    sessionStorage.setItem(STORAGE_TOKEN_KEY, t);
+    history.replaceState({}, "", location.pathname);
+  }
+  return sessionStorage.getItem(STORAGE_TOKEN_KEY) || "";
+}
+
+const LOCAL_TOKEN = readTokenFromFragment();
+
+function authedFetch(url, init = {}) {
+  const headers = new Headers(init.headers || {});
+  if (LOCAL_TOKEN) headers.set("Authorization", `Bearer ${LOCAL_TOKEN}`);
+  return fetch(url, { ...init, headers });
+}
 
 const inboxList = document.getElementById("inbox-list");
 const emptyEl   = document.getElementById("empty");
@@ -9,7 +33,7 @@ const cards = new Map(); // dispatch_id → element
 
 (async function init() {
   try {
-    const s = await fetch("/api/session").then((r) => r.json());
+    const s = await authedFetch("/api/session").then((r) => r.json());
     if (s.user_id) signedIn.textContent = ` · signed in as ${s.user_id}`;
   } catch (_) {}
   await loadInbox();
@@ -17,7 +41,7 @@ const cards = new Map(); // dispatch_id → element
 })();
 
 async function loadInbox() {
-  const entries = await fetch("/api/inbox").then((r) => r.json());
+  const entries = await authedFetch("/api/inbox").then((r) => r.json());
   inboxList.innerHTML = "";
   cards.clear();
   for (const e of entries) renderEntry(e);
@@ -77,7 +101,7 @@ function renderActions(card, entry) {
 async function decide(id, decision, ...buttons) {
   for (const b of buttons) b.disabled = true;
   try {
-    const res = await fetch(`/api/dispatch/${id}/decision`, {
+    const res = await authedFetch(`/api/dispatch/${id}/decision`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision }),
@@ -121,7 +145,7 @@ function renderToolRequests(card, entry) {
 async function decideTool(dispatchId, requestId, decision, ...buttons) {
   for (const b of buttons) b.disabled = true;
   try {
-    const res = await fetch(
+    const res = await authedFetch(
       `/api/dispatch/${dispatchId}/tool/${requestId}/decision`,
       {
         method: "POST",
@@ -140,8 +164,10 @@ async function decideTool(dispatchId, requestId, decision, ...buttons) {
 }
 
 function openEventStream() {
-  const url = `${location.origin.replace(/^http/, "ws")}/ws/events`;
-  const ws = new WebSocket(url);
+  const wsUrl =
+    `${location.origin.replace(/^http/, "ws")}/ws/events` +
+    (LOCAL_TOKEN ? `?t=${encodeURIComponent(LOCAL_TOKEN)}` : "");
+  const ws = new WebSocket(wsUrl);
   ws.addEventListener("message", (msg) => {
     let data;
     try { data = JSON.parse(msg.data); } catch (_) { return; }

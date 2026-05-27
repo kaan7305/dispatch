@@ -7,15 +7,19 @@ Usage:
 
 What it does:
   - Connects to the broker via WebSocket as the authenticated user.
+  - Serves a local FastAPI app on 127.0.0.1 — the ONLY surface that can
+    resolve user-intent decisions (Accept/Reject + Allow/Deny). The broker
+    WS no longer carries approval messages, so a compromised broker can
+    never fabricate "user accepted" against this daemon.
   - For each `new_dispatch` from the broker:
-      1. Sends `dispatch_status: delivered`.
-      2. Waits for `dispatch_decision: accept` or `reject` from the broker
-         (which the recipient triggered in the unified web UI).
-      3. If accepted, runs run_dispatch() — destructive tool calls cause a
-         `permission_request` event to flow back through the broker to the
-         UI, where the user clicks Allow / Deny. The decision returns via
-         a `tool_approval` message from the broker.
-      4. Streams every executor event back to the broker.
+      1. Verifies signature, freshness, replay, TOFU pin.
+      2. Sends `dispatch_status: delivered` upstream, registers the
+         dispatch in LocalState so the locally-served UI renders it.
+      3. Waits for the user's Accept/Reject via the local API.
+      4. If accepted, runs run_dispatch(). Per-tool permission prompts
+         also resolve via the local API; out-of-scope calls auto-deny.
+      5. Streams every executor event back to the broker so the sender
+         can watch live, AND into LocalState for the recipient's local UI.
 
 The Claude Agent SDK runs in this process using THIS user's
 ANTHROPIC_API_KEY. The broker never touches the API key.
@@ -230,11 +234,16 @@ async def run_session(args: argparse.Namespace) -> int:
 
     # Local approval UI — the ONLY surface that resolves user-intent
     # decisions. The broker's WS no longer carries them.
-    from dispatch.daemon.local_app import LocalState, spawn as spawn_local_ui
-    local_state = LocalState(user_id=verify_token_user(args.token), broker_url=args.broker)
+    from dispatch.daemon.local_app import LocalState, issue_local_token, spawn as spawn_local_ui
+    local_state = LocalState(
+        user_id=verify_token_user(args.token),
+        broker_url=args.broker,
+        broker_token=args.token,
+    )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)
-    spawn_local_ui(local_state, state, port=local_port)
-    print(f"[daemon] local UI: http://127.0.0.1:{local_port}")
+    local_token = issue_local_token()
+    spawn_local_ui(local_state, state, local_token, port=local_port)
+    print(f"[daemon] local UI: http://127.0.0.1:{local_port}?t=<see ~/.dispatch/local.token>")
 
     ws_url = _broker_ws_url(args.broker, args.token)
     ssl_ctx = _ssl_context_for(ws_url)

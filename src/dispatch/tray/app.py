@@ -44,8 +44,8 @@ class DispatchTrayApp(rumps.App):
         self.menu = [
             self._status_item,
             None,
-            rumps.MenuItem("Open Inbox",       callback=self.open_inbox),
-            rumps.MenuItem("Open Web (broker)", callback=self.open_broker_ui),
+            rumps.MenuItem("Open Inbox",   callback=self.open_inbox),
+            rumps.MenuItem("Open Broker",  callback=self.open_broker_ui),
             None,
             rumps.MenuItem("Account…",          callback=self.show_account),
             rumps.MenuItem("Quit",              callback=self.quit_app),
@@ -158,8 +158,11 @@ class DispatchTrayApp(rumps.App):
                 ok="OK",
             )
             return
+        from dispatch.daemon.local_app import read_local_token
+        token = read_local_token()
+        suffix = f"#t={token}" if token else ""
         open_native_window(
-            f"http://127.0.0.1:{self.config.local_port}",
+            f"http://127.0.0.1:{self.config.local_port}/{suffix}",
             title="Dispatch — Inbox",
         )
 
