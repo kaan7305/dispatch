@@ -363,6 +363,76 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     async def revoke_device(device_id: str) -> Response:
         return await _broker_request("DELETE", f"/devices/{device_id}")
 
+    # ── WebSocket proxy for the sender's live "watch" view ──────────────
+    # Browser opens ws://127.0.0.1:8001/ws/dispatch/{id}?t=<local-token>
+    # Daemon opens wss://<broker>/dispatch/{id}/watch?token=<broker-jwt>
+    # and shuttles frames in both directions. Broker JWT never leaves the
+    # daemon; the SPA only ever sees the local bearer.
+    @app.websocket("/ws/dispatch/{dispatch_id}")
+    async def ws_dispatch_watch(
+        client_ws: WebSocket,
+        dispatch_id: str,
+        t: Optional[str] = Query(default=None),
+    ) -> None:
+        if not require_local_token_ws(t):
+            await client_ws.close(code=4401)
+            return
+        await client_ws.accept()
+        if not local_state.broker_token:
+            await client_ws.send_text(json.dumps({
+                "type": "error",
+                "data": {"message": "broker token unavailable", "exception": "Unauthenticated"},
+            }))
+            await client_ws.close()
+            return
+
+        broker_ws_url = (
+            local_state.broker_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://")
+            + f"/dispatch/{dispatch_id}/watch?token={local_state.broker_token}"
+        )
+
+        import ssl as _ssl
+        import certifi as _certifi
+        ssl_ctx = (
+            _ssl.create_default_context(cafile=_certifi.where())
+            if broker_ws_url.startswith("wss://")
+            else None
+        )
+
+        # websockets is already in our deps (daemon's broker WS uses it).
+        import websockets as _ws
+        try:
+            async with _ws.connect(broker_ws_url, max_size=None, ssl=ssl_ctx) as broker_ws:
+                async def client_to_broker() -> None:
+                    try:
+                        while True:
+                            msg = await client_ws.receive_text()
+                            await broker_ws.send(msg)
+                    except WebSocketDisconnect:
+                        pass
+
+                async def broker_to_client() -> None:
+                    try:
+                        async for msg in broker_ws:
+                            await client_ws.send_text(msg if isinstance(msg, str) else msg.decode())
+                    except _ws.ConnectionClosed:
+                        pass
+
+                done, pending = await asyncio.wait(
+                    [asyncio.create_task(client_to_broker()),
+                     asyncio.create_task(broker_to_client())],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+        except Exception as exc:
+            logger.warning("ws proxy failed: %s", exc)
+        finally:
+            try:
+                await client_ws.close()
+            except Exception:
+                pass
+
     if STATIC_DIR.exists():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
     return app

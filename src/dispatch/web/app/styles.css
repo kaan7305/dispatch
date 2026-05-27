@@ -6,7 +6,6 @@
   --muted: #8a93a6;
   --border: #2a2f3a;
   --accent: #7aa2ff;
-  --tool: #f0b86e;
   --result: #6ee7b7;
   --error: #f87171;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -19,61 +18,26 @@ body {
   color: var(--text);
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-main { max-width: 960px; margin: 0 auto; padding: 32px 24px 96px; }
-header h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: -0.01em; }
-.subtitle { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+main { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
+header h1 { margin: 0 0 4px; font-size: 32px; letter-spacing: -0.01em; }
+.subtitle { margin: 0 0 32px; color: var(--muted); font-size: 14px; }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 20px;
+  padding: 20px;
 }
 
 h2 {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--muted);
-  margin: 28px 0 12px;
+  margin: 24px 0 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-h2 .hint {
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 12px;
-  margin-left: 8px;
-}
-
-label {
-  display: block;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  margin-bottom: 6px;
-  margin-top: 12px;
-}
-label:first-of-type { margin-top: 0; }
-
-input, textarea {
-  width: 100%;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-family: var(--mono);
-  font-size: 14px;
-  resize: vertical;
-}
-input:focus, textarea:focus { outline: none; border-color: var(--accent); }
-input:disabled { opacity: 0.7; }
 
 .row { display: flex; gap: 8px; align-items: center; }
-.row input { flex: 1; }
 
 button {
   background: var(--accent);
@@ -81,74 +45,46 @@ button {
   border: 0;
   border-radius: 6px;
   font-weight: 600;
-  padding: 8px 16px;
+  padding: 9px 16px;
   cursor: pointer;
   font-size: 14px;
 }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-allow { background: var(--result); color: #0b0e14; }
-.btn-deny  { background: var(--error);  color: #0b0e14; }
-
-.actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 
 .status {
   font-size: 12px;
   color: var(--muted);
-  padding: 2px 8px;
+  margin-top: 12px;
+  padding: 4px 10px;
   border-radius: 4px;
   background: var(--panel-2);
+  display: inline-block;
 }
 .status.running { color: var(--accent); }
-.status.done { color: var(--result); }
-.status.error { color: var(--error); }
+.status.done    { color: var(--result); }
+.status.error   { color: var(--error); }
 
-.link-sent {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.link-sent p { margin: 0 0 8px; }
-.dev-link {
-  display: inline-block;
-  background: var(--accent);
-  color: #0b0e14;
-  padding: 6px 12px;
-  border-radius: 6px;
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 13px;
-}
-
-details summary { cursor: pointer; color: var(--muted); margin-top: 12px; font-size: 13px; }
-details summary code {
+.install-panel { margin-top: 24px; }
+.install-panel p { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
+.install-panel p strong { color: var(--text); }
+.install-panel code {
   font-family: var(--mono);
   background: var(--panel-2);
   padding: 1px 5px;
   border-radius: 4px;
+  font-size: 12px;
 }
-
-.daemon-setup {
-  margin-top: 14px;
-  padding: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.daemon-setup-label { margin: 0 0 8px; font-size: 13px; color: var(--text); }
 
 #install-cmd {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-family: var(--mono);
   font-size: 12px;
   word-break: break-all;
   white-space: pre-wrap;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--result);
 }
 
@@ -162,149 +98,24 @@ details summary code {
   white-space: pre-wrap;
   margin: 8px 0 0;
   color: var(--muted);
+  font-family: var(--mono);
 }
 
-#inbox-list, #outbox-list { display: flex; flex-direction: column; gap: 12px; }
+details summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-top: 16px;
+  font-size: 13px;
+}
 
-.dispatch-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px;
-}
-.dispatch-card header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.dispatch-id { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
-.task-text { font-size: 14px; margin: 6px 0 4px; color: var(--text); }
-.meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-.dispatch-actions { display: flex; gap: 8px; margin-bottom: 8px; }
-
-.events { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.event {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  background: var(--panel-2);
-}
-.event .tag {
+.primary-link {
   display: inline-block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.event-agent_text .tag { color: var(--accent); }
-.event-tool_use   .tag { color: var(--tool); }
-.event-tool_result .tag { color: var(--result); }
-.event-permission_request .tag { color: var(--tool); }
-.event-permission_response .tag { color: var(--result); }
-.event-done .tag { color: var(--result); }
-.event-error .tag { color: var(--error); }
-
-.event-tool_use { border-left: 3px solid var(--tool); }
-.event-tool_result { border-left: 3px solid var(--result); }
-.event-tool_result.error { border-left-color: var(--error); }
-.event-permission_request { border-left: 3px solid var(--tool); background: #1d1d18; }
-.event-permission_request.allowed { border-left-color: var(--result); }
-.event-permission_request.denied  { border-left-color: var(--error); }
-.event-error { border-left: 3px solid var(--error); }
-
-.event .body { white-space: pre-wrap; }
-.event .name { font-family: var(--mono); font-weight: 600; color: var(--tool); margin-bottom: 4px; }
-.event pre {
-  margin: 6px 0 0;
-  padding: 8px 10px;
-  background: var(--bg);
+  background: var(--accent);
+  color: #0b0e14;
+  padding: 9px 16px;
   border-radius: 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-}
-
-.permission-summary strong { font-family: var(--mono); color: var(--tool); }
-.permission-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.permission-actions button { padding: 6px 12px; font-size: 12px; }
-.permission-decided { font-size: 12px; color: var(--muted); font-style: italic; }
-.local-approval-note {
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--panel-2);
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
-}
-.local-approval-note code {
-  font-family: var(--mono);
-  color: var(--accent);
-}
-
-.truncated { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
-
-/* ── Contacts / trust ─────────────────────────────────────────── */
-.section-header { display: flex; align-items: center; justify-content: space-between; }
-.section-header h2 { margin: 0; }
-
-#invite-form { margin: 4px 0 14px; }
-#invite-dev-link { margin-top: 8px; }
-
-.contact-card {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-}
-.contact-head { display: flex; align-items: center; gap: 8px; }
-.contact-head strong { font-size: 14px; }
-.contact-dir { color: var(--muted); font-size: 12px; }
-.contact-head .btn-sm { margin-left: auto; }
-.contact-scopes {
-  margin-top: 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
-.dot.on  { background: var(--result); }
-.dot.off { background: var(--border); }
-
-.invite-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #1d1d18;
-  border: 1px solid var(--tool);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  text-decoration: none;
+  font-weight: 600;
   font-size: 14px;
 }
-.invite-card .btn-sm { margin-left: auto; }
-
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.empty { color: var(--muted); font-size: 13px; margin: 4px 0; }
-
-/* ── Invitation acceptance panel ──────────────────────────────── */
-#invite-accept-section { border-color: var(--tool); }
-.scope-chooser { margin: 12px 0; }
-.scope-chooser label { margin-top: 14px; }
-.tool-checks, .approval-choice { display: flex; flex-wrap: wrap; gap: 6px 16px; }
-.tool-checks label, .approval-choice label {
-  margin: 0;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 13px;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tool-checks input, .approval-choice input { width: auto; }
-.approval-choice { flex-direction: column; gap: 6px; }
+.primary-link:hover { filter: brightness(1.05); }

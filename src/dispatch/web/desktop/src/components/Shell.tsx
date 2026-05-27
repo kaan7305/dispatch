@@ -13,6 +13,7 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { ComposeDialog } from "./ComposeDialog";
 
 const NAV = [
   { to: "/inbox",   label: "Inbox",   Icon: InboxIcon  },
@@ -75,9 +76,11 @@ function Topbar({ email }: { email?: string }) {
 function Sidebar() {
   return (
     <aside className="w-60 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
-      <Button className="w-full justify-start gap-2 mb-3" size="lg">
-        <Zap className="size-4" /> Compose
-      </Button>
+      <ComposeDialog>
+        <Button className="w-full justify-start gap-2 mb-3" size="lg">
+          <Zap className="size-4" /> Compose
+        </Button>
+      </ComposeDialog>
       {NAV.map(({ to, label, Icon }) => (
         <NavLink
           key={to}

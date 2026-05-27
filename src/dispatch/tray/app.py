@@ -4,7 +4,13 @@ Thin supervisor. Reads ~/.dispatch/config.json. If the broker URL + JWT
 are missing it opens the broker's /install page in the user's browser
 (where Clerk handles Google sign-in and the install command is shown);
 otherwise it spawns the daemon in a background thread + event loop and
-provides menu items to open the locally-served approval UI.
+provides menu items to open the locally-served desktop UI.
+
+Also handles the dispatch:// URL scheme: when the broker install page
+launches `dispatch://configure?broker=...&token=...&user_id=...&api_key=...`
+after Clerk sign-in, macOS hands the URL to this process via Cocoa.
+We parse it, write config, and (re)start the daemon — turnkey onboarding
+with no terminal.
 """
 from __future__ import annotations
 
@@ -12,11 +18,16 @@ import asyncio
 import os
 import queue
 import threading
+import urllib.parse
 import webbrowser
 from pathlib import Path
 
+import objc
 import rumps
+from AppKit import NSAppleEventManager, NSObject
+from Foundation import NSURL  # type: ignore  # noqa: F401
 
+from dispatch.tray import autostart
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window
 
@@ -25,6 +36,29 @@ DEFAULT_BROKER = os.environ.get("DISPATCH_BROKER", "").rstrip("/")
 ICON_OK     = "⬡ Dispatch"
 ICON_BUSY   = "◌ Dispatch"
 ICON_ERROR  = "⚠ Dispatch"
+
+
+class _URLHandler(NSObject):
+    """Cocoa delegate that receives dispatch:// URLs via Apple Events.
+
+    Stored on the DispatchTrayApp instance so that handleURL_ can forward
+    the parsed config back into the rumps event loop.
+    """
+    def initWithApp_(self, tray_app):  # noqa: N802 — ObjC selector
+        self = objc.super(_URLHandler, self).init()
+        if self is None:
+            return None
+        self._tray = tray_app  # type: ignore[attr-defined]
+        return self
+
+    def handleEvent_withReplyEvent_(self, event, _reply):  # noqa: N802
+        try:
+            descriptor = event.paramDescriptorForKeyword_(0x2D2D2D2D)  # '----'
+            url_string = descriptor.stringValue() if descriptor else ""
+        except Exception:
+            url_string = ""
+        if url_string and url_string.startswith("dispatch://"):
+            self._tray._on_main(lambda u=url_string: self._tray._handle_dispatch_url(u))
 
 
 class DispatchTrayApp(rumps.App):
@@ -36,19 +70,35 @@ class DispatchTrayApp(rumps.App):
         if DEFAULT_BROKER:
             self.config.broker = DEFAULT_BROKER
 
+        # Register the dispatch:// URL handler before rumps takes over the
+        # run loop. macOS routes Apple-Event URL opens here.
+        self._url_handler = _URLHandler.alloc().initWithApp_(self)
+        NSAppleEventManager.sharedAppleEventManager().setEventHandler_andSelector_forEventClass_andEventID_(
+            self._url_handler,
+            b"handleEvent:withReplyEvent:",
+            0x4755524C,  # 'GURL'
+            0x4755524C,  # 'GURL'
+        )
+
         self._daemon_loop: asyncio.AbstractEventLoop | None = None
         self._main_q: queue.Queue = queue.Queue()
         rumps.Timer(self._drain_main_queue, 0.1).start()
 
         self._status_item = rumps.MenuItem("Starting…")
+        self._autostart_item = rumps.MenuItem(
+            "Start at login", callback=self.toggle_autostart,
+        )
+        self._autostart_item.state = 1 if autostart.is_enabled() else 0
+
         self.menu = [
             self._status_item,
             None,
             rumps.MenuItem("Open Inbox",   callback=self.open_inbox),
             rumps.MenuItem("Open Broker",  callback=self.open_broker_ui),
             None,
-            rumps.MenuItem("Account…",          callback=self.show_account),
-            rumps.MenuItem("Quit",              callback=self.quit_app),
+            self._autostart_item,
+            rumps.MenuItem("Account…",     callback=self.show_account),
+            rumps.MenuItem("Quit",         callback=self.quit_app),
         ]
 
         rumps.Timer(self._on_startup, 0.3).start()
@@ -169,6 +219,59 @@ class DispatchTrayApp(rumps.App):
     def open_broker_ui(self, _: rumps.MenuItem | None) -> None:
         target = self.config.broker or "https://web-production-700f0.up.railway.app"
         webbrowser.open(target)
+
+    # ------------------------------------------------------------------
+    # dispatch:// URL handler
+    # ------------------------------------------------------------------
+
+    def _handle_dispatch_url(self, url: str) -> None:
+        """Parse a dispatch://configure?broker=...&token=...&user_id=...
+        URL, persist the values, and start the daemon if it wasn't already
+        running. Called on the main thread."""
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme != "dispatch" or parsed.netloc != "configure":
+            return
+        params = urllib.parse.parse_qs(parsed.query)
+
+        broker  = (params.get("broker") or [""])[0].rstrip("/")
+        token   = (params.get("token") or [""])[0]
+        api_key = (params.get("api_key") or [""])[0]
+        if not (broker and token):
+            rumps.alert(
+                title="Dispatch — bad install link",
+                message="The link was missing broker URL or token. Try again from the install page.",
+                ok="OK",
+            )
+            return
+
+        was_complete = self.config.is_complete()
+        self.config.broker = broker
+        self.config.token = token
+        if api_key:
+            self.config.anthropic_api_key = api_key
+        self.config.save()
+
+        if not was_complete:
+            self._start_daemon()
+            rumps.notification(
+                title="Dispatch is configured",
+                subtitle=f"Signed in. Daemon starting…",
+                message="Click the menu bar icon → Open Inbox.",
+            )
+        else:
+            rumps.notification(
+                title="Dispatch credentials updated",
+                subtitle="Restart the app to pick up the new token.",
+                message="",
+            )
+
+    def toggle_autostart(self, item: rumps.MenuItem) -> None:
+        if autostart.is_enabled():
+            autostart.disable()
+            item.state = 0
+        else:
+            autostart.enable()
+            item.state = 1
 
     def show_account(self, _: rumps.MenuItem) -> None:
         from dispatch.daemon.main import verify_token_user

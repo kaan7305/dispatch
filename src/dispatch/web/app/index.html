@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dispatch</title>
+  <title>Dispatch — Install</title>
   <link rel="stylesheet" href="/styles.css" />
   <script src="/config.js"></script>
   <script>
@@ -27,7 +27,12 @@
   <main>
     <header>
       <h1>Dispatch</h1>
-      <p class="subtitle">Send agentic tasks to teammates. Their daemon runs them on their machine after they approve, and you watch the agent work live.</p>
+      <p class="subtitle">
+        Send agentic tasks to teammates. Their daemon runs them locally,
+        with their approval. This page exists only to sign you in and hand
+        you the install command — once Dispatch is running on your
+        machine, you'll use the desktop app from there on.
+      </p>
     </header>
 
     <section id="auth-section" class="panel">
@@ -36,87 +41,29 @@
         <button type="button" id="logout" hidden>Sign out</button>
       </div>
       <div id="auth-status" class="status idle">not signed in</div>
-      <div id="daemon-setup" class="daemon-setup" hidden>
-        <p class="daemon-setup-label">To <strong>receive</strong> dispatches, run this once on your machine:</p>
+
+      <div id="install-panel" class="install-panel" hidden>
+        <h2>Already have Dispatch installed?</h2>
+        <p>One click sends your sign-in to the desktop app.</p>
+        <a id="open-app-link" class="primary-link">Open in Dispatch app →</a>
+
+        <h2>First time — install</h2>
+        <p>Run this once in your terminal:</p>
         <pre id="install-cmd"></pre>
         <button id="copy-install" type="button">Copy install command</button>
+
+        <p style="margin-top:14px">
+          After install a menu bar icon appears. Click it →
+          <strong>Open Inbox</strong> and you're in.
+        </p>
+
         <details>
-          <summary>Already installed? Just run <code>dispatch-daemon</code>. (or show raw token)</summary>
+          <summary>Show raw token</summary>
           <pre id="token-display"></pre>
         </details>
       </div>
     </section>
-
-    <section id="invite-accept-section" class="panel" hidden>
-      <h2>Invitation</h2>
-      <p id="invite-detail"></p>
-      <div id="invite-scopes" class="scope-chooser">
-        <label>Tools this person's dispatches may use</label>
-        <div class="tool-checks">
-          <label><input type="checkbox" value="Read" checked /> Read</label>
-          <label><input type="checkbox" value="Glob" checked /> Glob</label>
-          <label><input type="checkbox" value="Grep" checked /> Grep</label>
-          <label><input type="checkbox" value="Write" /> Write</label>
-          <label><input type="checkbox" value="Edit" /> Edit</label>
-          <label><input type="checkbox" value="Bash" /> Bash</label>
-        </div>
-        <label>Tool approval</label>
-        <div class="approval-choice">
-          <label><input type="radio" name="approval" value="manual" checked /> Manual — approve every tool call</label>
-          <label><input type="radio" name="approval" value="auto" /> Auto — no per-tool prompts</label>
-        </div>
-      </div>
-      <div class="actions">
-        <button id="invite-accept-btn" class="btn-allow">Accept</button>
-        <button id="invite-decline-btn" class="btn-deny">Decline</button>
-        <span id="invite-accept-status" class="status idle"></span>
-      </div>
-    </section>
-
-    <div id="logged-in-view" hidden>
-      <section id="contacts-section" class="panel">
-        <div class="section-header">
-          <h2>Contacts</h2>
-        </div>
-        <form id="invite-form">
-          <label for="invite-email">Invite someone (lets them send dispatches to you)</label>
-          <div class="row">
-            <input id="invite-email" type="email" placeholder="teammate@example.com" autocomplete="off" />
-            <button type="submit">Invite</button>
-          </div>
-          <span id="invite-status" class="status idle"></span>
-          <a id="invite-dev-link" class="dev-link" target="_blank" rel="noopener" hidden>Open invite link →</a>
-        </form>
-        <div id="received-invites"></div>
-        <div id="trust-list"></div>
-      </section>
-
-      <section id="compose-section" class="panel">
-        <h2>Compose</h2>
-        <form id="compose-form">
-          <label for="recipient">Recipient email</label>
-          <input id="recipient" type="email" required placeholder="teammate@example.com" autocomplete="off" />
-          <label for="task">Task</label>
-          <textarea id="task" rows="4" required placeholder="What should their agent do?"></textarea>
-          <div class="actions">
-            <button type="submit">Send dispatch</button>
-            <span id="compose-status" class="status idle"></span>
-          </div>
-        </form>
-      </section>
-
-      <section id="inbox-section">
-        <h2>Inbox <span class="hint" id="daemon-hint">install &amp; run the daemon to receive dispatches</span></h2>
-        <div id="inbox-list"></div>
-      </section>
-
-      <section id="outbox-section">
-        <h2>Sent</h2>
-        <div id="outbox-list"></div>
-      </section>
-    </div>
   </main>
-
   <script src="/app.js"></script>
 </body>
 </html>

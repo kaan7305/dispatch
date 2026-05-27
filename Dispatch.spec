@@ -10,6 +10,13 @@ from pathlib import Path
 
 SRC = Path("src")
 WEB_DIR = SRC / "dispatch" / "web"
+DESKTOP_DIST = WEB_DIR / "desktop" / "dist"
+
+if not DESKTOP_DIST.exists():
+    raise SystemExit(
+        f"Desktop UI build not found at {DESKTOP_DIST}. "
+        "Run `pnpm --dir src/dispatch/web/desktop build` first."
+    )
 
 block_cipher = None
 
@@ -18,9 +25,9 @@ a = Analysis(
     pathex=[str(SRC)],
     binaries=[],
     datas=[
-        # Bundle the locally-served recipient SPA. The broker-hosted SPA
-        # (web/app) is served by the broker on Railway, not by this app.
-        (str(WEB_DIR / "recipient"), "dispatch/web/recipient"),
+        # Bundle the locally-served desktop SPA (React build output).
+        # local_app.py mounts this as the static root on 127.0.0.1.
+        (str(DESKTOP_DIST), "dispatch/web/desktop"),
     ],
     hiddenimports=[
         # rumps / PyObjC
@@ -123,5 +130,13 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
         "CFBundleShortVersionString": "0.1.0",
         "CFBundleName": "Dispatch",
+        # Register dispatch:// so the broker /install page can deep-link
+        # the installed app with the user's broker JWT after Clerk sign-in.
+        "CFBundleURLTypes": [
+            {
+                "CFBundleURLName": "com.dispatch.tray",
+                "CFBundleURLSchemes": ["dispatch"],
+            }
+        ],
     },
 )
