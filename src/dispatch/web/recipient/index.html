@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dispatch — Inbox</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Dispatch</h1>
+      <p class="subtitle">
+        Local approval surface — runs on your machine, never routes through the broker.
+        <span id="signed-in" class="muted"></span>
+      </p>
+    </header>
+
+    <section id="empty" class="panel" hidden>
+      <p class="muted">No pending dispatches. The daemon is connected and waiting.</p>
+    </section>
+
+    <section id="inbox-list"></section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

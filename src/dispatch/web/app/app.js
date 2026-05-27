@@ -469,24 +469,14 @@ function upsertInboxCard(d) {
       <div class="task-text">${escapeHtml(d.task)}</div>
       <div class="meta">created ${formatTime(d.created_at)} · expires ${formatTime(d.expires_at)}</div>
       <div class="dispatch-actions" data-actions hidden>
-        <button class="btn-allow" data-decision="accept">Accept</button>
-        <button class="btn-deny" data-decision="reject">Reject</button>
+        <span class="local-approval-note">Approve in the Dispatch app on your laptop
+        (<code>http://127.0.0.1:8001</code>). Approvals don't travel through the broker.</span>
       </div>
       <div class="events"></div>
     `;
     const statusEl = el.querySelector("[data-status]");
     const eventsEl = el.querySelector(".events");
     const actionsWrap = el.querySelector("[data-actions]");
-    el.querySelectorAll("[data-decision]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        sendInbox({
-          type: "dispatch_decision",
-          dispatch_id: d.dispatch_id,
-          decision: btn.dataset.decision,
-        });
-        actionsWrap.querySelectorAll("button").forEach((b) => (b.disabled = true));
-      });
-    });
     inboxList.prepend(el);
     card = { el, statusEl, eventsEl, actionsWrap };
     inboxCards.set(d.dispatch_id, card);
@@ -502,36 +492,14 @@ function refreshActions(card, status) {
 }
 
 function attachPermissionButtons(dispatchId, data, eventEl) {
-  const actions = document.createElement("div");
-  actions.className = "permission-actions";
-  const allow = document.createElement("button");
-  allow.className = "btn-allow";
-  allow.textContent = "Allow";
-  const deny = document.createElement("button");
-  deny.className = "btn-deny";
-  deny.textContent = "Deny";
-  const decided = document.createElement("span");
-  decided.className = "permission-decided";
-
-  const send = (decision) => {
-    if (allow.disabled) return;
-    allow.disabled = true;
-    deny.disabled = true;
-    decided.textContent = decision === "allow" ? "you allowed" : "you denied";
-    eventEl.classList.add(decision === "allow" ? "allowed" : "denied");
-    sendInbox({
-      type: "tool_approval",
-      dispatch_id: dispatchId,
-      request_id: data.id,
-      decision,
-    });
-  };
-  allow.addEventListener("click", () => send("allow"));
-  deny.addEventListener("click", () => send("deny"));
-  actions.appendChild(allow);
-  actions.appendChild(deny);
-  actions.appendChild(decided);
-  eventEl.querySelector(".body").appendChild(actions);
+  // Per-tool Allow/Deny moved to the daemon's local UI. The broker can no
+  // longer relay tool-approval messages to the daemon.
+  const note = document.createElement("div");
+  note.className = "permission-actions local-approval-note";
+  note.innerHTML =
+    "Approve in the Dispatch app on your laptop " +
+    "(<code>http://127.0.0.1:8001</code>).";
+  eventEl.querySelector(".body").appendChild(note);
 }
 
 function sendInbox(msg) {

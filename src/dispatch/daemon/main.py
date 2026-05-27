@@ -164,6 +164,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "bare `dispatch-daemon` reads it on later runs."
         ),
     )
+    parser.add_argument(
+        "--local-port",
+        type=int,
+        default=int(os.environ.get("DISPATCH_LOCAL_PORT", config.get("local_port") or 8001)),
+        help="Port for the local approval UI on 127.0.0.1. Default: 8001.",
+    )
     return parser.parse_args(argv)
 
 
@@ -221,6 +227,15 @@ async def run_session(args: argparse.Namespace) -> int:
         return 5
 
     state = DaemonState()
+
+    # Local approval UI — the ONLY surface that resolves user-intent
+    # decisions. The broker's WS no longer carries them.
+    from dispatch.daemon.local_app import LocalState, spawn as spawn_local_ui
+    local_state = LocalState(user_id=verify_token_user(args.token), broker_url=args.broker)
+    local_port = int(_load_config().get("local_port") or args.local_port or 8001)
+    spawn_local_ui(local_state, state, port=local_port)
+    print(f"[daemon] local UI: http://127.0.0.1:{local_port}")
+
     ws_url = _broker_ws_url(args.broker, args.token)
     ssl_ctx = _ssl_context_for(ws_url)
     print(f"[daemon] connecting to broker: {args.broker}")
@@ -229,10 +244,9 @@ async def run_session(args: argparse.Namespace) -> int:
             # First frame identifies this device to the broker.
             await ws.send(json.dumps({"type": "hello", "device_id": device_id}))
             print(
-                f"[daemon] connected. Open {args.broker} in a browser to see incoming "
-                "dispatches and respond to approval prompts."
+                f"[daemon] connected. Open http://127.0.0.1:{local_port} to approve dispatches."
             )
-            await handle_broker(ws, state, workspace, private_key)
+            await handle_broker(ws, state, workspace, private_key, local_state=local_state)
     except websockets.InvalidStatus as e:
         print(f"[daemon] handshake failed: {e}", file=sys.stderr)
         return 3
@@ -240,6 +254,22 @@ async def run_session(args: argparse.Namespace) -> int:
         print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
         return 4
     return 0
+
+
+def verify_token_user(jwt_token: str) -> str:
+    """Best-effort: pull the email out of the daemon's broker JWT so the
+    local UI can show 'signed in as X'. Decodes without verification — the
+    broker is the authority; this is purely cosmetic."""
+    try:
+        import base64
+        parts = jwt_token.split(".")
+        if len(parts) != 3:
+            return ""
+        pad = "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(parts[1] + pad))
+        return claims.get("sub") or ""
+    except Exception:
+        return ""
 
 
 def _paths_in_input(tool_name: str, tool_input: dict) -> list[str]:
@@ -333,6 +363,7 @@ async def handle_broker(
     state: DaemonState,
     workspace: Path,
     private_key: bytes,
+    local_state=None,
 ) -> None:
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
         await ws.send(
@@ -413,10 +444,13 @@ async def handle_broker(
                 )
                 continue
             did = str(payload.dispatch_id)
+            if local_state is not None:
+                local_state.on_new_dispatch(payload, msg.get("scopes"))
             task = asyncio.create_task(
                 process_dispatch(
                     payload, msg.get("scopes"), state, workspace,
                     send_status, send_event,
+                    local_state=local_state,
                 )
             )
             state.running[did] = task
@@ -432,20 +466,11 @@ async def handle_broker(
                 task.cancel()
                 print(f"[daemon] dispatch {str(did)[:8]}… cancelled (trust revoked)")
 
-        elif mtype == "dispatch_decision":
-            did = msg.get("dispatch_id")
-            decision = msg.get("decision")
-            fut = state.pending_decisions.get(did)
-            if fut and not fut.done() and decision in ("accept", "reject"):
-                fut.set_result(decision)
-
-        elif mtype == "tool_approval":
-            did = msg.get("dispatch_id")
-            req_id = msg.get("request_id")
-            decision = msg.get("decision")
-            fut = state.pending_approvals.get((did, req_id))
-            if fut and not fut.done() and decision in ("allow", "deny"):
-                fut.set_result(decision)
+        # Approval decisions (top-level Accept/Reject + per-tool Allow/Deny)
+        # are now resolved ONLY by the locally-served UI talking to the
+        # daemon's own HTTP server. The daemon ignores any such message
+        # arriving over the broker WS — a compromised broker must not be
+        # able to fabricate user intent.
 
 
 async def process_dispatch(
@@ -455,6 +480,7 @@ async def process_dispatch(
     workspace: Path,
     send_status,
     send_event,
+    local_state=None,
 ) -> None:
     dispatch_id = str(payload.dispatch_id)
     scope = Scopes(**(scopes_data or {}))
@@ -462,6 +488,21 @@ async def process_dispatch(
         f"[daemon] new dispatch {dispatch_id[:8]}… from {payload.sender_id}: "
         f"{payload.task!r} (tools={scope.tools}, approval={scope.approval})"
     )
+
+    # Mirror status + events into the local UI so the recipient sees live
+    # progress. The broker still gets the same updates for the sender's
+    # /watch view — these wrappers are additive.
+    if local_state is not None:
+        _orig_send_status = send_status
+        _orig_send_event = send_event
+
+        async def send_status(dispatch_id_, status):  # noqa: F811
+            local_state.on_status(dispatch_id_, status)
+            await _orig_send_status(dispatch_id_, status)
+
+        async def send_event(dispatch_id_, event):  # noqa: F811
+            local_state.on_event(dispatch_id_, event)
+            await _orig_send_event(dispatch_id_, event)
 
     # Step 1 — top-level Accept / Reject.
     decision_fut: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -530,6 +571,10 @@ async def process_dispatch(
         request_id = str(uuid.uuid4())
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         state.pending_approvals[(dispatch_id, request_id)] = fut
+        if local_state is not None:
+            local_state.on_pending_tool(
+                payload.dispatch_id, request_id, tool_name, tool_input
+            )
         await send_event(
             payload.dispatch_id,
             {
@@ -547,6 +592,8 @@ async def process_dispatch(
             decision = "deny"
         finally:
             state.pending_approvals.pop((dispatch_id, request_id), None)
+            if local_state is not None:
+                local_state.on_tool_resolved(payload.dispatch_id, request_id)
 
         await send_event(
             payload.dispatch_id,

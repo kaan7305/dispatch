@@ -36,9 +36,18 @@ dependencies = [
   "certifi>=2024",
 ]
 
+[project.optional-dependencies]
+# macOS tray app — only needed on the recipient's laptop if they want the
+# menu bar supervisor instead of running `dispatch-daemon` in a terminal.
+tray = [
+  "rumps>=0.4; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-WebKit>=10.0; sys_platform == 'darwin'",
+]
+
 [project.scripts]
-# Single command. Hides the python -m dispatch.daemon plumbing.
 dispatch-daemon = "dispatch.daemon.main:main"
+dispatch-tray   = "dispatch.tray.app:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/dispatch"
