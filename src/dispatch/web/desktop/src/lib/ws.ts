@@ -6,7 +6,7 @@ export type EventMessage =
   | { type: "dispatch_status"; dispatch_id: string; data: { status: string } }
   | { type: "dispatch_event"; dispatch_id: string; data: { type: string; data: unknown } };
 
-export function openEventStream(onMessage: (m: EventMessage) => void): () => void {
+function openWs(path: string, onMessage: (data: unknown) => void): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
   let backoff = 500;
@@ -14,11 +14,12 @@ export function openEventStream(onMessage: (m: EventMessage) => void): () => voi
   const connect = () => {
     if (closed) return;
     const url =
-      `${location.origin.replace(/^http/, "ws")}/ws/events` +
-      `?t=${encodeURIComponent(getToken())}`;
+      `${location.origin.replace(/^http/, "ws")}${path}` +
+      (path.includes("?") ? "&" : "?") +
+      `t=${encodeURIComponent(getToken())}`;
     ws = new WebSocket(url);
     ws.addEventListener("message", (e) => {
-      try { onMessage(JSON.parse(e.data) as EventMessage); } catch { /* ignore */ }
+      try { onMessage(JSON.parse(e.data)); } catch { /* ignore */ }
     });
     ws.addEventListener("open", () => { backoff = 500; });
     ws.addEventListener("close", () => {
@@ -34,4 +35,17 @@ export function openEventStream(onMessage: (m: EventMessage) => void): () => voi
     closed = true;
     ws?.close();
   };
+}
+
+export function openEventStream(onMessage: (m: EventMessage) => void): () => void {
+  return openWs("/ws/events", (raw) => onMessage(raw as EventMessage));
+}
+
+/** Live broker-side stream for a single dispatch — works for sent
+ *  dispatches the local daemon doesn't witness directly. */
+export function openDispatchWatch(
+  dispatchId: string,
+  onMessage: (data: unknown) => void,
+): () => void {
+  return openWs(`/ws/dispatch/${dispatchId}`, onMessage);
 }

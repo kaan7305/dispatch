@@ -7,6 +7,7 @@ import People from "./pages/People";
 import Saved from "./pages/Saved";
 import History from "./pages/History";
 import Devices from "./pages/Devices";
+import DispatchDetail from "./pages/DispatchDetail";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route index element={<Navigate to="/inbox" replace />} />
             <Route path="/inbox" element={<Inbox />} />
+            <Route path="/dispatch/:id" element={<DispatchDetail />} />
             <Route path="/people" element={<People />} />
             <Route path="/saved" element={<Saved />} />
             <Route path="/history" element={<History />} />

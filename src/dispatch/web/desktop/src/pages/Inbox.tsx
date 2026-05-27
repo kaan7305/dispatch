@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 import { api, type InboxEntry, type DispatchSummary } from "@/lib/api";
 import { openEventStream } from "@/lib/ws";
@@ -21,6 +22,7 @@ export default function Inbox() {
   const [tab, setTab]       = useState<Tab>("inbox");
   const [filter, setFilter] = useState<Filter>("all");
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const inbox = useQuery({
     queryKey: ["inbox"],
@@ -78,7 +80,8 @@ export default function Inbox() {
         ) : (
           rows.map((row) => (
             <DispatchRow
-              key={"dispatch_id" in row ? row.dispatch_id : ""}
+              key={row.dispatch_id}
+              dispatchId={row.dispatch_id}
               who={tab === "inbox"
                 ? (row as InboxEntry).sender_id
                 : (row as DispatchSummary).recipient_id}
@@ -90,6 +93,8 @@ export default function Inbox() {
                 tab === "inbox" &&
                 (row.status === "delivered" || row.status === "pending")
               }
+              showQuickDecision={tab === "inbox"}
+              onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
             />
           ))
         )}

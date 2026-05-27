@@ -1,10 +1,16 @@
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Check, X } from "lucide-react";
+
+import { api, type DispatchStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { initials, relativeTime } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 import { Badge } from "./ui/badge";
-import type { DispatchStatus } from "@/lib/api";
+import { Button } from "./ui/button";
 
 interface Props {
+  dispatchId: string;
   who: string;
   task: string;
   createdAt: string;
@@ -12,17 +18,35 @@ interface Props {
   hint?: string;
   onClick?: () => void;
   emphasized?: boolean;
+  /** When true and status is pending/delivered, show inline Accept/Reject. */
+  showQuickDecision?: boolean;
 }
 
 export function DispatchRow({
-  who, task, createdAt, status, hint, onClick, emphasized,
+  dispatchId, who, task, createdAt, status, hint, onClick, emphasized, showQuickDecision,
 }: Props) {
+  const decisionPending = status === "pending" || status === "delivered";
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
+  const decide = useMutation({
+    mutationFn: (decision: "accept" | "reject") => api.decide(dispatchId, decision),
+    onMutate: (d) => setBusy(d),
+    onSettled: () => {
+      setBusy(null);
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["dispatch", dispatchId] });
+    },
+  });
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick?.(); }}
       className={cn(
-        "w-full text-left flex items-start gap-4 px-6 py-4 border-b transition-colors",
-        "hover:bg-muted/50",
+        "w-full text-left flex items-start gap-4 px-6 py-4 border-b transition-colors cursor-pointer",
+        "hover:bg-muted/50 focus:outline-none focus-visible:bg-muted/60",
         emphasized && "bg-amber-50/60 hover:bg-amber-50",
       )}
     >
@@ -40,6 +64,31 @@ export function DispatchRow({
           {relativeTime(createdAt)}
         </div>
       </div>
-    </button>
+
+      {showQuickDecision && decisionPending && (
+        <div
+          className="flex gap-2 shrink-0 self-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => decide.mutate("reject")}
+          >
+            <X className="size-3.5" />
+            {busy === "reject" ? "…" : "Reject"}
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => decide.mutate("accept")}
+          >
+            <Check className="size-3.5" />
+            {busy === "accept" ? "…" : "Accept"}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

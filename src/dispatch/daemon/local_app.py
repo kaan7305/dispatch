@@ -206,11 +206,16 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
         return [_entry_summary(e) for e in local_state.entries.values()]
 
     @app.get("/api/dispatch/{dispatch_id}", dependencies=[Depends(require_local_token)])
-    async def dispatch_detail(dispatch_id: UUID) -> dict:
+    async def dispatch_detail(dispatch_id: UUID):
+        # Received dispatches live in the daemon's local state — return
+        # those directly (events stream into LocalState from the agent
+        # session, no network roundtrip).
         entry = local_state.entries.get(dispatch_id)
-        if entry is None:
-            raise HTTPException(status_code=404, detail="unknown dispatch")
-        return {**_entry_summary(entry), "events": entry.events}
+        if entry is not None:
+            return {**_entry_summary(entry), "events": entry.events}
+        # SENT dispatches and historical ones the daemon didn't witness
+        # locally: fall back to the broker (proxied with the broker JWT).
+        return await _broker_request("GET", f"/dispatch/{dispatch_id}")
 
     @app.post("/api/dispatch/{dispatch_id}/decision", dependencies=[Depends(require_local_token)])
     async def dispatch_decision(dispatch_id: UUID, body: _Decision) -> dict:

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 
 import { api, type DispatchSummary } from "@/lib/api";
@@ -63,9 +64,13 @@ function HistoryRow({
 }: {
   row: DispatchSummary & { _direction: "sent" | "received" };
 }) {
+  const navigate = useNavigate();
   const peer = row._direction === "sent" ? row.recipient_id : row.sender_id;
   return (
-    <button className="w-full text-left flex items-start gap-4 px-5 py-4 border-b last:border-b-0 hover:bg-muted/50">
+    <button
+      onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
+      className="w-full text-left flex items-start gap-4 px-5 py-4 border-b last:border-b-0 hover:bg-muted/50"
+    >
       <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">
         {initials(peer)}
       </div>
