@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Check, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch, openEventStream } from "@/lib/ws";
@@ -81,6 +81,13 @@ function DetailBody({
   const me = session.data?.user_id ?? "";
   const isRecipient = !!entry.recipient_id && entry.recipient_id === me;
   const decisionPending = entry.status === "pending" || entry.status === "delivered";
+  const cancellable = !(
+    entry.status === "completed" ||
+    entry.status === "failed" ||
+    entry.status === "denied" ||
+    entry.status === "expired" ||
+    entry.status === "cancelled"
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -89,6 +96,11 @@ function DetailBody({
           <ArrowLeft className="size-4" /> Back
         </Button>
         <StatusBadge status={entry.status} />
+        {cancellable && (
+          <div className="ml-auto">
+            <CancelButton dispatchId={entry.dispatch_id} />
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -102,10 +114,56 @@ function DetailBody({
             </Section>
           )}
           <Section title="Activity">
-            <EventStream events={entry.events ?? []} />
+            <EventStream
+              events={entry.events ?? []}
+              viewerRole={isRecipient ? "recipient" : "watcher"}
+            />
           </Section>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CancelButton({ dispatchId }: { dispatchId: string }) {
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const cancel = useMutation({
+    mutationFn: () => api.cancelDispatch(dispatchId),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["dispatch", dispatchId] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["sent"] });
+      setConfirming(false);
+    },
+  });
+
+  if (!confirming) {
+    return (
+      <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+        <Ban className="size-4" /> Cancel
+      </Button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Cancel this dispatch?</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setConfirming(false)}
+        disabled={cancel.isPending}
+      >
+        Keep
+      </Button>
+      <Button
+        size="sm"
+        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+        onClick={() => cancel.mutate()}
+        disabled={cancel.isPending}
+      >
+        {cancel.isPending ? "Cancelling…" : "Yes, cancel"}
+      </Button>
     </div>
   );
 }

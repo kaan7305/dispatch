@@ -736,6 +736,44 @@ async def update_trust(
     return {"status": "updated"}
 
 
+async def _cancel_one(dispatch_id: UUID, recipient_id: str) -> None:
+    """Mark a single dispatch cancelled, notify watchers, tell the
+    recipient's daemon to stop the agent task."""
+    await STORE.update_status(dispatch_id, DispatchStatus.cancelled)
+    await _broadcast_status(dispatch_id, recipient_id, DispatchStatus.cancelled)
+    agent_ws = STATE.pick_device_ws(recipient_id)
+    if agent_ws is not None:
+        try:
+            await agent_ws.send_text(
+                json.dumps({"type": "cancel_dispatch", "dispatch_id": str(dispatch_id)})
+            )
+        except Exception:
+            logger.exception("failed to push cancel_dispatch")
+
+
+@app.post("/dispatch/{dispatch_id}/cancel")
+async def cancel_dispatch(
+    dispatch_id: UUID, user_id: str = Depends(authed_user)
+) -> dict:
+    """Either party can cancel an in-flight dispatch. No-op once it's
+    already in a terminal state."""
+    stored = await STORE.get_dispatch(dispatch_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Unknown dispatch_id")
+    if stored.payload.sender_id != user_id and stored.payload.recipient_id != user_id:
+        raise HTTPException(status_code=403, detail="Not your dispatch")
+    if stored.status in (
+        DispatchStatus.completed,
+        DispatchStatus.failed,
+        DispatchStatus.denied,
+        DispatchStatus.expired,
+        DispatchStatus.cancelled,
+    ):
+        return {"status": "noop", "current_status": stored.status.value}
+    await _cancel_one(dispatch_id, stored.payload.recipient_id)
+    return {"status": "cancelled"}
+
+
 async def _cancel_inflight(trust_link_id: UUID) -> int:
     """Cancel every in-flight dispatch on a revoked edge: mark it
     cancelled, tell watchers, and tell the recipient's daemon to stop."""

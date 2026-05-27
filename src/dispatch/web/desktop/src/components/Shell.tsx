@@ -7,7 +7,7 @@ import {
   History as HistoryIcon,
   Monitor,
   Search,
-  Zap,
+  Plus,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -45,7 +45,7 @@ export function Shell() {
 function Topbar({ email }: { email?: string }) {
   return (
     <header className="flex items-center gap-4 border-b px-6 h-14">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <span className="text-xl font-semibold tracking-tight">Dispatch</span>
         <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
           Free
@@ -61,13 +61,13 @@ function Topbar({ email }: { email?: string }) {
           />
         </div>
       </div>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground shrink-0">
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-green-500" /> Online
         </span>
-        <span className="font-medium text-foreground">
+        <div className="grid place-items-center size-8 rounded-full bg-muted text-xs font-semibold text-foreground">
           {email ? initials(email) : "—"}
-        </span>
+        </div>
       </div>
     </header>
   );
@@ -77,8 +77,8 @@ function Sidebar() {
   return (
     <aside className="w-60 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
       <ComposeDialog>
-        <Button className="w-full justify-start gap-2 mb-3" size="lg">
-          <Zap className="size-4" /> Compose
+        <Button className="w-full justify-center gap-2 mb-3" size="lg">
+          <Plus className="size-4" /> Compose
         </Button>
       </ComposeDialog>
       {NAV.map(({ to, label, Icon }) => (

@@ -1,8 +1,7 @@
 export function initials(email: string): string {
+  // First letter only — Gmail-style avatar.
   const local = email.split("@")[0] ?? email;
-  const parts = local.split(/[._-]/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return local.slice(0, 2).toUpperCase();
+  return (local[0] ?? "?").toUpperCase();
 }
 
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });

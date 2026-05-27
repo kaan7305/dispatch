@@ -56,6 +56,10 @@ export const api = {
       `/api/dispatch/${dispatchId}/tool/${requestId}/decision`,
       { method: "POST", body: JSON.stringify({ decision }) },
     ),
+  cancelDispatch: (dispatchId: string) =>
+    request<{ status: string }>(`/api/dispatch/${dispatchId}/cancel`, {
+      method: "POST",
+    }),
 
   // ── Broker proxy ────────────────────────────────────────────────────
   compose: (body: ComposeRequest) =>

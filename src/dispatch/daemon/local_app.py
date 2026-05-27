@@ -365,6 +365,10 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     async def list_dispatches(role: str = Query(default="received")) -> Response:
         return await _broker_request("GET", "/dispatches", params={"role": role})
 
+    @app.post("/api/dispatch/{dispatch_id}/cancel", dependencies=[Depends(require_local_token)])
+    async def cancel_dispatch_endpoint(dispatch_id: UUID) -> Response:
+        return await _broker_request("POST", f"/dispatch/{dispatch_id}/cancel")
+
     @app.get("/api/devices", dependencies=[Depends(require_local_token)])
     async def list_devices() -> Response:
         return await _broker_request("GET", "/devices")

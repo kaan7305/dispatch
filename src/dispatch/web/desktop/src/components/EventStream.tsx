@@ -3,9 +3,12 @@ import type { DispatchEvent } from "@/lib/api";
 
 interface Props {
   events: DispatchEvent[];
+  /** Whose decisions matter for this view. "you" if the viewer is the
+   *  recipient, "them" if the viewer is just watching. */
+  viewerRole?: "recipient" | "watcher";
 }
 
-export function EventStream({ events }: Props) {
+export function EventStream({ events, viewerRole = "watcher" }: Props) {
   if (events.length === 0) {
     return (
       <div className="text-sm text-muted-foreground px-4 py-6 text-center border rounded-md">
@@ -16,13 +19,13 @@ export function EventStream({ events }: Props) {
   return (
     <div className="space-y-2">
       {events.map((event, i) => (
-        <EventCard key={i} event={event} />
+        <EventCard key={i} event={event} viewerRole={viewerRole} />
       ))}
     </div>
   );
 }
 
-function EventCard({ event }: { event: DispatchEvent }) {
+function EventCard({ event, viewerRole }: { event: DispatchEvent; viewerRole: "recipient" | "watcher" }) {
   switch (event.type) {
     case "agent_text":
       return (
@@ -49,21 +52,25 @@ function EventCard({ event }: { event: DispatchEvent }) {
       );
     }
 
-    case "permission_request":
+    case "permission_request": {
+      const whose = viewerRole === "recipient" ? "your" : "their";
       return (
         <Block tone="tool" label="Permission requested" name={stringFrom(event.data, "tool")}>
           <Json value={event.data["input"]} />
           <div className="mt-1 text-xs text-muted-foreground">
-            Waiting for your Allow / Deny.
+            Waiting for {whose} Allow / Deny.
           </div>
         </Block>
       );
+    }
 
-    case "permission_response":
+    case "permission_response": {
+      const subject = viewerRole === "recipient" ? "You" : "They";
+      const verb = event.data["decision"] === "allow" ? "allowed" : "denied";
       return (
         <Block
           tone={event.data["decision"] === "allow" ? "result" : "error"}
-          label={`You ${event.data["decision"] === "allow" ? "allowed" : "denied"}`}
+          label={`${subject} ${verb}`}
           name={stringFrom(event.data, "tool")}
         >
           {event.data["reason"] ? (
@@ -71,6 +78,7 @@ function EventCard({ event }: { event: DispatchEvent }) {
           ) : null}
         </Block>
       );
+    }
 
     case "dispatch_status":
       return (
