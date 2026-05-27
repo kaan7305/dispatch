@@ -177,7 +177,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-async def run_session(args: argparse.Namespace) -> int:
+async def run_session(args: argparse.Namespace, on_status=None) -> int:
+    """Run a single broker session.
+
+    on_status: optional callback called with one of
+        "enrolling" | "connecting" | "connected" | "disconnected"
+    so a supervisor (e.g. the tray app) can show live status.
+    """
+    def _emit(state: str) -> None:
+        if on_status is not None:
+            try:
+                on_status(state)
+            except Exception:
+                pass
+
     if not args.token:
         print(
             "error: no token. Sign in on the broker's web page, then either:\n"
@@ -186,6 +199,8 @@ async def run_session(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+
+    _emit("enrolling")
 
     # Device enrollment: ensure this machine has an Ed25519 keypair and a
     # broker-issued device_id. Generates the keypair on first run.
@@ -248,6 +263,7 @@ async def run_session(args: argparse.Namespace) -> int:
     ws_url = _broker_ws_url(args.broker, args.token)
     ssl_ctx = _ssl_context_for(ws_url)
     print(f"[daemon] connecting to broker: {args.broker}")
+    _emit("connecting")
     try:
         async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
             # First frame identifies this device to the broker.
@@ -255,6 +271,7 @@ async def run_session(args: argparse.Namespace) -> int:
             print(
                 f"[daemon] connected. Open http://127.0.0.1:{local_port} to approve dispatches."
             )
+            _emit("connected")
             await handle_broker(ws, state, workspace, private_key, local_state=local_state)
     except websockets.InvalidStatus as e:
         print(f"[daemon] handshake failed: {e}", file=sys.stderr)

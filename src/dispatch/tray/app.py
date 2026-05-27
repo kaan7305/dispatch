@@ -151,6 +151,20 @@ class DispatchTrayApp(rumps.App):
         from argparse import Namespace
         from dispatch.daemon.main import run_session, DEFAULT_WORKSPACE
 
+        def on_status(state: str) -> None:
+            if state == "enrolling":
+                self._set_status(ICON_BUSY, "Enrolling device…")
+            elif state == "connecting":
+                self._set_status(ICON_BUSY, "Connecting to broker…")
+            elif state == "connected":
+                user = self.config.token and (
+                    __import__("dispatch.daemon.main", fromlist=["verify_token_user"])
+                    .verify_token_user(self.config.token)
+                ) or "Dispatch"
+                self._set_status(ICON_OK, f"Online — {user}")
+            elif state == "disconnected":
+                self._set_status(ICON_BUSY, "Reconnecting…")
+
         backoff = 2
         while True:
             args = Namespace(
@@ -161,11 +175,11 @@ class DispatchTrayApp(rumps.App):
                 local_port=self.config.local_port,
             )
             try:
-                self._set_status(ICON_BUSY, "Connecting to broker…")
-                rc = await run_session(args)
+                self._set_status(ICON_BUSY, "Starting…")
+                rc = await run_session(args, on_status=on_status)
                 if rc == 0:
-                    # Clean disconnect — reconnect with short delay.
                     backoff = 2
+                    self._set_status(ICON_BUSY, "Reconnecting…")
                 else:
                     self._set_status(
                         ICON_ERROR, f"Daemon exited with code {rc}. Retrying…"

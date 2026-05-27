@@ -72,8 +72,12 @@ export const api = {
     request<{ status: string }>(`/api/invitations/${token}/decline`, {
       method: "POST",
     }),
-  dispatches: (role: "sent" | "received" = "received") =>
-    request<DispatchSummary[]>(`/api/dispatches?role=${role}`),
+  dispatches: async (role: "sent" | "received" = "received") => {
+    const body = await request<{ role: string; dispatches: DispatchSummary[] }>(
+      `/api/dispatches?role=${role}`,
+    );
+    return body.dispatches;
+  },
   devices: () => request<{ devices: Device[] }>("/api/devices"),
   revokeDevice: (id: string) =>
     request<{ status: string }>(`/api/devices/${id}`, { method: "DELETE" }),
@@ -95,7 +99,7 @@ export interface DispatchSummary {
   task: string;
   status: DispatchStatus;
   created_at: string;
-  expires_at: string;
+  expires_at?: string;
 }
 
 export interface TrustEdge {
