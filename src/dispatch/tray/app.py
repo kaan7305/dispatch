@@ -1,11 +1,16 @@
 """Dispatch menu-bar tray app — fully native, no browser needed.
 
 Windows:
-  • "Open Dispatch"  → native window → sender UI  (localhost:8000)
-  • Incoming task    → native window → consent UI  (localhost:8001)
+  • "Open Dispatch"  → native window → sender UI
+  • Incoming task    → native window → consent UI  (127.0.0.1:8001)
   • Friend request   → macOS notification
 
-Startup order:
+Startup order (remote broker):
+  1. Onboarding wizard   (first launch only)
+  2. Login to broker     (saves JWT token)
+  3. Start daemon loop   (own thread + event loop)
+
+Startup order (local broker, no DISPATCH_BROKER env var):
   1. Start local broker  (own thread + event loop, wait until listening)
   2. Onboarding wizard   (first launch only)
   3. Login to broker     (saves JWT token)
@@ -16,12 +21,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import queue
 import threading
 from pathlib import Path
 
-import certifi
 import rumps
-import ssl
 import websockets
 
 from dispatch.daemon.local_app import LocalState
@@ -30,8 +34,12 @@ from dispatch.shared.schema import DispatchPayload
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window, schedule_window
 
-BROKER_URL     = "http://127.0.0.1:8000"
-SENDER_UI_URL  = "http://127.0.0.1:8000"
+# If DISPATCH_BROKER is set, use the remote broker and skip running one locally.
+_REMOTE_BROKER = os.environ.get("DISPATCH_BROKER", "").rstrip("/")
+_USE_LOCAL_BROKER = not _REMOTE_BROKER
+
+BROKER_URL     = _REMOTE_BROKER or "http://127.0.0.1:8000"
+SENDER_UI_URL  = BROKER_URL
 CONSENT_UI_URL = "http://127.0.0.1:8001"
 
 ICON_CONNECTED  = "⬡ Dispatch"
@@ -48,6 +56,8 @@ class DispatchTrayApp(rumps.App):
         self._broker_loop: asyncio.AbstractEventLoop | None = None
         self._daemon_loop:  asyncio.AbstractEventLoop | None = None
         self._broker_ready = threading.Event()
+        self._main_q: queue.Queue = queue.Queue()
+        rumps.Timer(self._drain_main_queue, 0.1).start()
 
         self._status_item = rumps.MenuItem("Starting…")
         self._status_item.set_callback(None)
@@ -71,12 +81,14 @@ class DispatchTrayApp(rumps.App):
     def _on_startup(self, timer: rumps.Timer) -> None:
         timer.stop()
         self._set_status(ICON_CONNECTING, "Starting…")
-        self._start_broker()
-        import time as _time
-        self._startup_deadline = _time.time() + 30  # 30-second wall-clock timeout
-        # Persistent repeating timer on the main thread — avoids creating new timers in a
-        # loop, which makes NSTimer fire immediately instead of after the interval.
-        rumps.Timer(self._check_broker_ready, 0.2).start()
+        if _USE_LOCAL_BROKER:
+            self._start_broker()
+            import time as _time
+            self._startup_deadline = _time.time() + 30
+            rumps.Timer(self._check_broker_ready, 0.2).start()
+        else:
+            # Remote broker is already running — go straight to auth.
+            self._after_broker_ready()
 
     def _check_broker_ready(self, timer: rumps.Timer) -> None:
         import time as _time
@@ -197,11 +209,11 @@ class DispatchTrayApp(rumps.App):
 
         _orig = state.add_dispatch
         def _on_new_dispatch(payload: DispatchPayload) -> asyncio.Future:
-            rumps.notification(
+            self._on_main(lambda: rumps.notification(
                 title="New task from " + payload.sender_id,
                 subtitle=payload.task[:80],
                 message="Approve or deny in the Dispatch window.",
-            )
+            ))
             schedule_window(CONSENT_UI_URL, "Dispatch — Incoming Task")
             return _orig(payload)
         state.add_dispatch = _on_new_dispatch  # type: ignore[method-assign]
@@ -216,11 +228,11 @@ class DispatchTrayApp(rumps.App):
         backoff = 2
 
         def on_friend_request(from_user: str) -> None:
-            rumps.notification(
+            self._on_main(lambda: rumps.notification(
                 title="Friend request",
                 subtitle=f"{from_user} wants to connect",
                 message="Open Dispatch to accept or decline.",
-            )
+            ))
             schedule_window(SENDER_UI_URL, "Dispatch")
 
         while True:
@@ -243,9 +255,26 @@ class DispatchTrayApp(rumps.App):
         scheme = "wss" if p.scheme == "https" else "ws"
         return urlunparse((scheme, p.netloc, path, "", f"token={self.config.token}", ""))
 
+    def _drain_main_queue(self, _: rumps.Timer) -> None:
+        while True:
+            try:
+                fn = self._main_q.get_nowait()
+                fn()
+            except queue.Empty:
+                break
+
+    def _on_main(self, fn) -> None:
+        """Schedule fn to run on the main thread. Safe to call from any thread."""
+        if threading.current_thread() is threading.main_thread():
+            fn()
+        else:
+            self._main_q.put(fn)
+
     def _set_status(self, icon: str, detail: str) -> None:
-        self.title = icon
-        self._status_item.title = detail
+        self._on_main(lambda: (
+            setattr(self, "title", icon),
+            setattr(self._status_item, "title", detail),
+        ))
 
     # ------------------------------------------------------------------
     # Menu callbacks
