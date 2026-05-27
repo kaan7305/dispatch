@@ -15,12 +15,29 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { detail?: string };
-    throw new ApiError(res.status, body.detail || `HTTP ${res.status}`);
+    const body = await res.json().catch(() => ({} as unknown));
+    throw new ApiError(res.status, formatBrokerError(body, res.status));
   }
   // 204 No Content guard.
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+function formatBrokerError(body: unknown, status: number): string {
+  if (typeof body !== "object" || body === null) return `HTTP ${status}`;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    // FastAPI validation errors: [{ type, loc, msg, ... }, ...]
+    return detail
+      .map((e: { msg?: string; loc?: unknown[] }) => {
+        const loc = Array.isArray(e.loc) ? e.loc.join(".") : "";
+        return loc ? `${loc}: ${e.msg ?? JSON.stringify(e)}` : e.msg ?? JSON.stringify(e);
+      })
+      .join("; ");
+  }
+  if (detail) return JSON.stringify(detail);
+  return `HTTP ${status}`;
 }
 
 export const api = {

@@ -157,6 +157,7 @@ def _entry_summary(entry: InboxEntry) -> dict:
     return {
         "dispatch_id": str(p.dispatch_id),
         "sender_id": p.sender_id,
+        "recipient_id": p.recipient_id,
         "task": p.task,
         "created_at": p.created_at.isoformat(),
         "expires_at": p.expires_at.isoformat(),
@@ -168,6 +169,25 @@ def _entry_summary(entry: InboxEntry) -> dict:
 
 class _Decision(BaseModel):
     decision: str
+
+
+class _Compose(BaseModel):
+    recipient_id: str
+    task: str
+    expires_in_seconds: int = 3600
+    metadata: dict[str, Any] = {}
+
+
+class _ScopesUpdate(BaseModel):
+    scopes: dict[str, Any]
+
+
+class _Invite(BaseModel):
+    to_email: str
+
+
+class _AcceptInvite(BaseModel):
+    scopes: Optional[dict[str, Any]] = None
 
 
 def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI:
@@ -299,12 +319,6 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
             media_type=resp.headers.get("content-type", "application/json"),
         )
 
-    class _Compose(BaseModel):
-        recipient_id: str
-        task: str
-        expires_in_seconds: int = 3600
-        metadata: dict[str, Any] = {}
-
     @app.post("/api/compose", dependencies=[Depends(require_local_token)])
     async def compose(body: _Compose) -> Response:
         return await _broker_request("POST", "/dispatch", json_body=body.model_dump())
@@ -312,9 +326,6 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     @app.get("/api/trust", dependencies=[Depends(require_local_token)])
     async def list_trust() -> Response:
         return await _broker_request("GET", "/trust")
-
-    class _ScopesUpdate(BaseModel):
-        scopes: dict[str, Any]
 
     @app.patch("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def update_trust(trust_link_id: str, body: _ScopesUpdate) -> Response:
@@ -325,9 +336,6 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     @app.delete("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def revoke_trust(trust_link_id: str) -> Response:
         return await _broker_request("DELETE", f"/trust/{trust_link_id}")
-
-    class _Invite(BaseModel):
-        to_email: str
 
     @app.post("/api/invitations", dependencies=[Depends(require_local_token)])
     async def create_invitation(body: _Invite) -> Response:
@@ -342,9 +350,6 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     @app.get("/api/invitations/{token}", dependencies=[Depends(require_local_token)])
     async def get_invitation(token: str) -> Response:
         return await _broker_request("GET", f"/invitations/{token}", require_auth=False)
-
-    class _AcceptInvite(BaseModel):
-        scopes: Optional[dict[str, Any]] = None
 
     @app.post("/api/invitations/{token}/accept", dependencies=[Depends(require_local_token)])
     async def accept_invitation(token: str, body: _AcceptInvite) -> Response:
