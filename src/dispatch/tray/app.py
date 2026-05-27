@@ -47,7 +47,6 @@ class DispatchTrayApp(rumps.App):
             rumps.MenuItem("Open Inbox",       callback=self.open_inbox),
             rumps.MenuItem("Open Web (broker)", callback=self.open_broker_ui),
             None,
-            rumps.MenuItem("Sign in / install…", callback=self.open_install),
             rumps.MenuItem("Account…",          callback=self.show_account),
             rumps.MenuItem("Quit",              callback=self.quit_app),
         ]
@@ -61,16 +60,17 @@ class DispatchTrayApp(rumps.App):
     def _on_startup(self, timer: rumps.Timer) -> None:
         timer.stop()
         if not self.config.is_complete():
-            self._set_status(ICON_ERROR, "Not signed in — open install page")
+            broker = self.config.broker or "https://web-production-700f0.up.railway.app"
+            self._set_status(ICON_ERROR, "Not signed in — run installer")
             rumps.alert(
                 title="Dispatch is not signed in",
                 message=(
-                    "Open the install page to sign in with Google. "
-                    "After running the install command, restart the tray app."
+                    f"Visit {broker} in your browser, sign in with Google, "
+                    "and run the install command shown there. Then restart "
+                    "the tray app."
                 ),
-                ok="Open install page",
+                ok="OK",
             )
-            self.open_install(None)
             return
         self._start_daemon()
 
@@ -152,7 +152,11 @@ class DispatchTrayApp(rumps.App):
 
     def open_inbox(self, _: rumps.MenuItem | None) -> None:
         if not self.config.is_complete():
-            self.open_install(None)
+            rumps.alert(
+                title="Not signed in",
+                message="Run the install command first, then restart the tray app.",
+                ok="OK",
+            )
             return
         open_native_window(
             f"http://127.0.0.1:{self.config.local_port}",
@@ -161,10 +165,6 @@ class DispatchTrayApp(rumps.App):
 
     def open_broker_ui(self, _: rumps.MenuItem | None) -> None:
         target = self.config.broker or "https://web-production-700f0.up.railway.app"
-        webbrowser.open(target)
-
-    def open_install(self, _: rumps.MenuItem | None) -> None:
-        target = (self.config.broker or "https://web-production-700f0.up.railway.app").rstrip("/")
         webbrowser.open(target)
 
     def show_account(self, _: rumps.MenuItem) -> None:

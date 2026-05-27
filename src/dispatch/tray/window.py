@@ -33,9 +33,35 @@ _STYLE = (
 )
 
 
+def _find_open_window(title: str) -> NSWindow | None:
+    """Return a still-visible window with this title, pruning closed ones."""
+    alive: list[NSWindow] = []
+    found: NSWindow | None = None
+    for win in _open_windows:
+        try:
+            if not win.isVisible():
+                continue
+        except Exception:
+            continue
+        alive.append(win)
+        if found is None and str(win.title()) == title:
+            found = win
+    _open_windows[:] = alive
+    return found
+
+
 def open_native_window(url: str, title: str = "Dispatch", width: int = 1000, height: int = 680) -> None:
-    """Open a native Mac window with an embedded web view. Main thread only."""
+    """Open a native Mac window with an embedded web view, or raise an
+    existing window with the same title if one is already open. Main
+    thread only."""
     try:
+        existing = _find_open_window(title)
+        if existing is not None:
+            NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+            existing.makeKeyAndOrderFront_(None)
+            NSApp.activateIgnoringOtherApps_(True)
+            return
+
         win_frame = NSMakeRect(160, 160, width, height)
         web_frame = NSMakeRect(0, 0, width, height)
 
