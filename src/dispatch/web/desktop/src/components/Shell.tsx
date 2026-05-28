@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox as InboxIcon,
   Users,
@@ -8,11 +8,17 @@ import {
   Monitor,
   Search,
   Plus,
+  LogOut,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { initials } from "@/lib/format";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { ComposeDialog } from "./ComposeDialog";
 
 const NAV = [
@@ -65,11 +71,46 @@ function Topbar({ email }: { email?: string }) {
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-green-500" /> Online
         </span>
-        <div className="grid place-items-center size-8 rounded-full bg-muted text-xs font-semibold text-foreground">
-          {email ? initials(email) : "—"}
-        </div>
+        <AccountMenu email={email} />
       </div>
     </header>
+  );
+}
+
+function AccountMenu({ email }: { email?: string }) {
+  const qc = useQueryClient();
+  const signOut = useMutation({
+    mutationFn: () => api.signOut(),
+    onSuccess: (result) => {
+      // Drop the local token + clear cached state, then send the user
+      // back to the broker landing for a fresh Clerk sign-in.
+      sessionStorage.removeItem("dispatch_local_token");
+      qc.clear();
+      window.location.href = result.broker || "/";
+    },
+  });
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="grid place-items-center size-8 rounded-full bg-muted text-xs font-semibold text-foreground hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
+          {email ? initials(email) : "—"}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>{email || "Not signed in"}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onSelect={() => signOut.mutate()}
+        >
+          <LogOut className="size-4" /> Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -106,7 +147,3 @@ function Sidebar() {
   );
 }
 
-function initials(email: string): string {
-  const name = email.split("@")[0] ?? email;
-  return name.slice(0, 2).toUpperCase();
-}

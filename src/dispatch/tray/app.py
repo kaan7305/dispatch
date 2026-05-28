@@ -98,6 +98,7 @@ class DispatchTrayApp(rumps.App):
             None,
             self._autostart_item,
             rumps.MenuItem("Account…",     callback=self.show_account),
+            rumps.MenuItem("Sign out",     callback=self.sign_out),
             rumps.MenuItem("Quit",         callback=self.quit_app),
         ]
 
@@ -165,6 +166,11 @@ class DispatchTrayApp(rumps.App):
             elif state == "disconnected":
                 self._set_status(ICON_BUSY, "Reconnecting…")
 
+        def on_notification(title: str, subtitle: str, message: str) -> None:
+            self._on_main(lambda: rumps.notification(
+                title=title, subtitle=subtitle, message=message,
+            ))
+
         backoff = 2
         while True:
             args = Namespace(
@@ -176,7 +182,9 @@ class DispatchTrayApp(rumps.App):
             )
             try:
                 self._set_status(ICON_BUSY, "Starting…")
-                rc = await run_session(args, on_status=on_status)
+                rc = await run_session(
+                    args, on_status=on_status, on_notification=on_notification,
+                )
                 if rc == 0:
                     backoff = 2
                     self._set_status(ICON_BUSY, "Reconnecting…")
@@ -295,6 +303,43 @@ class DispatchTrayApp(rumps.App):
             message=f"Signed in as: {user}\nBroker: {self.config.broker or '(unset)'}",
             ok="OK",
         )
+
+    def sign_out(self, _: rumps.MenuItem) -> None:
+        """Forget the broker token and open the broker install page for a
+        fresh sign-in. The running daemon will fail to reconnect on its
+        next attempt — restarting the tray is the simplest follow-up."""
+        ok = rumps.alert(
+            title="Sign out of Dispatch?",
+            message=(
+                "This forgets your broker token on this device. Your "
+                "device keypair and Anthropic API key stay where they "
+                "are. You'll need to sign in again to receive or send."
+            ),
+            ok="Sign out",
+            cancel="Cancel",
+        )
+        if not ok:
+            return
+        from pathlib import Path
+        import json as _json
+        config_path = Path.home() / ".dispatch" / "config.json"
+        try:
+            cfg = _json.loads(config_path.read_text()) if config_path.exists() else {}
+        except Exception:
+            cfg = {}
+        cfg.pop("token", None)
+        cfg.pop("broker", None)
+        try:
+            config_path.write_text(_json.dumps(cfg, indent=2))
+            config_path.chmod(0o600)
+        except OSError:
+            pass
+        self.config.token = ""
+        self.config.broker = ""
+        webbrowser.open(
+            os.environ.get("DISPATCH_BROKER", "https://web-production-700f0.up.railway.app")
+        )
+        self._set_status(ICON_ERROR, "Signed out — restart to sign back in")
 
     def quit_app(self, _: rumps.MenuItem) -> None:
         loop = self._daemon_loop

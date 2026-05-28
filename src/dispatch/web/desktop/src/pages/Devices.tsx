@@ -4,6 +4,7 @@ import { Monitor, Plus, Server, Smartphone, Trash2 } from "lucide-react";
 import { api, type Device } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EnrollDeviceDialog } from "@/components/EnrollDeviceDialog";
 import { relativeTime } from "@/lib/format";
 
 export default function Devices() {
@@ -21,9 +22,11 @@ export default function Devices() {
     <div className="px-6 py-6 max-w-5xl">
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-2xl font-semibold">Devices</h1>
-        <Button>
-          <Plus className="size-4" /> Enroll new device
-        </Button>
+        <EnrollDeviceDialog>
+          <Button>
+            <Plus className="size-4" /> Enroll new device
+          </Button>
+        </EnrollDeviceDialog>
       </div>
       <p className="text-sm text-muted-foreground mb-6">
         Machines authorized to receive dispatches

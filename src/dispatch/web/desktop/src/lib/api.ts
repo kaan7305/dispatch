@@ -43,6 +43,12 @@ function formatBrokerError(body: unknown, status: number): string {
 export const api = {
   // ── Local-only (daemon hosts the state) ─────────────────────────────
   session: () => request<{ user_id: string; broker_url: string }>("/api/session"),
+  installCommand: () =>
+    request<{ command: string; broker: string }>("/api/install-command"),
+  signOut: () =>
+    request<{ status: string; broker: string }>("/api/sign-out", {
+      method: "POST",
+    }),
   inbox: () => request<InboxEntry[]>("/api/inbox"),
   dispatchDetail: (id: string) =>
     request<InboxEntry & { events: DispatchEvent[] }>(`/api/dispatch/${id}`),

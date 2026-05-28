@@ -7,6 +7,7 @@ import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InviteDialog } from "@/components/InviteDialog";
+import { EditPermissionsDialog } from "@/components/EditPermissionsDialog";
 
 interface PersonRowData {
   peer: string;
@@ -93,9 +94,17 @@ function PersonRow({
         {row.outgoing && <Badge variant="outline">You can dispatch to them</Badge>}
         {row.incoming && <Badge variant="outline">They can dispatch to you</Badge>}
       </div>
-      <Button variant="ghost" size="sm">
-        <Settings className="size-4" /> Edit permissions
-      </Button>
+      {row.incoming ? (
+        <EditPermissionsDialog edge={row.incoming}>
+          <Button variant="ghost" size="sm">
+            <Settings className="size-4" /> Edit permissions
+          </Button>
+        </EditPermissionsDialog>
+      ) : (
+        <Button variant="ghost" size="sm" disabled title="Only the recipient sets scopes — that's them on this edge">
+          <Settings className="size-4" /> Edit permissions
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"

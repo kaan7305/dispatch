@@ -177,12 +177,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-async def run_session(args: argparse.Namespace, on_status=None) -> int:
+async def run_session(
+    args: argparse.Namespace, on_status=None, on_notification=None,
+) -> int:
     """Run a single broker session.
 
     on_status: optional callback called with one of
         "enrolling" | "connecting" | "connected" | "disconnected"
     so a supervisor (e.g. the tray app) can show live status.
+
+    on_notification: optional callback `(title, subtitle, message)` invoked
+    on user-visible events (incoming dispatch, tool needing approval).
+    The tray app supplies this to post a macOS UserNotification.
     """
     def _emit(state: str) -> None:
         if on_status is not None:
@@ -254,10 +260,11 @@ async def run_session(args: argparse.Namespace, on_status=None) -> int:
         user_id=verify_token_user(args.token),
         broker_url=args.broker,
         broker_token=args.token,
+        notify=on_notification,
     )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)
     local_token = issue_local_token()
-    spawn_local_ui(local_state, state, local_token, port=local_port)
+    local_server = spawn_local_ui(local_state, state, local_token, port=local_port)
     print(f"[daemon] local UI: http://127.0.0.1:{local_port}?t=<see ~/.dispatch/local.token>")
 
     ws_url = _broker_ws_url(args.broker, args.token)
@@ -279,6 +286,11 @@ async def run_session(args: argparse.Namespace, on_status=None) -> int:
     except OSError as e:
         print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
         return 4
+    finally:
+        # Release the local-UI port before returning so the supervisor's
+        # reconnect loop can rebind it on the next iteration. Graceful
+        # uvicorn shutdown with a timeout, then a hard cancel as fallback.
+        await local_server.stop()
     return 0
 
 
@@ -419,6 +431,18 @@ async def handle_broker(
         except json.JSONDecodeError:
             continue
         mtype = msg.get("type")
+
+        if mtype == "error":
+            # Broker is telling us why it's about to close (e.g. unknown
+            # device, revoked, replaced by another connection). Surface it
+            # so users can see why their daemon keeps reconnecting.
+            data = msg.get("data", {}) or {}
+            print(
+                f"[daemon] broker error: {data.get('exception', 'Error')}: "
+                f"{data.get('message', raw)}",
+                file=sys.stderr,
+            )
+            continue
 
         if mtype == "sign_request":
             # The broker is asking THIS device (the sender) to sign a

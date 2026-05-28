@@ -21,7 +21,7 @@ import secrets
 import sys as _sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import UUID
 
 import httpx
@@ -87,12 +87,26 @@ class LocalState:
     Hook methods (on_*) are called from the daemon's event loop. They MUST
     be invoked from the same event loop the FastAPI app runs on, so the
     queued notifications can be scheduled directly.
+
+    `notify` is an optional OS-notification callback the tray app supplies.
+    It receives (title, subtitle, message) and is responsible for marshalling
+    to whatever thread the GUI requires. Headless `dispatch-daemon` leaves
+    it None.
     """
     user_id: str = ""
     broker_url: str = ""
     broker_token: str = ""   # Dispatch JWT — used by the proxy handlers, never returned to the SPA
     entries: dict[UUID, InboxEntry] = field(default_factory=dict)
     watchers: list[WebSocket] = field(default_factory=list)
+    notify: Optional[Callable[[str, str, str], None]] = None
+
+    def _push_notification(self, title: str, subtitle: str, message: str) -> None:
+        if self.notify is None:
+            return
+        try:
+            self.notify(title, subtitle, message)
+        except Exception:
+            logger.exception("notify callback failed")
 
     def on_new_dispatch(self, payload: DispatchPayload, scopes: dict | None) -> None:
         entry = InboxEntry(
@@ -102,6 +116,11 @@ class LocalState:
         )
         self.entries[payload.dispatch_id] = entry
         self._broadcast({"type": "inbox_new", "data": _entry_summary(entry)})
+        self._push_notification(
+            "New dispatch",
+            f"from {payload.sender_id}",
+            payload.task[:140],
+        )
 
     def on_status(self, dispatch_id: UUID, status: DispatchStatus) -> None:
         entry = self.entries.get(dispatch_id)
@@ -132,6 +151,16 @@ class LocalState:
         if entry is None:
             return
         entry.pending_tools[request_id] = {"tool": tool, "input": tool_input}
+        # Show enough to recognize the call without dumping the whole input.
+        preview = next(
+            (str(v) for v in tool_input.values() if isinstance(v, str) and v),
+            "",
+        )[:140]
+        self._push_notification(
+            "Permission needed",
+            f"{tool} on {entry.payload.sender_id}'s dispatch",
+            preview,
+        )
 
     def on_tool_resolved(self, dispatch_id: UUID, request_id: str) -> None:
         entry = self.entries.get(dispatch_id)
@@ -220,6 +249,40 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
             "user_id": local_state.user_id,
             "broker_url": local_state.broker_url,
         }
+
+    @app.get("/api/install-command", dependencies=[Depends(require_local_token)])
+    async def install_command() -> dict:
+        """Render the install one-liner the user paste-installs on a new
+        device. We assemble it daemon-side so the broker JWT never has to
+        appear as its own field in any SPA response."""
+        broker = local_state.broker_url.rstrip("/")
+        token = local_state.broker_token
+        return {
+            "command": f"curl -fsSL {broker}/install.sh | bash -s -- {token}",
+            "broker": broker,
+        }
+
+    @app.post("/api/sign-out", dependencies=[Depends(require_local_token)])
+    async def sign_out() -> dict:
+        """Clear the broker JWT from disk and from in-memory state so the
+        daemon can't authenticate any more. The tray app will detect the
+        disconnect and either show a re-sign-in alert or quit. We keep
+        device_id + anthropic_api_key so the next sign-in is one-step."""
+        from dispatch.daemon.main import _save_config, _load_config
+        cfg = _load_config()
+        cfg.pop("token", None)
+        cfg.pop("broker", None)
+        # Rewrite with the surviving fields.
+        from pathlib import Path
+        import json as _json
+        path = Path.home() / ".dispatch" / "config.json"
+        try:
+            path.write_text(_json.dumps(cfg, indent=2))
+            path.chmod(0o600)
+        except OSError:
+            pass
+        local_state.broker_token = ""
+        return {"status": "signed_out", "broker": local_state.broker_url}
 
     @app.get("/api/inbox", dependencies=[Depends(require_local_token)])
     async def inbox() -> list[dict]:
@@ -452,6 +515,29 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     return app
 
 
+@dataclass
+class LocalServer:
+    """Handle returned by spawn(). Lets the supervisor stop the uvicorn
+    server cleanly so the port is released before the next iteration
+    tries to bind."""
+    server: Any   # uvicorn.Server
+    task: asyncio.Task
+
+    async def stop(self, timeout: float = 3.0) -> None:
+        # Graceful path — flips Server.should_exit and lets uvicorn close
+        # the listen socket on its own loop. Falls back to cancel() if the
+        # server is stuck.
+        self.server.should_exit = True
+        try:
+            await asyncio.wait_for(self.task, timeout=timeout)
+        except (asyncio.TimeoutError, Exception):
+            self.task.cancel()
+            try:
+                await self.task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
 async def serve(
     local_state: LocalState,
     daemon_state,
@@ -473,8 +559,13 @@ def spawn(
     local_token: str,
     host: str = "127.0.0.1",
     port: int = 8001,
-) -> asyncio.Task:
-    """Fire-and-forget version: schedules serve() on the running loop."""
-    return asyncio.create_task(
-        serve(local_state, daemon_state, local_token, host=host, port=port)
-    )
+) -> LocalServer:
+    """Start the local UI server. Returns a handle whose stop() releases
+    the listen socket so the next iteration of a reconnect loop can
+    re-bind."""
+    import uvicorn
+    app = make_app(local_state, daemon_state, local_token)
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    return LocalServer(server=server, task=task)
