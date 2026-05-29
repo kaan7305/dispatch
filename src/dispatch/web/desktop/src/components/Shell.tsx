@@ -15,7 +15,7 @@ import {
 import { api } from "@/lib/api";
 import { openEventStream, type EventMessage } from "@/lib/ws";
 import { cn } from "@/lib/utils";
-import { avatarStyle, initials } from "@/lib/format";
+import { initials } from "@/lib/format";
 import { Button } from "./ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -82,34 +82,26 @@ export function Shell() {
 
 function Topbar({ email, online }: { email?: string; online: boolean }) {
   return (
-    <header className="flex items-center gap-4 border-b border-border/60 px-6 h-14 backdrop-blur bg-background/80">
-      <div className="flex items-center gap-2.5 shrink-0">
-        <span className="grid place-items-center size-6 rounded-md bg-gradient-to-br from-indigo-500 to-violet-600 text-white text-[10px] font-bold shadow-sm ring-1 ring-black/5">
-          D
-        </span>
-        <span className="text-[17px] font-semibold tracking-tight">Dispatch</span>
-        <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground ring-1 ring-inset ring-border/60">
+    <header className="flex items-center gap-4 border-b px-6 h-14">
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-xl font-semibold tracking-tight">Dispatch</span>
+        <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
           Free
         </span>
       </div>
       <div className="flex-1 max-w-xl">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
             placeholder="Search dispatches and people"
-            className="w-full rounded-lg border border-border/70 bg-secondary/30 pl-9 pr-3 py-1.5 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:bg-background transition-colors"
+            className="w-full rounded-lg border bg-secondary/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
       </div>
-      <div className="ml-auto flex items-center gap-3 text-sm shrink-0">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/50 px-2.5 py-1 text-xs text-muted-foreground ring-1 ring-inset ring-border/60">
-          <span className="relative inline-flex">
-            <span className={cn("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-amber-500")} />
-            {online && (
-              <span className="absolute inset-0 size-1.5 rounded-full bg-emerald-500 animate-ping opacity-75" />
-            )}
-          </span>
+      <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground shrink-0">
+        <span className="inline-flex items-center gap-1.5">
+          <span className={cn("size-2 rounded-full", online ? "bg-green-500" : "bg-amber-500 animate-pulse")} />
           {online ? "Online" : "Connecting…"}
         </span>
         <AccountMenu email={email} />
@@ -136,8 +128,7 @@ function AccountMenu({ email }: { email?: string }) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="grid place-items-center size-8 rounded-full text-xs font-semibold shadow-sm ring-1 ring-black/5 hover:scale-105 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          style={email ? avatarStyle(email) : undefined}
+          className="grid place-items-center size-8 rounded-full bg-muted text-xs font-semibold text-foreground hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
           {email ? initials(email) : "—"}
         </button>
@@ -158,12 +149,9 @@ function AccountMenu({ email }: { email?: string }) {
 
 function Sidebar() {
   return (
-    <aside className="w-60 shrink-0 border-r border-border/60 px-3 py-4 flex flex-col gap-0.5 bg-secondary/20">
+    <aside className="w-60 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
       <ComposeDialog>
-        <Button
-          className="w-full justify-center gap-2 mb-4 shadow-sm"
-          size="lg"
-        >
+        <Button className="w-full justify-center gap-2 mb-3" size="lg">
           <Plus className="size-4" /> Compose
         </Button>
       </ComposeDialog>
@@ -173,38 +161,20 @@ function Sidebar() {
           to={to}
           className={({ isActive }) =>
             cn(
-              "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
               isActive
-                ? "bg-background font-medium text-foreground shadow-sm ring-1 ring-border/40"
-                : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                ? "bg-secondary font-medium text-foreground"
+                : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
             )
           }
         >
-          {({ isActive }) => (
-            <>
-              <Icon
-                className={cn(
-                  "size-4 transition-colors",
-                  isActive ? "text-foreground" : "text-muted-foreground/80 group-hover:text-foreground",
-                )}
-              />
-              {label}
-            </>
-          )}
+          <Icon className="size-4" />
+          {label}
         </NavLink>
       ))}
-      <div className="mt-auto rounded-lg border border-border/60 bg-background/60 px-3 py-3 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="font-medium text-foreground">Free Plan</span>
-          <span className="text-muted-foreground">5 / 10</span>
-        </div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
-            style={{ width: "50%" }}
-          />
-        </div>
-        <div className="mt-1.5 text-muted-foreground">dispatches this month</div>
+      <div className="mt-auto pt-4 text-xs text-muted-foreground border-t">
+        <div>Free Plan</div>
+        <div>5 / 10 dispatches</div>
       </div>
     </aside>
   );

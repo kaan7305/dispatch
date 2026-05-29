@@ -24,7 +24,7 @@ const openAppLink  = document.getElementById("open-app-link");
 
 function refreshAuth() {
   if (token && userId) {
-    authStatus.textContent = `Signed in as ${userId}`;
+    authStatus.textContent = `signed in as ${userId}`;
     authStatus.className = "status done";
     installPanel.hidden = false;
     tokenDisplay.textContent = token;
@@ -42,7 +42,7 @@ function refreshAuth() {
     if (inviteBanner) inviteBanner.hidden = !inviteToken;
   } else {
     if (!authStatus.classList.contains("error")) {
-      authStatus.textContent = "Not signed in";
+      authStatus.textContent = "not signed in";
       authStatus.className = "status idle";
     }
     installPanel.hidden = true;
@@ -109,7 +109,7 @@ async function exchangeClerkForBrokerJwt() {
     refreshAuth();
   } catch (err) {
     authStatus.className = "status error";
-    authStatus.textContent = `Sign-in failed: ${err.message}`;
+    authStatus.textContent = `sign-in failed: ${err.message}`;
   }
 }
 
@@ -123,7 +123,7 @@ function clearLocalSession() {
 
 loginBtn.addEventListener("click", async () => {
   authStatus.className = "status running";
-  authStatus.textContent = "Opening sign-in…";
+  authStatus.textContent = "opening sign-in…";
   try {
     await ensureClerk();
     if (window.Clerk.user) {
@@ -133,7 +133,7 @@ loginBtn.addEventListener("click", async () => {
     }
   } catch (err) {
     authStatus.className = "status error";
-    authStatus.textContent = `Sign-in failed: ${err.message}`;
+    authStatus.textContent = `sign-in failed: ${err.message}`;
   }
 });
 

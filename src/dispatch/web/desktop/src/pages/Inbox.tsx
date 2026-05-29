@@ -43,24 +43,14 @@ export default function Inbox() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="px-6 pt-6 pb-3 flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {tab === "inbox" ? "Inbox" : "Sent"}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {tab === "inbox"
-              ? "Dispatches sent to you"
-              : "Dispatches you've sent"}
-          </p>
-        </div>
+      <div className="px-6 py-5 flex items-center gap-4">
         <SegmentedTabs
           options={[{ value: "inbox", label: "Inbox" }, { value: "sent", label: "Sent" }]}
           value={tab}
           onChange={setTab}
         />
       </div>
-      <div className="px-6 pb-3">
+      <div className="px-6 pb-2">
         <SegmentedTabs
           options={FILTERS}
           value={filter}
@@ -69,7 +59,7 @@ export default function Inbox() {
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto border-t border-border/60">
+      <div className="flex-1 overflow-y-auto border-t">
         {rows.length === 0 ? (
           <EmptyState
             inboxLoading={tab === "inbox" && inbox.isLoading}
