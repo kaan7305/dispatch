@@ -26,12 +26,15 @@
 <body>
   <main>
     <header>
-      <h1>Dispatch</h1>
+      <div class="brand">
+        <span class="brand-mark">D</span>
+        <span>Dispatch</span>
+      </div>
+      <h1>Sign in to Dispatch</h1>
       <p class="subtitle">
         Send agentic tasks to teammates. Their daemon runs them locally,
-        with their approval. This page exists only to sign you in and hand
-        you the install command — once Dispatch is running on your
-        machine, you'll use the desktop app from there on.
+        with their approval. Sign in once here and you'll use the desktop
+        app from there on.
       </p>
     </header>
 
@@ -40,15 +43,17 @@
         <button type="button" id="login-btn">Sign in with Google</button>
         <button type="button" id="logout" hidden>Sign out</button>
       </div>
-      <div id="auth-status" class="status idle">not signed in</div>
+      <div id="auth-status" class="status idle">Not signed in</div>
 
       <div id="install-panel" class="install-panel" hidden>
         <div id="invite-banner" class="invite-banner" hidden>
-          <strong>You have a pending invitation.</strong>
-          Open the Dispatch app and go to <strong>People</strong> to accept it.
+          <div>
+            <strong>You have a pending invitation.</strong>
+            Open the Dispatch app and go to <strong>People</strong> to accept it.
+          </div>
         </div>
 
-        <h2>Already have Dispatch installed?</h2>
+        <h2>Already installed?</h2>
         <p>One click sends your sign-in to the desktop app.</p>
         <a id="open-app-link" class="primary-link">Open in Dispatch app →</a>
 
