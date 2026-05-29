@@ -263,6 +263,17 @@ class DispatchTrayApp(rumps.App):
                     on_notification=on_notification,
                     on_signout=on_signout,
                 )
+                if rc == 7:
+                    # Broker told us the user signed out. Stop reconnecting
+                    # and drop in-memory credentials so the tray reflects it.
+                    self.config = Config.load()
+                    self._set_status(ICON_ERROR, "Signed out at broker")
+                    self._on_main(lambda: rumps.notification(
+                        title="Dispatch — signed out",
+                        subtitle="You signed out at the broker.",
+                        message="Open Broker to sign in again.",
+                    ))
+                    return
                 if rc == 0:
                     backoff = 2
                     self._set_status(ICON_BUSY, "Reconnecting…")
