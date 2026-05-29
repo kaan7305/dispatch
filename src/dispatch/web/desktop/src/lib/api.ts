@@ -73,7 +73,7 @@ export const api = {
 
   // ── Broker proxy ────────────────────────────────────────────────────
   compose: (body: ComposeRequest) =>
-    request<DispatchSummary>("/api/compose", {
+    request<DispatchSummary | ComposeFanOutResult>("/api/compose", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -122,10 +122,16 @@ export const api = {
 // ─── Broker-side wire types (proxied through the daemon) ─────────────────
 
 export interface ComposeRequest {
-  recipient_id: string;
+  recipient_id?: string;
+  recipient_ids?: string[];
   task: string;
   expires_in_seconds?: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface ComposeFanOutResult {
+  dispatches: Array<{ recipient_id: string; dispatch_id: string; status: DispatchStatus }>;
+  failures: Array<{ recipient_id: string; status_code: number; error: string }>;
 }
 
 export interface DispatchSummary {
