@@ -34,6 +34,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -579,6 +580,23 @@ async def list_devices(user_id: str = Depends(authed_user)) -> dict:
             for d in devices
         ]
     }
+
+
+class _DeviceRename(BaseModel):
+    label: str
+
+@app.patch("/devices/{device_id}")
+async def rename_device(
+    device_id: UUID,
+    req: _DeviceRename,
+    user_id: str = Depends(authed_user),
+) -> dict:
+    label = req.label.strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="label is required")
+    if not await STORE.rename_device(user_id, device_id, label):
+        raise HTTPException(status_code=404, detail="Unknown device")
+    return {"status": "renamed"}
 
 
 @app.delete("/devices/{device_id}")

@@ -31,7 +31,10 @@ from dispatch.tray import autostart
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window
 
-DEFAULT_BROKER = os.environ.get("DISPATCH_BROKER", "").rstrip("/")
+BROKER_URL = (
+    os.environ.get("DISPATCH_BROKER", "https://web-production-700f0.up.railway.app")
+    .rstrip("/")
+)
 
 ICON_OK     = "⬡ Dispatch"
 ICON_BUSY   = "◌ Dispatch"
@@ -67,8 +70,8 @@ class DispatchTrayApp(rumps.App):
 
         self.config = Config.load()
         # CLI env var wins over saved config, so a tester can point at staging.
-        if DEFAULT_BROKER:
-            self.config.broker = DEFAULT_BROKER
+        if BROKER_URL:
+            self.config.broker = BROKER_URL
 
         # Register the dispatch:// URL handler before rumps takes over the
         # run loop. macOS routes Apple-Event URL opens here.
@@ -81,6 +84,7 @@ class DispatchTrayApp(rumps.App):
         )
 
         self._daemon_loop: asyncio.AbstractEventLoop | None = None
+        self._daemon_thread: threading.Thread | None = None
         self._main_q: queue.Queue = queue.Queue()
         rumps.Timer(self._drain_main_queue, 0.1).start()
 
@@ -98,6 +102,7 @@ class DispatchTrayApp(rumps.App):
             None,
             self._autostart_item,
             rumps.MenuItem("Account…",     callback=self.show_account),
+            rumps.MenuItem("View Log",     callback=self.view_log),
             rumps.MenuItem("Sign out",     callback=self.sign_out),
             rumps.MenuItem("Quit",         callback=self.quit_app),
         ]
@@ -111,7 +116,7 @@ class DispatchTrayApp(rumps.App):
     def _on_startup(self, timer: rumps.Timer) -> None:
         timer.stop()
         if not self.config.is_complete():
-            broker = self.config.broker or "https://web-production-700f0.up.railway.app"
+            broker = self.config.broker or BROKER_URL
             self._set_status(ICON_ERROR, "Not signed in — run installer")
             rumps.alert(
                 title="Dispatch is not signed in",
@@ -123,28 +128,94 @@ class DispatchTrayApp(rumps.App):
                 ok="OK",
             )
             return
-        self._start_daemon()
+        # _handle_dispatch_url may have already started the daemon if the
+        # deep link arrived within the 0.3 s startup window — don't double-start.
+        if self._daemon_thread is None or not self._daemon_thread.is_alive():
+            self._start_daemon()
 
     # ------------------------------------------------------------------
     # Daemon supervisor
     # ------------------------------------------------------------------
 
     def _start_daemon(self) -> None:
+        # Guard: never start a second daemon while one is still alive.
+        if self._daemon_thread is not None and self._daemon_thread.is_alive():
+            return
+
         if self.config.anthropic_api_key:
             os.environ.setdefault("ANTHROPIC_API_KEY", self.config.anthropic_api_key)
-        self._daemon_loop = asyncio.new_event_loop()
+
+        # Capture loop locally so _run never reads a stale self._daemon_loop
+        # (which could be overwritten if _start_daemon is called again quickly).
+        loop = asyncio.new_event_loop()
+        self._daemon_loop = loop
+
+        # Redirect daemon stdout + stderr to a persistent log file so any
+        # error during enrollment or WS connect is visible after the fact.
+        log_path = Path.home() / ".dispatch" / "daemon.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
         def _run() -> None:
-            asyncio.set_event_loop(self._daemon_loop)
+            asyncio.set_event_loop(loop)
+            log_file = open(log_path, "w", buffering=1)  # line-buffered
+            log_file.write(
+                f"=== daemon start @ broker={self.config.broker} "
+                f"port={self.config.local_port} ===\n"
+            )
+            log_file.flush()
+            import sys as _sys
+            _sys.stdout = log_file
+            _sys.stderr = log_file
             try:
-                self._daemon_loop.run_until_complete(self._daemon_main())
+                loop.run_until_complete(self._daemon_main())
+            except (asyncio.CancelledError, RuntimeError) as e:
+                log_file.write(f"=== daemon stopped: {type(e).__name__} ===\n")
             except Exception:
                 import traceback
-                Path("/tmp/dispatch_daemon.log").write_text(traceback.format_exc())
-                self._set_status(ICON_ERROR, "Crashed — see /tmp/dispatch_daemon.log")
+                log_file.write("=== daemon crashed ===\n")
+                traceback.print_exc(file=log_file)
+                self._set_status(ICON_ERROR, "Crashed — see ~/.dispatch/daemon.log")
+            finally:
+                log_file.flush()
+                try: log_file.close()
+                except Exception: pass
 
-        threading.Thread(target=_run, daemon=True, name="dispatch-daemon").start()
+        t = threading.Thread(target=_run, daemon=True, name="dispatch-daemon")
+        self._daemon_thread = t
+        t.start()
         self._set_status(ICON_BUSY, "Connecting to broker…")
+
+    def _restart_daemon(self) -> None:
+        """Cancel the running session and restart with the current config.
+
+        Safe to call from any thread. Used when credentials change (new sign-in)
+        or when the user signs out from the web UI.
+        """
+        loop = self._daemon_loop
+        if loop is not None and loop.is_running():
+            # Cancel every task — causes run_session to exit and the broker WS
+            # to close, which updates the status badge.
+            loop.call_soon_threadsafe(
+                lambda: [t.cancel() for t in asyncio.all_tasks(loop)]
+            )
+        self._daemon_loop = None
+        rumps.Timer(self._delayed_daemon_start, 1.5).start()
+
+    def _delayed_daemon_start(self, timer: rumps.Timer) -> None:
+        timer.stop()
+        # Wait for the old thread to fully exit before binding a new port.
+        t = getattr(self, "_daemon_thread", None)
+        if t is not None and t.is_alive():
+            rumps.Timer(self._delayed_daemon_start, 0.5).start()
+            return
+        # Reload config from disk: sign-out wrote to ~/.dispatch/config.json
+        # but our in-memory copy is stale. Without this we'd happily restart
+        # the daemon with the just-deleted token.
+        self.config = Config.load()
+        if self.config.is_complete():
+            self._start_daemon()
+        else:
+            self._set_status(ICON_ERROR, "Signed out — sign in at the broker")
 
     async def _daemon_main(self) -> None:
         # Reach into the daemon's run_session by synthesizing the same
@@ -171,6 +242,11 @@ class DispatchTrayApp(rumps.App):
                 title=title, subtitle=subtitle, message=message,
             ))
 
+        # Called by the web UI sign-out endpoint so the tray immediately
+        # reflects the signed-out state and stops the broker WS.
+        def on_signout() -> None:
+            self._on_main(self._restart_daemon)
+
         backoff = 2
         while True:
             args = Namespace(
@@ -183,7 +259,10 @@ class DispatchTrayApp(rumps.App):
             try:
                 self._set_status(ICON_BUSY, "Starting…")
                 rc = await run_session(
-                    args, on_status=on_status, on_notification=on_notification,
+                    args,
+                    on_status=on_status,
+                    on_notification=on_notification,
+                    on_signout=on_signout,
                 )
                 if rc == 0:
                     backoff = 2
@@ -192,7 +271,11 @@ class DispatchTrayApp(rumps.App):
                     self._set_status(
                         ICON_ERROR, f"Daemon exited with code {rc}. Retrying…"
                     )
+            except asyncio.CancelledError:
+                raise  # propagate — _restart_daemon or quit_app is stopping us
             except Exception:
+                import traceback
+                Path("/tmp/dispatch_daemon_retry.log").write_text(traceback.format_exc())
                 self._set_status(ICON_ERROR, "Daemon error — retrying…")
 
             await asyncio.sleep(backoff)
@@ -230,17 +313,58 @@ class DispatchTrayApp(rumps.App):
                 ok="OK",
             )
             return
-        from dispatch.daemon.local_app import read_local_token
-        token = read_local_token()
-        suffix = f"#t={token}" if token else ""
-        open_native_window(
-            f"http://127.0.0.1:{self.config.local_port}/{suffix}",
-            title="Dispatch — Inbox",
-        )
+        self._open_inbox_when_ready(attempts=20)
+
+    def _open_inbox_when_ready(self, attempts: int) -> None:
+        """Poll the local server every 0.5s and open the inbox window as
+        soon as it answers. If it never comes up (daemon failed to start),
+        show a clear alert instead of a blank window."""
+        import urllib.request as _ur
+        port = self.config.local_port
+
+        def _try(timer: rumps.Timer) -> None:
+            nonlocal attempts
+            try:
+                _ur.urlopen(f"http://127.0.0.1:{port}/", timeout=0.5)
+            except Exception:
+                attempts -= 1
+                if attempts <= 0:
+                    timer.stop()
+                    rumps.alert(
+                        title="Dispatch — daemon not responding",
+                        message=(
+                            "The local server didn't start on port "
+                            f"{port}. Check the menu bar status — if it "
+                            "says 'Daemon error', try Sign out and sign "
+                            "in again from the broker page."
+                        ),
+                        ok="OK",
+                    )
+                return
+            timer.stop()
+            from dispatch.daemon.local_app import read_local_token
+            token = read_local_token()
+            suffix = f"#t={token}" if token else ""
+            open_native_window(
+                f"http://127.0.0.1:{port}/{suffix}",
+                title="Dispatch — Inbox",
+            )
+
+        rumps.Timer(_try, 0.5).start()
 
     def open_broker_ui(self, _: rumps.MenuItem | None) -> None:
-        target = self.config.broker or "https://web-production-700f0.up.railway.app"
+        target = self.config.broker or BROKER_URL
         webbrowser.open(target)
+
+    def view_log(self, _: rumps.MenuItem | None) -> None:
+        """Open the daemon log file in Console.app so the user can see exactly
+        why the daemon is stuck or crashing."""
+        import subprocess
+        log_path = Path.home() / ".dispatch" / "daemon.log"
+        if not log_path.exists():
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text("(no log yet — daemon hasn't started)\n")
+        subprocess.Popen(["open", "-a", "Console", str(log_path)])
 
     # ------------------------------------------------------------------
     # dispatch:// URL handler
@@ -255,9 +379,10 @@ class DispatchTrayApp(rumps.App):
             return
         params = urllib.parse.parse_qs(parsed.query)
 
-        broker  = (params.get("broker") or [""])[0].rstrip("/")
-        token   = (params.get("token") or [""])[0]
-        api_key = (params.get("api_key") or [""])[0]
+        broker       = (params.get("broker") or [""])[0].rstrip("/")
+        token        = (params.get("token") or [""])[0]
+        api_key      = (params.get("api_key") or [""])[0]
+        pending_invite = bool((params.get("invite") or [""])[0])
         if not (broker and token):
             rumps.alert(
                 title="Dispatch — bad install link",
@@ -275,17 +400,18 @@ class DispatchTrayApp(rumps.App):
 
         if not was_complete:
             self._start_daemon()
-            rumps.notification(
-                title="Dispatch is configured",
-                subtitle=f"Signed in. Daemon starting…",
-                message="Click the menu bar icon → Open Inbox.",
-            )
         else:
-            rumps.notification(
-                title="Dispatch credentials updated",
-                subtitle="Restart the app to pick up the new token.",
-                message="",
-            )
+            # Credentials changed (re-sign-in after sign-out, or token refresh).
+            # Restart the daemon so it picks up the new token immediately.
+            self._restart_daemon()
+
+        invite_msg = ("Open Inbox → People to accept it." if pending_invite else
+                      "Click the menu bar icon → Open Inbox.")
+        rumps.notification(
+            title="Dispatch is configured",
+            subtitle="Signed in. Daemon starting…",
+            message=invite_msg,
+        )
 
     def toggle_autostart(self, item: rumps.MenuItem) -> None:
         if autostart.is_enabled():
@@ -337,7 +463,7 @@ class DispatchTrayApp(rumps.App):
         self.config.token = ""
         self.config.broker = ""
         webbrowser.open(
-            os.environ.get("DISPATCH_BROKER", "https://web-production-700f0.up.railway.app")
+            self.config.broker or BROKER_URL
         )
         self._set_status(ICON_ERROR, "Signed out — restart to sign back in")
 

@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Ban, Check, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
-import { openDispatchWatch, openEventStream } from "@/lib/ws";
+import { openDispatchWatch } from "@/lib/ws";
 import { initials, relativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,26 +22,15 @@ export default function DispatchDetail() {
     enabled: !!id,
   });
 
-  // Live stream from two sources:
-  //   - /ws/events       (local) — fires when LocalState changes; covers
-  //                       received dispatches the daemon is running.
-  //   - /ws/dispatch/{id} (broker proxy) — broker-side stream that
-  //                       covers sent dispatches and any others the
-  //                       daemon doesn't directly witness.
-  // Either firing invalidates the detail query so we refetch.
+  // Broker-side watch stream — covers sent dispatches the local daemon
+  // doesn't witness. The global /ws/events in Shell already handles
+  // received dispatch updates, so we only need this extra stream here.
   useEffect(() => {
     if (!id) return;
-    const closeInbox = openEventStream((msg) => {
-      if ("dispatch_id" in msg && msg.dispatch_id === id) {
-        qc.invalidateQueries({ queryKey: ["dispatch", id] });
-      } else if (msg.type === "inbox_new") {
-        qc.invalidateQueries({ queryKey: ["dispatch", id] });
-      }
-    });
     const closeWatch = openDispatchWatch(id, () => {
       qc.invalidateQueries({ queryKey: ["dispatch", id] });
     });
-    return () => { closeInbox(); closeWatch(); };
+    return () => closeWatch();
   }, [id, qc]);
 
   if (detail.isLoading) {

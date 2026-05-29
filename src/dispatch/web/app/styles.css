@@ -65,6 +65,15 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .status.error   { color: var(--error); }
 
 .install-panel { margin-top: 24px; }
+.invite-banner {
+  background: rgba(122, 162, 255, 0.1);
+  border: 1px solid rgba(122, 162, 255, 0.35);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 20px;
+}
 .install-panel p { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
 .install-panel p strong { color: var(--text); }
 .install-panel code {

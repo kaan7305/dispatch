@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { openEventStream, type EventMessage } from "@/lib/ws";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/format";
 import { Button } from "./ui/button";
@@ -30,14 +32,44 @@ const NAV = [
 ];
 
 export function Shell() {
+  const qc = useQueryClient();
+  const [online, setOnline] = useState(false);
+
   const { data: session } = useQuery({
     queryKey: ["session"],
     queryFn: () => api.session(),
   });
 
+  // Single global event stream — always open while the shell is mounted.
+  // Invalidates every affected query so any page stays current without polling.
+  useEffect(() => {
+    const close = openEventStream(
+      (msg: EventMessage) => {
+        if (msg.type === "snapshot") {
+          qc.invalidateQueries({ queryKey: ["inbox"] });
+          return;
+        }
+        if (msg.type === "inbox_new") {
+          qc.invalidateQueries({ queryKey: ["inbox"] });
+          qc.invalidateQueries({ queryKey: ["history", "received"] });
+          return;
+        }
+        if (msg.type === "dispatch_status" || msg.type === "dispatch_event") {
+          qc.invalidateQueries({ queryKey: ["inbox"] });
+          qc.invalidateQueries({ queryKey: ["sent"] });
+          qc.invalidateQueries({ queryKey: ["history", "sent"] });
+          qc.invalidateQueries({ queryKey: ["history", "received"] });
+          qc.invalidateQueries({ queryKey: ["dispatch", msg.dispatch_id] });
+        }
+      },
+      (connected) => setOnline(connected),
+    );
+    return () => close();
+  }, [qc]);
+
   return (
     <div className="flex h-full flex-col">
-      <Topbar email={session?.user_id} />
+      <Topbar email={session?.user_id} online={online} />
       <div className="flex flex-1 min-h-0">
         <Sidebar />
         <main className="flex-1 overflow-y-auto bg-background">
@@ -48,7 +80,7 @@ export function Shell() {
   );
 }
 
-function Topbar({ email }: { email?: string }) {
+function Topbar({ email, online }: { email?: string; online: boolean }) {
   return (
     <header className="flex items-center gap-4 border-b px-6 h-14">
       <div className="flex items-center gap-2 shrink-0">
@@ -69,7 +101,8 @@ function Topbar({ email }: { email?: string }) {
       </div>
       <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground shrink-0">
         <span className="inline-flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-green-500" /> Online
+          <span className={cn("size-2 rounded-full", online ? "bg-green-500" : "bg-amber-500 animate-pulse")} />
+          {online ? "Online" : "Connecting…"}
         </span>
         <AccountMenu email={email} />
       </div>

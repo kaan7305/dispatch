@@ -106,6 +106,11 @@ export const api = {
     return body.dispatches;
   },
   devices: () => request<{ devices: Device[] }>("/api/devices"),
+  renameDevice: (id: string, label: string) =>
+    request<{ status: string }>(`/api/devices/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label }),
+    }),
   revokeDevice: (id: string) =>
     request<{ status: string }>(`/api/devices/${id}`, { method: "DELETE" }),
 };
@@ -167,6 +172,7 @@ export interface Device {
   device_id: string;
   label: string;
   status: "active" | "revoked";
+  online: boolean;
   last_seen: string | null;
   created_at: string;
 }
