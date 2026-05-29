@@ -45,6 +45,10 @@ export const api = {
   session: () => request<{ user_id: string; broker_url: string }>("/api/session"),
   installCommand: () =>
     request<{ command: string; broker: string }>("/api/install-command"),
+  openBroker: () =>
+    request<{ status: string; url: string }>("/api/open-broker", {
+      method: "POST",
+    }),
   signOut: () =>
     request<{ status: string; broker: string }>("/api/sign-out", {
       method: "POST",

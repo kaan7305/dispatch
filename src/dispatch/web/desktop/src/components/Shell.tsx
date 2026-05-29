@@ -125,7 +125,7 @@ function AccountMenu({ email }: { email?: string }) {
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>{email || "Not signed in"}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => window.open("/", "_blank")}>
+        <DropdownMenuItem onSelect={() => { api.openBroker().catch(() => {}); }}>
           Manage at broker →
         </DropdownMenuItem>
       </DropdownMenuContent>

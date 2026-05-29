@@ -300,6 +300,23 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
             "broker_url": local_state.broker_url,
         }
 
+    @app.post("/api/open-broker", dependencies=[Depends(require_local_token)])
+    async def open_broker() -> dict:
+        """Open the broker page in the user's default browser.
+
+        The desktop UI runs inside a WKWebView that can't spawn external
+        browser windows, so we shell out to macOS's `open` command (or
+        xdg-open on Linux) instead.
+        """
+        import subprocess, sys
+        url = local_state.broker_url.rstrip("/") or "https://web-production-700f0.up.railway.app"
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        try:
+            subprocess.Popen([opener, url])
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail=f"no `{opener}` command available")
+        return {"status": "opened", "url": url}
+
     @app.get("/api/install-command", dependencies=[Depends(require_local_token)])
     async def install_command() -> dict:
         """Render the install one-liner the user paste-installs on a new
