@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox as InboxIcon,
   Users,
@@ -9,7 +9,6 @@ import {
   Monitor,
   Search,
   Plus,
-  LogOut,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -111,18 +110,8 @@ function Topbar({ email, online }: { email?: string; online: boolean }) {
 }
 
 function AccountMenu({ email }: { email?: string }) {
-  const qc = useQueryClient();
-  const signOut = useMutation({
-    mutationFn: () => api.signOut(),
-    onSuccess: (result) => {
-      // Drop the local token + clear cached state, then send the user
-      // back to the broker landing for a fresh Clerk sign-in.
-      sessionStorage.removeItem("dispatch_local_token");
-      qc.clear();
-      window.location.href = result.broker || "/";
-    },
-  });
-
+  // Sign-out lives only on the broker page (the Railway sign-in landing).
+  // The desktop UI just shows the signed-in identity for context.
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -136,11 +125,8 @@ function AccountMenu({ email }: { email?: string }) {
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>{email || "Not signed in"}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-destructive focus:text-destructive"
-          onSelect={() => signOut.mutate()}
-        >
-          <LogOut className="size-4" /> Sign out
+        <DropdownMenuItem onSelect={() => window.open("/", "_blank")}>
+          Manage at broker →
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
