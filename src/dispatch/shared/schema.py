@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Optional, TypedDict
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep")
 
@@ -48,12 +48,42 @@ class DispatchPayload(BaseModel):
 
 
 class DispatchCreateRequest(BaseModel):
-    """Sender → broker body for POST /dispatch."""
+    """Sender → broker body for POST /dispatch.
 
-    recipient_id: str = Field(..., min_length=1, max_length=64)
+    Provide either `recipient_id` (single) or `recipient_ids` (fan-out).
+    The broker runs the trust check + signing flow for each recipient
+    independently and returns one result per recipient.
+    """
+
+    recipient_id: Optional[str] = Field(default=None, max_length=64)
+    recipient_ids: Optional[list[str]] = Field(default=None, max_length=50)
     task: str = Field(..., min_length=1)
     expires_in_seconds: int = Field(default=3600, ge=60, le=86400)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _require_exactly_one_recipient_form(self) -> "DispatchCreateRequest":
+        single = bool(self.recipient_id and self.recipient_id.strip())
+        many = bool(self.recipient_ids)
+        if not (single or many):
+            raise ValueError("recipient_id or recipient_ids is required")
+        if single and many:
+            raise ValueError("provide recipient_id OR recipient_ids, not both")
+        return self
+
+    def normalized_recipients(self) -> list[str]:
+        """Always-returns-a-list helper for downstream fan-out logic."""
+        if self.recipient_ids:
+            seen: set[str] = set()
+            out: list[str] = []
+            for r in self.recipient_ids:
+                r = r.strip()
+                if r and r not in seen:
+                    seen.add(r)
+                    out.append(r)
+            return out
+        assert self.recipient_id  # validator guarantees it
+        return [self.recipient_id.strip()]
 
 
 class LoginRequest(BaseModel):

@@ -247,7 +247,8 @@ class _Decision(BaseModel):
 
 
 class _Compose(BaseModel):
-    recipient_id: str
+    recipient_id: Optional[str] = None
+    recipient_ids: Optional[list[str]] = None
     task: str
     expires_in_seconds: int = 3600
     metadata: dict[str, Any] = {}
@@ -459,7 +460,9 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
 
     @app.post("/api/compose", dependencies=[Depends(require_local_token)])
     async def compose(body: _Compose) -> Response:
-        return await _broker_request("POST", "/dispatch", json_body=body.model_dump())
+        return await _broker_request(
+            "POST", "/dispatch", json_body=body.model_dump(exclude_none=True),
+        )
 
     @app.get("/api/trust", dependencies=[Depends(require_local_token)])
     async def list_trust() -> Response:

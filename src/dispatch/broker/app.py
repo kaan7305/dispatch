@@ -419,65 +419,58 @@ async def _build_new_dispatch(stored: StoredDispatch) -> dict:
     return msg
 
 
-@app.post("/dispatch")
-async def create_dispatch(
-    req: DispatchCreateRequest, sender: str = Depends(authed_user)
-) -> dict:
-    recipient = req.recipient_id.strip()
+class _DispatchFailed(Exception):
+    """Per-recipient failure inside a fan-out. Carries the HTTP status code
+    we'd have raised in the single-recipient path."""
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
 
-    # --- Layer 1: trust enforcement ---------------------------------------
-    # A dispatch may only be created if the recipient has accepted an
-    # invitation from the sender (an accepted trust edge sender → recipient).
+
+async def _create_one_dispatch(
+    sender: str,
+    recipient: str,
+    task: str,
+    expires_in_seconds: int,
+    metadata: dict,
+    sender_device_id: str,
+    sender_ws: WebSocket,
+) -> dict:
+    """Run the full per-recipient flow (trust → sign → store → deliver).
+
+    Raises _DispatchFailed for any per-recipient reason so the caller can
+    keep going with other recipients in a fan-out.
+    """
     edge = await STORE.get_trust_edge(sender, recipient)
     if edge is None:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"No trust relationship: {recipient} has not accepted an "
-                "invitation from you. Invite them from Contacts first."
-            ),
+        raise _DispatchFailed(
+            403,
+            f"No trust relationship: {recipient} has not accepted an "
+            "invitation from you. Invite them from Contacts first.",
         )
     edge_scopes = Scopes(**(edge["scopes"] or {}))
-
-    # Edge expiry — an expired edge is treated as no trust.
     if edge_scopes.expires_at and edge_scopes.expires_at <= utcnow():
-        raise HTTPException(
-            status_code=403, detail="This trust relationship has expired."
-        )
+        raise _DispatchFailed(403, f"Trust relationship with {recipient} has expired.")
 
-    # Per-edge daily rate limit.
     recent = await STORE.count_recent_dispatches(
         edge["trust_link_id"], utcnow() - timedelta(days=1)
     )
     if recent >= edge_scopes.max_dispatches_per_day:
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Daily dispatch limit ({edge_scopes.max_dispatches_per_day}) "
-                f"reached for {recipient}."
-            ),
+        raise _DispatchFailed(
+            429,
+            f"Daily dispatch limit ({edge_scopes.max_dispatches_per_day}) "
+            f"reached for {recipient}.",
         )
-    # ----------------------------------------------------------------------
 
     payload = DispatchPayload(
         sender_id=sender,
         recipient_id=recipient,
-        task=req.task,
-        expires_at=utcnow() + timedelta(seconds=req.expires_in_seconds),
-        metadata=req.metadata,
+        task=task,
+        expires_at=utcnow() + timedelta(seconds=expires_in_seconds),
+        metadata=metadata,
     )
 
-    # --- Layer 2 (sender half): get the sender's daemon to sign -----------
-    # Signing happens on the sender's device, never here. If no device of
-    # the sender is online there is nothing that can sign, so the dispatch
-    # cannot be created.
-    picked = STATE.pick_device(sender)
-    if picked is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Your daemon is offline — start dispatch-daemon to send.",
-        )
-    sender_device_id, sender_ws = picked
     nonce = secrets.token_urlsafe(16)
     try:
         signature = await _request_signature(
@@ -489,12 +482,10 @@ async def create_dispatch(
             created_at=payload.created_at.isoformat(),
         )
     except Exception as exc:
-        logger.warning("signature request failed: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Your daemon did not sign the dispatch — is it healthy?",
+        logger.warning("signature request failed for %s: %s", recipient, exc)
+        raise _DispatchFailed(
+            502, f"Your daemon did not sign the dispatch to {recipient}."
         )
-    # ----------------------------------------------------------------------
 
     initial_status = DispatchStatus.pending
     await STORE.create_dispatch(
@@ -523,8 +514,6 @@ async def create_dispatch(
     current = await STORE.get_dispatch(payload.dispatch_id)
     final_status = current.status if current else initial_status
 
-    # Tell the recipient's inbox watchers immediately, so the UI lights up
-    # before the daemon (re)connects.
     inbox_watchers = STATE.recipient_watchers.get(recipient, [])
     if inbox_watchers:
         await _fan_out(
@@ -533,9 +522,57 @@ async def create_dispatch(
         )
 
     return {
+        "recipient_id": recipient,
         "dispatch_id": str(payload.dispatch_id),
         "status": final_status.value,
     }
+
+
+@app.post("/dispatch")
+async def create_dispatch(
+    req: DispatchCreateRequest, sender: str = Depends(authed_user)
+) -> dict:
+    recipients = req.normalized_recipients()
+
+    # Signing happens on the sender's device. One daemon, one device, many
+    # recipients — each gets its own nonce + signature via the same WS.
+    picked = STATE.pick_device(sender)
+    if picked is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Your daemon is offline — start dispatch-daemon to send.",
+        )
+    sender_device_id, sender_ws = picked
+
+    dispatches: list[dict] = []
+    failures: list[dict] = []
+    for recipient in recipients:
+        try:
+            result = await _create_one_dispatch(
+                sender=sender,
+                recipient=recipient,
+                task=req.task,
+                expires_in_seconds=req.expires_in_seconds,
+                metadata=req.metadata,
+                sender_device_id=sender_device_id,
+                sender_ws=sender_ws,
+            )
+            dispatches.append(result)
+        except _DispatchFailed as f:
+            failures.append({"recipient_id": recipient, "status_code": f.status, "error": f.detail})
+
+    # Single-recipient back-compat: when the caller used the old shape AND
+    # the dispatch failed, raise like before so existing clients keep working.
+    if req.recipient_id and not dispatches and failures:
+        only = failures[0]
+        raise HTTPException(status_code=only["status_code"], detail=only["error"])
+
+    # Single-recipient back-compat: flatten on success too.
+    if req.recipient_id and len(dispatches) == 1 and not failures:
+        only = dispatches[0]
+        return {"dispatch_id": only["dispatch_id"], "status": only["status"]}
+
+    return {"dispatches": dispatches, "failures": failures}
 
 
 @app.get("/dispatch/{dispatch_id}")
