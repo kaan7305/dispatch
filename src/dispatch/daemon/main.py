@@ -381,6 +381,19 @@ async def run_session(
             _emit("connected")
             await handle_broker(ws, state, workspace, private_key, local_state=local_state)
     except websockets.InvalidStatus as e:
+        # 401/403 means the JWT is revoked or otherwise rejected by the
+        # broker — treat it the same as a signed_out push and stop trying.
+        status_code = getattr(getattr(e, "response", None), "status_code", None)
+        if status_code in (401, 403):
+            print(f"[daemon] broker rejected our token ({status_code}) — signed out", flush=True)
+            try:
+                cfg = _load_config()
+                cfg.pop("token", None)
+                _config_path().write_text(json.dumps(cfg, indent=2))
+                _config_path().chmod(0o600)
+            except Exception:
+                logger.exception("failed to clear token after auth rejection")
+            return 7
         print(f"[daemon] handshake failed: {e}", file=sys.stderr)
         return 3
     except OSError as e:
