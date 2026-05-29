@@ -138,6 +138,16 @@ loginBtn.addEventListener("click", async () => {
 });
 
 logoutBtn.addEventListener("click", async () => {
+  // Tell the broker so it can notify any connected daemons. Best-effort:
+  // we still clear the local Clerk + browser session even if it fails.
+  if (token) {
+    try {
+      await fetch("/auth/signout", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + token },
+      });
+    } catch (_) {}
+  }
   try { await ensureClerk(); await window.Clerk.signOut(); } catch (_) {}
   clearLocalSession();
 });

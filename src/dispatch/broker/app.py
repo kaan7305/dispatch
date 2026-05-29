@@ -128,6 +128,29 @@ async def login(req: LoginRequest) -> dict:
     return {"user_id": user_id, "token": issue_token(user_id)}
 
 
+@app.post("/auth/signout")
+async def auth_signout(user_id: str = Depends(authed_user)) -> dict:
+    """Sign-out hook for the broker SPA.
+
+    Notifies every one of this user's connected daemons over the WebSocket
+    so their tray apps clear their cached JWT and stop reconnecting. The
+    daemon's own JWT isn't revoked server-side (HS256 + no DB blocklist),
+    so this is best-effort: any daemon NOT currently connected won't get
+    the signal until it reconnects (and at that point its JWT still works
+    until natural expiry).
+    """
+    devices = STATE.agents.get(user_id, {})
+    delivered = 0
+    msg = json.dumps({"type": "signed_out"})
+    for device_id, ws in list(devices.items()):
+        try:
+            await ws.send_text(msg)
+            delivered += 1
+        except Exception:
+            logger.exception("failed to notify daemon of sign-out")
+    return {"status": "ok", "notified": delivered}
+
+
 def _public_url() -> str:
     """The broker's externally-reachable base URL.
 

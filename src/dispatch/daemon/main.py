@@ -85,6 +85,14 @@ FRESHNESS_WINDOW_S = 300.0               # reject dispatches signed > 5 min ago
 logger = logging.getLogger("dispatch.daemon")
 
 
+class SignedOutByBroker(Exception):
+    """Raised when the broker tells us the user signed out from the web UI.
+
+    The supervisor catches this to stop the reconnect loop instead of
+    treating it like a normal disconnect.
+    """
+
+
 def _evict_port(port: int) -> None:
     """Make port `port` bindable.
 
@@ -378,6 +386,10 @@ async def run_session(
     except OSError as e:
         print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
         return 4
+    except SignedOutByBroker:
+        # Special exit code so the supervisor stops retrying instead of
+        # reconnecting with a now-cleared token.
+        return 7
     finally:
         # Close every open WebSocket on the local UI server so uvicorn can
         # shut down immediately. Without this, the browser's /ws/events
@@ -614,6 +626,20 @@ async def handle_broker(
             if task is not None and not task.done():
                 task.cancel()
                 print(f"[daemon] dispatch {str(did)[:8]}… cancelled (trust revoked)")
+
+        elif mtype == "signed_out":
+            # The user signed out from the broker's web page. Clear the
+            # cached broker JWT from disk and propagate the signal upward
+            # so the supervisor stops the session without reconnecting.
+            print("[daemon] broker signaled sign-out — clearing local credentials")
+            try:
+                cfg = _load_config()
+                cfg.pop("token", None)
+                _config_path().write_text(json.dumps(cfg, indent=2))
+                _config_path().chmod(0o600)
+            except Exception:
+                logger.exception("failed to clear token on sign-out")
+            raise SignedOutByBroker()
 
         # Approval decisions (top-level Accept/Reject + per-tool Allow/Deny)
         # are now resolved ONLY by the locally-served UI talking to the
