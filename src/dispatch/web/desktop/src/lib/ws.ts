@@ -6,7 +6,11 @@ export type EventMessage =
   | { type: "dispatch_status"; dispatch_id: string; data: { status: string } }
   | { type: "dispatch_event"; dispatch_id: string; data: { type: string; data: unknown } };
 
-function openWs(path: string, onMessage: (data: unknown) => void): () => void {
+function openWs(
+  path: string,
+  onMessage: (data: unknown) => void,
+  onStatus?: (connected: boolean) => void,
+): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
   let backoff = 500;
@@ -21,8 +25,12 @@ function openWs(path: string, onMessage: (data: unknown) => void): () => void {
     ws.addEventListener("message", (e) => {
       try { onMessage(JSON.parse(e.data)); } catch { /* ignore */ }
     });
-    ws.addEventListener("open", () => { backoff = 500; });
+    ws.addEventListener("open", () => {
+      backoff = 500;
+      onStatus?.(true);
+    });
     ws.addEventListener("close", () => {
+      onStatus?.(false);
       if (closed) return;
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 15000);
@@ -37,8 +45,11 @@ function openWs(path: string, onMessage: (data: unknown) => void): () => void {
   };
 }
 
-export function openEventStream(onMessage: (m: EventMessage) => void): () => void {
-  return openWs("/ws/events", (raw) => onMessage(raw as EventMessage));
+export function openEventStream(
+  onMessage: (m: EventMessage) => void,
+  onStatus?: (connected: boolean) => void,
+): () => void {
+  return openWs("/ws/events", (raw) => onMessage(raw as EventMessage), onStatus);
 }
 
 /** Live broker-side stream for a single dispatch — works for sent

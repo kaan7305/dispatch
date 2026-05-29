@@ -334,6 +334,18 @@ class Store:
             )
             return result.endswith(" 1")
 
+    async def rename_device(self, user_id: str, device_id: UUID, label: str) -> bool:
+        """Rename a device. Returns False if it doesn't belong to this user."""
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE devices SET label = $1
+                WHERE device_id = $2 AND user_id = $3 AND status = 'active'
+                """,
+                label, device_id, user_id,
+            )
+            return result.endswith(" 1")
+
     async def touch_device_last_seen(self, device_id: UUID) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(

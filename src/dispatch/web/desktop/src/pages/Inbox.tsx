@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { api, type InboxEntry, type DispatchSummary } from "@/lib/api";
-import { openEventStream } from "@/lib/ws";
 import { DispatchRow } from "@/components/DispatchRow";
 import { SegmentedTabs } from "@/components/SegmentedTabs";
 
@@ -21,7 +20,6 @@ const FILTERS: { value: Filter; label: string }[] = [
 export default function Inbox() {
   const [tab, setTab]       = useState<Tab>("inbox");
   const [filter, setFilter] = useState<Filter>("all");
-  const qc = useQueryClient();
   const navigate = useNavigate();
 
   const inbox = useQuery({
@@ -34,16 +32,7 @@ export default function Inbox() {
     queryKey: ["sent"],
     queryFn: () => api.dispatches("sent"),
     enabled: tab === "sent",
-    refetchInterval: 5_000,
   });
-
-  // Subscribe to local /ws/events once; invalidate inbox on every event.
-  useEffect(() => {
-    const close = openEventStream(() => {
-      qc.invalidateQueries({ queryKey: ["inbox"] });
-    });
-    return () => close();
-  }, [qc]);
 
   const rows = useMemo(() => {
     if (tab === "inbox") {

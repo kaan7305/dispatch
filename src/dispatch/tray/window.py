@@ -57,6 +57,11 @@ def open_native_window(url: str, title: str = "Dispatch", width: int = 1000, hei
     try:
         existing = _find_open_window(title)
         if existing is not None:
+            # Navigate to the current URL so a fresh token or a rebuilt dist
+            # is always loaded, rather than showing a stale cached page.
+            existing.contentView().loadRequest_(
+                NSURLRequest.requestWithURL_(NSURL.URLWithString_(url))
+            )
             NSApp.setActivationPolicy_(NSApplicationActivationPolicyRegular)
             existing.makeKeyAndOrderFront_(None)
             NSApp.activateIgnoringOtherApps_(True)

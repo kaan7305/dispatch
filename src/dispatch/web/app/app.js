@@ -12,6 +12,8 @@ const STORAGE_USER  = "dispatch_user_id";
 let token  = localStorage.getItem(STORAGE_TOKEN);
 let userId = localStorage.getItem(STORAGE_USER);
 
+const inviteToken = new URLSearchParams(location.search).get("invite");
+
 const authStatus   = document.getElementById("auth-status");
 const installPanel = document.getElementById("install-panel");
 const installCmd   = document.getElementById("install-cmd");
@@ -28,12 +30,16 @@ function refreshAuth() {
     tokenDisplay.textContent = token;
     installCmd.textContent =
       `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
-    const deepLink = `dispatch://configure?broker=${encodeURIComponent(location.origin)}` +
-                     `&token=${encodeURIComponent(token)}` +
-                     `&user_id=${encodeURIComponent(userId)}`;
+    let deepLink = `dispatch://configure?broker=${encodeURIComponent(location.origin)}` +
+                   `&token=${encodeURIComponent(token)}` +
+                   `&user_id=${encodeURIComponent(userId)}`;
+    if (inviteToken) deepLink += `&invite=${encodeURIComponent(inviteToken)}`;
     openAppLink.setAttribute("href", deepLink);
     logoutBtn.hidden = false;
     loginBtn.hidden = true;
+
+    const inviteBanner = document.getElementById("invite-banner");
+    if (inviteBanner) inviteBanner.hidden = !inviteToken;
   } else {
     if (!authStatus.classList.contains("error")) {
       authStatus.textContent = "not signed in";

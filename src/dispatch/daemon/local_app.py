@@ -39,9 +39,17 @@ LOCAL_TOKEN_PATH = dispatch_home() / "local.token"
 
 
 def issue_local_token() -> str:
-    """Generate a fresh per-launch bearer token and write it to a 0600 file.
-    The tray app reads it to pass to the browser when opening the desktop UI.
-    A drive-by website hitting 127.0.0.1:8001 has no way to learn it."""
+    """Return the persistent local bearer token, generating it on first run.
+
+    The token is stored at 0600 so only this user can read it; a drive-by
+    website on 127.0.0.1:8001 has no way to learn it.  We deliberately
+    reuse the token across daemon restarts so the browser's sessionStorage
+    copy stays valid — rotating it would leave any open window permanently
+    stuck on "Connecting…" after a broker reconnect."""
+    if LOCAL_TOKEN_PATH.exists():
+        existing = LOCAL_TOKEN_PATH.read_text().strip()
+        if existing:
+            return existing
     token = secrets.token_urlsafe(24)
     LOCAL_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     LOCAL_TOKEN_PATH.write_text(token)
@@ -99,6 +107,44 @@ class LocalState:
     entries: dict[UUID, InboxEntry] = field(default_factory=dict)
     watchers: list[WebSocket] = field(default_factory=list)
     notify: Optional[Callable[[str, str, str], None]] = None
+    # Called (thread-safely) when the user signs out from the web UI so the
+    # tray supervisor can restart the daemon with the new/cleared credentials.
+    on_signout: Optional[Callable[[], None]] = None
+
+    async def seed_from_broker(self) -> None:
+        """Populate entries from the broker DB on startup so the inbox
+        isn't empty after a daemon restart."""
+        if not (self.broker_url and self.broker_token):
+            return
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{self.broker_url.rstrip('/')}/dispatches",
+                    params={"role": "received"},
+                    headers={"Authorization": f"Bearer {self.broker_token}"},
+                )
+            if resp.status_code != 200:
+                return
+            from datetime import datetime
+            for d in resp.json().get("dispatches", []):
+                did = UUID(d["dispatch_id"])
+                if did in self.entries:
+                    continue  # live entry takes precedence
+                payload = DispatchPayload(
+                    dispatch_id=did,
+                    sender_id=d["sender_id"],
+                    recipient_id=d["recipient_id"],
+                    task=d["task"],
+                    created_at=datetime.fromisoformat(d["created_at"]),
+                    expires_at=datetime.fromisoformat(d["expires_at"]),
+                )
+                self.entries[did] = InboxEntry(
+                    payload=payload,
+                    scopes={},
+                    status=DispatchStatus(d["status"]),
+                )
+        except Exception:
+            pass  # best-effort — a fresh inbox is better than a crash
 
     def _push_notification(self, title: str, subtitle: str, message: str) -> None:
         if self.notify is None:
@@ -219,6 +265,10 @@ class _AcceptInvite(BaseModel):
     scopes: Optional[dict[str, Any]] = None
 
 
+class _DeviceRename(BaseModel):
+    label: str
+
+
 def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI:
     """Build the local FastAPI app.
 
@@ -282,7 +332,15 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
         except OSError:
             pass
         local_state.broker_token = ""
-        return {"status": "signed_out", "broker": local_state.broker_url}
+        local_state.user_id = ""
+        local_state.entries.clear()  # wipe stale inbox cache
+        result = {"status": "signed_out", "broker": local_state.broker_url}
+        # Tell the tray supervisor to stop the daemon so it exits the broker
+        # WebSocket and the status badge updates. Schedule after response so
+        # the HTTP reply goes out first.
+        if local_state.on_signout:
+            asyncio.get_event_loop().call_later(0.3, local_state.on_signout)
+        return result
 
     @app.get("/api/inbox", dependencies=[Depends(require_local_token)])
     async def inbox() -> list[dict]:
@@ -436,6 +494,10 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     async def list_devices() -> Response:
         return await _broker_request("GET", "/devices")
 
+    @app.patch("/api/devices/{device_id}", dependencies=[Depends(require_local_token)])
+    async def rename_device(device_id: str, body: _DeviceRename) -> Response:
+        return await _broker_request("PATCH", f"/devices/{device_id}", json_body=body.model_dump())
+
     @app.delete("/api/devices/{device_id}", dependencies=[Depends(require_local_token)])
     async def revoke_device(device_id: str) -> Response:
         return await _broker_request("DELETE", f"/devices/{device_id}")
@@ -562,10 +624,25 @@ def spawn(
 ) -> LocalServer:
     """Start the local UI server. Returns a handle whose stop() releases
     the listen socket so the next iteration of a reconnect loop can
-    re-bind."""
+    re-bind.
+
+    We pre-bind the socket with SO_REUSEADDR + SO_REUSEPORT so a reconnect
+    immediately following a server stop can rebind without waiting for the
+    kernel's TIME_WAIT.
+    """
+    import socket as _s
     import uvicorn
     app = make_app(local_state, daemon_state, local_token)
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    sock = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+    sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEPORT, 1)
+    except (AttributeError, OSError):
+        pass  # not all platforms have SO_REUSEPORT
+    sock.bind((host, port))
+    sock.listen(128)
+    sock.setblocking(False)
+    config = uvicorn.Config(app, log_level="warning")
     server = uvicorn.Server(config)
-    task = asyncio.create_task(server.serve())
+    task = asyncio.create_task(server.serve(sockets=[sock]))
     return LocalServer(server=server, task=task)

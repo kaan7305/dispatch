@@ -77,12 +77,69 @@ _PATH_ARGS = {
     "Glob": ("path",),
     "Grep": ("path",),
 }
-DEFAULT_WORKSPACE = Path.cwd() / "workspace"
+DEFAULT_WORKSPACE = Path.home() / "dispatch" / "workspace"
 DISPATCH_DECISION_TIMEOUT_S = 300.0     # how long the recipient has to accept/reject
 TOOL_APPROVAL_TIMEOUT_S = 120.0          # how long they have to allow/deny one tool call
 FRESHNESS_WINDOW_S = 300.0               # reject dispatches signed > 5 min ago
 
 logger = logging.getLogger("dispatch.daemon")
+
+
+def _evict_port(port: int) -> None:
+    """Make port `port` bindable.
+
+    There are two reasons it might be taken when we get here:
+      1. A zombie process from a previous app session — kill it via lsof+SIGKILL.
+      2. The previous daemon thread in THIS process just stopped, but its socket
+         is still in the kernel's TIME_WAIT / lingering close state. We can't
+         kill ourselves; we just wait for the kernel to release the binding.
+    """
+    import subprocess
+    import socket as _s
+    import time
+
+    def port_free() -> bool:
+        s = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+        try:
+            s.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+        finally:
+            s.close()
+
+    if port_free():
+        return
+
+    # Try lsof in the common macOS paths — the bundled .app has a minimal PATH.
+    for lsof in ("/usr/sbin/lsof", "/usr/bin/lsof", "lsof"):
+        try:
+            result = subprocess.run(
+                [lsof, "-ti", f":{port}"],
+                capture_output=True, text=True, timeout=3,
+            )
+            for pid_str in result.stdout.strip().splitlines():
+                try:
+                    pid = int(pid_str)
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGKILL)
+                        print(f"[daemon] killed pid={pid} on port {port}", flush=True)
+                except (ValueError, ProcessLookupError, OSError):
+                    pass
+            break
+        except (FileNotFoundError, subprocess.SubprocessError):
+            continue
+
+    # Wait up to 8s for the kernel to actually free the port — covers both
+    # "the holder we just killed" and "the previous in-process server's TIME_WAIT".
+    for i in range(80):
+        if port_free():
+            if i:
+                print(f"[daemon] port {port} freed after {i*100}ms", flush=True)
+            return
+        time.sleep(0.1)
+    print(f"[daemon] WARNING: port {port} still busy after 8s", flush=True)
 
 
 def _config_path() -> Path:
@@ -157,7 +214,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--workspace",
         default=os.environ.get("DISPATCH_WORKSPACE", str(DEFAULT_WORKSPACE)),
-        help="Working directory the agent operates in. Default: ./workspace",
+        help="Working directory the agent operates in. Default: ~/dispatch/workspace",
     )
     parser.add_argument(
         "--anthropic-key",
@@ -178,7 +235,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def run_session(
-    args: argparse.Namespace, on_status=None, on_notification=None,
+    args: argparse.Namespace, on_status=None, on_notification=None, on_signout=None,
 ) -> int:
     """Run a single broker session.
 
@@ -207,15 +264,25 @@ async def run_session(
         return 2
 
     _emit("enrolling")
+    print(f"[daemon] >>> begin enrollment, broker={args.broker}", flush=True)
 
     # Device enrollment: ensure this machine has an Ed25519 keypair and a
     # broker-issued device_id. Generates the keypair on first run.
     try:
-        device_id = await ensure_enrolled(
-            args.broker, args.token, _load_config().get("device_id")
+        device_id = await asyncio.wait_for(
+            ensure_enrolled(
+                args.broker, args.token, _load_config().get("device_id")
+            ),
+            timeout=15.0,
         )
+        print(f"[daemon] enrollment OK -> {device_id}", flush=True)
+    except asyncio.TimeoutError:
+        print("[daemon] enrollment TIMED OUT after 15s", file=sys.stderr, flush=True)
+        return 5
     except Exception as exc:
-        print(f"[daemon] device enrollment failed: {exc}", file=sys.stderr)
+        print(f"[daemon] device enrollment FAILED: {type(exc).__name__}: {exc}",
+              file=sys.stderr, flush=True)
+        import traceback; traceback.print_exc(file=sys.stderr)
         return 5
 
     # If the user passed --anthropic-key (or env / saved config supplied one),
@@ -261,11 +328,36 @@ async def run_session(
         broker_url=args.broker,
         broker_token=args.token,
         notify=on_notification,
+        on_signout=on_signout,
     )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)
+    print(f"[daemon] evicting any process on port {local_port}", flush=True)
+    _evict_port(local_port)  # kill any stale process holding our port
     local_token = issue_local_token()
+    print(f"[daemon] spawning local UI server on port {local_port}", flush=True)
     local_server = spawn_local_ui(local_state, state, local_token, port=local_port)
-    print(f"[daemon] local UI: http://127.0.0.1:{local_port}?t=<see ~/.dispatch/local.token>")
+    # Wait until uvicorn actually accepts a connection — otherwise the tray's
+    # "Open Inbox" probe races the bind and shows the not-responding alert.
+    import socket as _s
+    for i in range(40):  # up to 4 s
+        await asyncio.sleep(0.1)
+        sock = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+        sock.settimeout(0.2)
+        try:
+            sock.connect(("127.0.0.1", local_port))
+            sock.close()
+            print(f"[daemon] local UI bound after {i*100}ms", flush=True)
+            break
+        except (_s.timeout, OSError):
+            sock.close()
+    else:
+        print(f"[daemon] WARNING: local UI never accepted on port {local_port}",
+              file=sys.stderr, flush=True)
+    print(f"[daemon] local UI: http://127.0.0.1:{local_port}?t=<see ~/.dispatch/local.token>", flush=True)
+
+    # Populate the inbox from the broker DB so past dispatches are visible
+    # immediately after a restart, before any new ones arrive over the WS.
+    await local_state.seed_from_broker()
 
     ws_url = _broker_ws_url(args.broker, args.token)
     ssl_ctx = _ssl_context_for(ws_url)
@@ -287,9 +379,16 @@ async def run_session(
         print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
         return 4
     finally:
-        # Release the local-UI port before returning so the supervisor's
-        # reconnect loop can rebind it on the next iteration. Graceful
-        # uvicorn shutdown with a timeout, then a hard cancel as fallback.
+        # Close every open WebSocket on the local UI server so uvicorn can
+        # shut down immediately. Without this, the browser's /ws/events
+        # connection keeps uvicorn alive past its graceful timeout, the port
+        # stays bound, and the retry loop fails to rebind.
+        for ws in list(local_state.watchers):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        local_state.watchers.clear()
         await local_server.stop()
     return 0
 
