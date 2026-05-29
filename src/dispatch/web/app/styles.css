@@ -1,130 +1,292 @@
+/* Dispatch — broker install / sign-in page.
+   Matches the desktop app's light, neutral aesthetic. */
+
 :root {
-  --bg: #0f1115;
-  --panel: #181b22;
-  --panel-2: #1f232c;
-  --text: #e6e8ee;
-  --muted: #8a93a6;
-  --border: #2a2f3a;
-  --accent: #7aa2ff;
-  --result: #6ee7b7;
-  --error: #f87171;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --secondary: #f4f4f5;
+  --text: #0a0a0a;
+  --muted: #71717a;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --accent: #10b981;       /* emerald — same as Online indicator */
+  --result: #15803d;
+  --error: #dc2626;
+  --warning: #d97706;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-main { max-width: 720px; margin: 0 auto; padding: 48px 24px 96px; }
-header h1 { margin: 0 0 4px; font-size: 32px; letter-spacing: -0.01em; }
-.subtitle { margin: 0 0 32px; color: var(--muted); font-size: 14px; }
+
+/* ── Topbar (mirrors the desktop Shell topbar) ──────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.brand-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+.topbar-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.topbar-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── Layout ───────────────────────────────────────────── */
+
+main {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 64px 24px 96px;
+}
+
+header { margin-bottom: 28px; }
+
+header h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 52ch;
+}
+
+/* ── Card / panel ─────────────────────────────────────── */
 
 .panel {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px;
+  padding: 22px;
 }
 
 h2 {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--muted);
-  margin: 24px 0 10px;
+  margin: 24px 0 8px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  font-weight: 600;
 }
 
-.row { display: flex; gap: 8px; align-items: center; }
+h2:first-child { margin-top: 0; }
 
-button {
-  background: var(--accent);
-  color: #0b0e14;
-  border: 0;
-  border-radius: 6px;
-  font-weight: 600;
+.install-panel p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 12px;
+  line-height: 1.55;
+}
+
+.install-panel p strong { color: var(--text); font-weight: 600; }
+
+.install-panel code {
+  font-family: var(--mono);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* ── Buttons ──────────────────────────────────────────── */
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+button, .primary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--text);
+  color: white;
+  border: 1px solid var(--text);
+  border-radius: 8px;
+  font-weight: 500;
   padding: 9px 16px;
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--sans);
+  text-decoration: none;
+  transition: opacity 0.15s;
 }
+
+button:hover, .primary-link:hover { opacity: 0.9; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+#login-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+#logout {
+  background: white;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 13px;
+  padding: 6px 12px;
+}
+#logout:hover { background: var(--secondary); opacity: 1; }
+
+.primary-link {
+  font-size: 14px;
+}
+
+#copy-install {
+  background: white;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 13px;
+  padding: 7px 14px;
+}
+#copy-install:hover { background: var(--secondary); opacity: 1; }
+
+/* ── Status pills ─────────────────────────────────────── */
+
 .status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--muted);
-  margin-top: 12px;
   padding: 4px 10px;
-  border-radius: 4px;
-  background: var(--panel-2);
-  display: inline-block;
+  border-radius: 999px;
+  background: var(--secondary);
+  margin-top: 14px;
+  font-weight: 500;
 }
-.status.running { color: var(--accent); }
-.status.done    { color: var(--result); }
-.status.error   { color: var(--error); }
 
-.install-panel { margin-top: 24px; }
+.status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.status.running { color: #1d4ed8; background: #eff6ff; }
+.status.running::before { background: #3b82f6; }
+
+.status.done { color: var(--result); background: #f0fdf4; }
+.status.done::before { background: var(--accent); }
+
+.status.error { color: var(--error); background: #fef2f2; }
+.status.error::before { background: var(--error); }
+
+/* ── Invite banner ────────────────────────────────────── */
+
 .invite-banner {
-  background: rgba(122, 162, 255, 0.1);
-  border: 1px solid rgba(122, 162, 255, 0.35);
-  border-radius: 6px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
-  color: var(--accent);
+  color: #92400e;
   margin-bottom: 20px;
-}
-.install-panel p { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
-.install-panel p strong { color: var(--text); }
-.install-panel code {
-  font-family: var(--mono);
-  background: var(--panel-2);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-size: 12px;
+  line-height: 1.5;
 }
 
+.invite-banner strong { font-weight: 600; }
+
+/* ── Install command box ──────────────────────────────── */
+
 #install-cmd {
-  background: var(--bg);
+  background: var(--secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 12px 14px;
   font-family: var(--mono);
   font-size: 12px;
+  line-height: 1.55;
   word-break: break-all;
   white-space: pre-wrap;
   margin: 0 0 10px;
-  color: var(--result);
+  color: var(--text);
+  overflow-x: auto;
 }
 
 #token-display {
-  background: var(--bg);
+  background: var(--secondary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 10px;
+  padding: 10px 12px;
   font-size: 11px;
   word-break: break-all;
   white-space: pre-wrap;
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-family: var(--mono);
+  line-height: 1.5;
 }
 
 details summary {
   cursor: pointer;
   color: var(--muted);
-  margin-top: 16px;
+  margin-top: 14px;
   font-size: 13px;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-
-.primary-link {
+details summary::-webkit-details-marker { display: none; }
+details summary::before {
+  content: "▸";
   display: inline-block;
-  background: var(--accent);
-  color: #0b0e14;
-  padding: 9px 16px;
-  border-radius: 6px;
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 14px;
+  transition: transform 0.15s;
+  font-size: 10px;
 }
-.primary-link:hover { filter: brightness(1.05); }
+details[open] summary::before { transform: rotate(90deg); }
+details summary:hover { color: var(--text); }
