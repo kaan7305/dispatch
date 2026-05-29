@@ -2,8 +2,14 @@
 
 CREATE TABLE IF NOT EXISTS users (
     user_id     TEXT PRIMARY KEY,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Bumped on every web-UI sign-out. Tokens with iat < this are revoked,
+    -- so daemons still holding a cached JWT get kicked on next request.
+    signed_out_at TIMESTAMPTZ
 );
+
+-- Additive for upgrades: column may not exist on older deployments.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS signed_out_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS dispatches (
     dispatch_id   UUID PRIMARY KEY,

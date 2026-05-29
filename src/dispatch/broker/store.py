@@ -86,6 +86,26 @@ class Store:
                 user_id,
             )
 
+    async def mark_signed_out(self, user_id: str) -> None:
+        """Bump the user's `signed_out_at` to now. Subsequent JWT checks
+        with iat earlier than this timestamp will be rejected."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO users (user_id, signed_out_at)
+                VALUES ($1, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET signed_out_at = NOW()
+                """,
+                user_id,
+            )
+
+    async def get_signed_out_at(self, user_id: str):
+        """Return the user's last sign-out timestamp, or None if never."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT signed_out_at FROM users WHERE user_id = $1", user_id,
+            )
+
     async def list_users(self) -> list[str]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("SELECT user_id FROM users ORDER BY user_id")

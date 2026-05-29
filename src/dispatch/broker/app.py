@@ -43,7 +43,9 @@ from dispatch.broker.email import send_invitation
 from dispatch.broker.state import STATE
 from dispatch.broker.store import STORE, StoredDispatch
 from dispatch.shared import crypto
-from dispatch.shared.identity import IdentityError, issue_token, verify_token
+from dispatch.shared.identity import (
+    IdentityError, issue_token, verify_token, verify_token_with_iat,
+)
 from dispatch.shared.schema import (
     AcceptInvitationRequest,
     ClerkExchangeRequest,
@@ -96,23 +98,38 @@ app = FastAPI(title="Dispatch broker", lifespan=lifespan)
 # ----------------------------------------------------------------------------
 
 
-def authed_user(authorization: Optional[str] = Header(None)) -> str:
+async def _check_not_revoked(user_id: str, iat: int) -> bool:
+    """Server-side revocation check: was the user's last signed_out_at after
+    this token was issued? Returns False if the token has been revoked."""
+    signed_out_at = await STORE.get_signed_out_at(user_id)
+    if signed_out_at is None:
+        return True
+    return int(signed_out_at.timestamp()) <= iat
+
+
+async def authed_user(authorization: Optional[str] = Header(None)) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
     try:
-        return verify_token(token)
+        user_id, iat = verify_token_with_iat(token)
     except IdentityError as e:
         raise HTTPException(status_code=401, detail=str(e))
+    if not await _check_not_revoked(user_id, iat):
+        raise HTTPException(status_code=401, detail="Token revoked — sign in again")
+    return user_id
 
 
-def _verify_ws(token: Optional[str]) -> Optional[str]:
+async def _verify_ws(token: Optional[str]) -> Optional[str]:
     if not token:
         return None
     try:
-        return verify_token(token)
+        user_id, iat = verify_token_with_iat(token)
     except IdentityError:
         return None
+    if not await _check_not_revoked(user_id, iat):
+        return None
+    return user_id
 
 
 # ----------------------------------------------------------------------------
@@ -132,13 +149,16 @@ async def login(req: LoginRequest) -> dict:
 async def auth_signout(user_id: str = Depends(authed_user)) -> dict:
     """Sign-out hook for the broker SPA.
 
-    Notifies every one of this user's connected daemons over the WebSocket
-    so their tray apps clear their cached JWT and stop reconnecting. The
-    daemon's own JWT isn't revoked server-side (HS256 + no DB blocklist),
-    so this is best-effort: any daemon NOT currently connected won't get
-    the signal until it reconnects (and at that point its JWT still works
-    until natural expiry).
+    1. Bumps users.signed_out_at so every JWT issued before this moment
+       is invalidated server-side. The daemon's cached JWT, even though
+       cryptographically valid, will be rejected on its next request.
+    2. Pushes a {type: signed_out} frame to every connected daemon so the
+       tray reflects the sign-out immediately instead of waiting for the
+       next reconnect.
+    Also closes the WebSocket so the daemon's session ends now, not on
+    its next reconnect.
     """
+    await STORE.mark_signed_out(user_id)
     devices = STATE.agents.get(user_id, {})
     delivered = 0
     msg = json.dumps({"type": "signed_out"})
@@ -148,6 +168,10 @@ async def auth_signout(user_id: str = Depends(authed_user)) -> dict:
             delivered += 1
         except Exception:
             logger.exception("failed to notify daemon of sign-out")
+        try:
+            await ws.close(code=4401)
+        except Exception:
+            pass
     return {"status": "ok", "notified": delivered}
 
 
@@ -856,7 +880,7 @@ async def revoke_trust(
 
 @app.websocket("/agent/connect")
 async def agent_connect(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
-    user_id = _verify_ws(token)
+    user_id = await _verify_ws(token)
     if user_id is None:
         await ws.close(code=1008)
         return
@@ -1006,7 +1030,7 @@ async def watch_dispatch(
     dispatch_id: UUID,
     token: Optional[str] = Query(None),
 ) -> None:
-    user_id = _verify_ws(token)
+    user_id = await _verify_ws(token)
     if user_id is None:
         await ws.close(code=1008)
         return
@@ -1125,7 +1149,7 @@ async def inbox(ws: WebSocket, token: Optional[str] = Query(None)) -> None:
       {type: "dispatch_decision", dispatch_id, decision}          -- accept|reject
       {type: "tool_approval",      dispatch_id, request_id, decision}  -- allow|deny
     """
-    user_id = _verify_ws(token)
+    user_id = await _verify_ws(token)
     if user_id is None:
         await ws.close(code=1008)
         return

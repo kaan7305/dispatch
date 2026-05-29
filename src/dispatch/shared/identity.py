@@ -44,6 +44,16 @@ def issue_token(user_id: str, *, ttl: timedelta = DEFAULT_TTL) -> str:
 
 def verify_token(token: str) -> str:
     """Returns the user_id (sub claim) if the token is valid."""
+    sub, _ = verify_token_with_iat(token)
+    return sub
+
+
+def verify_token_with_iat(token: str) -> tuple[str, int]:
+    """Returns (user_id, issued_at_unix_seconds) if the token is valid.
+
+    Callers that need to check the JWT against a server-side revocation
+    timestamp use this; everyone else uses verify_token().
+    """
     try:
         payload = jwt.decode(token, _secret(), algorithms=[JWT_ALGORITHM])
     except jwt.InvalidTokenError as e:
@@ -51,4 +61,5 @@ def verify_token(token: str) -> str:
     user_id = payload.get("sub")
     if not isinstance(user_id, str) or not user_id:
         raise IdentityError("Token missing 'sub' claim")
-    return user_id
+    iat = int(payload.get("iat") or 0)
+    return user_id, iat
