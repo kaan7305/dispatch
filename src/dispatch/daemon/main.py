@@ -354,6 +354,14 @@ async def run_session(
         broker_token=args.token,
     )
 
+    from dispatch.daemon.workflow_scheduler import CronScheduler
+    scheduler = CronScheduler(
+        workflow_engine,
+        args.broker,
+        lambda: args.token,
+    )
+    await scheduler.start()
+
     print(f"[daemon] spawning local UI server on port {local_port}", flush=True)
     local_server = spawn_local_ui(
         local_state, state, local_token,
@@ -434,6 +442,7 @@ async def run_session(
             except Exception:
                 pass
         local_state.watchers.clear()
+        await scheduler.stop()
         await local_server.stop()
     return 0
 

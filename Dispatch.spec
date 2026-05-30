@@ -79,6 +79,8 @@ a = Analysis(
         "websockets",
         "anyio",
         "anyio._backends._asyncio",
+        # Workflows: cron scheduling
+        "croniter",
     ],
     hookspath=[],
     hooksconfig={},

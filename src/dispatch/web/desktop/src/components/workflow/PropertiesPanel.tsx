@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 
@@ -75,6 +75,18 @@ function NodeFields({ node, onChange }: { node: WorkflowNode; onChange: (n: Work
       return <NotifyFields node={node} setParam={setParam} />;
     case "wait_reply":
       return <WaitReplyFields node={node} setParam={setParam} />;
+    case "trigger.cron":
+      return <CronTriggerFields node={node} setParam={setParam} />;
+    case "transform.code":
+      return <CodeFields node={node} setParam={setParam} />;
+    case "http.request":
+      return <HTTPFields node={node} setParam={setParam} />;
+    case "delay":
+      return <DelayFields node={node} setParam={setParam} />;
+    case "end.success":
+      return <EndFields node={node} setParam={setParam} kind="success" />;
+    case "end.error":
+      return <EndFields node={node} setParam={setParam} kind="error" />;
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -471,6 +483,270 @@ function WaitReplyFields({
           onChange={(e) => setParam("timeout_s", Number(e.target.value))}
           className={inputClass}
         />
+      </div>
+    </div>
+  );
+}
+
+// ─── trigger.cron ──────────────────────────────────────────────────────────
+
+function CronTriggerFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const expression = (node.params.expression as string | undefined) ?? "";
+  const input = node.params.input;
+  const initialText =
+    typeof input === "string"
+      ? input
+      : input == null
+        ? ""
+        : JSON.stringify(input, null, 2);
+  const [inputText, setInputText] = useState<string>(initialText);
+  const [inputError, setInputError] = useState<string | null>(null);
+
+  function onInputChange(value: string) {
+    setInputText(value);
+    if (value.trim() === "") {
+      setInputError(null);
+      setParam("input", {});
+      return;
+    }
+    try {
+      const parsed = JSON.parse(value);
+      setInputError(null);
+      setParam("input", parsed);
+    } catch {
+      setInputError("Invalid JSON");
+      setParam("input", value);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="cron-expression">Expression</FieldLabel>
+        <input
+          id="cron-expression"
+          value={expression}
+          onChange={(e) => setParam("expression", e.target.value)}
+          placeholder="0 9 * * *"
+          className={`${inputClass} font-mono`}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          5 fields: minute, hour, day, month, weekday. Examples:{" "}
+          <code>0 9 * * *</code> = 9am daily, <code>*/15 * * * *</code> = every
+          15 min
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="cron-input">Static input (JSON)</FieldLabel>
+        <textarea
+          id="cron-input"
+          rows={5}
+          value={inputText}
+          onChange={(e) => onInputChange(e.target.value)}
+          placeholder='{"key": "value"}'
+          className={`${inputClass} font-mono text-xs resize-y`}
+        />
+        {inputError && (
+          <p className="text-[11px] text-destructive">{inputError}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── transform.code ────────────────────────────────────────────────────────
+
+function CodeFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const code = (node.params.code as string | undefined) ?? "";
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="code-expr">Expression</FieldLabel>
+        <textarea
+          id="code-expr"
+          rows={6}
+          value={code}
+          onChange={(e) => setParam("code", e.target.value)}
+          placeholder="ctx.foo + 1  // or  json.loads(n2.output)['key']"
+          className={`${inputClass} font-mono text-xs resize-y`}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Available: <code>ctx</code> (inputs), <code>nN</code> (prior node
+          outputs), <code>json</code>, <code>math</code>, <code>len</code>,{" "}
+          <code>str</code>, <code>int</code>, <code>float</code>,{" "}
+          <code>dict</code>, <code>list</code>, <code>sum</code>,{" "}
+          <code>min</code>, <code>max</code>, <code>sorted</code>,{" "}
+          <code>any</code>, <code>all</code>. Return any value.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── http.request ──────────────────────────────────────────────────────────
+
+function HTTPFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const method = (node.params.method as string | undefined) ?? "GET";
+  const url = (node.params.url as string | undefined) ?? "";
+  const body = (node.params.body as string | undefined) ?? "";
+  const timeout = (node.params.timeout_s as number | undefined) ?? 30;
+  const headers = node.params.headers;
+  const initialHeadersText =
+    typeof headers === "string"
+      ? headers
+      : headers == null
+        ? ""
+        : JSON.stringify(headers, null, 2);
+  const [headersText, setHeadersText] = useState<string>(initialHeadersText);
+  const [headersError, setHeadersError] = useState<string | null>(null);
+
+  function onHeadersChange(value: string) {
+    setHeadersText(value);
+    if (value.trim() === "") {
+      setHeadersError(null);
+      setParam("headers", {});
+      return;
+    }
+    try {
+      const parsed = JSON.parse(value);
+      setHeadersError(null);
+      setParam("headers", parsed);
+    } catch {
+      setHeadersError("Invalid JSON");
+      setParam("headers", value);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="http-method">Method</FieldLabel>
+        <select
+          id="http-method"
+          value={method}
+          onChange={(e) => setParam("method", e.target.value)}
+          className={inputClass}
+        >
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="PATCH">PATCH</option>
+          <option value="DELETE">DELETE</option>
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="http-url">URL</FieldLabel>
+        <input
+          id="http-url"
+          value={url}
+          onChange={(e) => setParam("url", e.target.value)}
+          placeholder="https://example.com/api"
+          className={inputClass}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="http-headers">Headers (JSON)</FieldLabel>
+        <textarea
+          id="http-headers"
+          rows={4}
+          value={headersText}
+          onChange={(e) => onHeadersChange(e.target.value)}
+          placeholder='{"Authorization": "Bearer ..."}'
+          className={`${inputClass} font-mono text-xs resize-y`}
+        />
+        {headersError && (
+          <p className="text-[11px] text-destructive">{headersError}</p>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="http-body">Body</FieldLabel>
+        <textarea
+          id="http-body"
+          rows={4}
+          value={body}
+          onChange={(e) => setParam("body", e.target.value)}
+          placeholder="request body (templatable)"
+          className={`${inputClass} resize-y`}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="http-timeout">Timeout (seconds)</FieldLabel>
+        <input
+          id="http-timeout"
+          type="number"
+          min={1}
+          max={300}
+          value={timeout}
+          onChange={(e) => setParam("timeout_s", Number(e.target.value))}
+          className={inputClass}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── delay ─────────────────────────────────────────────────────────────────
+
+function DelayFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const seconds = (node.params.seconds as number | undefined) ?? 5;
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="delay-seconds">Seconds</FieldLabel>
+        <input
+          id="delay-seconds"
+          type="number"
+          min={1}
+          max={3600}
+          value={seconds}
+          onChange={(e) => setParam("seconds", Number(e.target.value))}
+          className={inputClass}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── end.success / end.error ───────────────────────────────────────────────
+
+function EndFields({
+  node, setParam, kind,
+}: {
+  node: WorkflowNode;
+  setParam: <T>(k: string, v: T) => void;
+  kind: "success" | "error";
+}) {
+  const message = (node.params.message as string | undefined) ?? "";
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="end-message">
+          Message{kind === "error" ? " (error)" : ""}
+        </FieldLabel>
+        <input
+          id="end-message"
+          value={message}
+          onChange={(e) => setParam("message", e.target.value)}
+          placeholder="Workflow done"
+          className={inputClass}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Optional. Supports <code>{"{{ctx.key}}"}</code> and{" "}
+          <code>{"{{nN.output}}"}</code>.
+        </p>
       </div>
     </div>
   );
