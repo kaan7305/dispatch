@@ -4,10 +4,12 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Shell } from "./components/Shell";
 import Inbox from "./pages/Inbox";
 import People from "./pages/People";
-import Saved from "./pages/Saved";
 import History from "./pages/History";
 import Devices from "./pages/Devices";
 import DispatchDetail from "./pages/DispatchDetail";
+import Workflows from "./pages/Workflows";
+import WorkflowEditor from "./pages/WorkflowEditor";
+import WorkflowRun from "./pages/WorkflowRun";
 
 export default function App() {
   return (
@@ -19,7 +21,10 @@ export default function App() {
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/dispatch/:id" element={<DispatchDetail />} />
             <Route path="/people" element={<People />} />
-            <Route path="/saved" element={<Saved />} />
+            <Route path="/workflows" element={<Workflows />} />
+            <Route path="/workflows/new" element={<WorkflowEditor />} />
+            <Route path="/workflows/:id/edit" element={<WorkflowEditor />} />
+            <Route path="/runs/:runId" element={<WorkflowRun />} />
             <Route path="/history" element={<History />} />
             <Route path="/devices" element={<Devices />} />
             <Route path="*" element={<Navigate to="/inbox" replace />} />

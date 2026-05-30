@@ -342,8 +342,24 @@ async def run_session(
     print(f"[daemon] evicting any process on port {local_port}", flush=True)
     _evict_port(local_port)  # kill any stale process holding our port
     local_token = issue_local_token()
+
+    # Workflow engine lives alongside the local UI so the routes mounted
+    # on the FastAPI app and the broker WS handler both see the same
+    # instance. The broker WS pushes workflow_run_start frames; the engine
+    # walks the graph and PATCHes run state back to the broker.
+    from dispatch.daemon.workflows import WorkflowEngine
+    workflow_engine = WorkflowEngine(
+        local_state=local_state,
+        broker_url=args.broker,
+        broker_token=args.token,
+    )
+
     print(f"[daemon] spawning local UI server on port {local_port}", flush=True)
-    local_server = spawn_local_ui(local_state, state, local_token, port=local_port)
+    local_server = spawn_local_ui(
+        local_state, state, local_token,
+        port=local_port,
+        workflow_engine=workflow_engine,
+    )
     # Wait until uvicorn actually accepts a connection — otherwise the tray's
     # "Open Inbox" probe races the bind and shows the not-responding alert.
     import socket as _s
@@ -379,7 +395,11 @@ async def run_session(
                 f"[daemon] connected. Open http://127.0.0.1:{local_port} to approve dispatches."
             )
             _emit("connected")
-            await handle_broker(ws, state, workspace, private_key, local_state=local_state)
+            await handle_broker(
+                ws, state, workspace, private_key,
+                local_state=local_state,
+                workflow_engine=workflow_engine,
+            )
     except websockets.InvalidStatus as e:
         # 401/403 means the JWT is revoked or otherwise rejected by the
         # broker — treat it the same as a signed_out push and stop trying.
@@ -526,6 +546,7 @@ async def handle_broker(
     workspace: Path,
     private_key: bytes,
     local_state=None,
+    workflow_engine=None,
 ) -> None:
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
         await ws.send(
@@ -555,6 +576,13 @@ async def handle_broker(
         except json.JSONDecodeError:
             continue
         mtype = msg.get("type")
+
+        # Workflow engine claims its own frame type before the dispatch
+        # switch below so the message loop stays linear.
+        if workflow_engine is not None and mtype == "workflow_run_start":
+            from dispatch.daemon.workflow_routes import handle_broker_workflow_message
+            if await handle_broker_workflow_message(workflow_engine, msg):
+                continue
 
         if mtype == "error":
             # Broker is telling us why it's about to close (e.g. unknown

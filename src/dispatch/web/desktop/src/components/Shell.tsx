@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox as InboxIcon,
   Users,
-  Bookmark,
+  Workflow,
   History as HistoryIcon,
   Monitor,
   Search,
@@ -23,11 +23,11 @@ import {
 import { ComposeDialog } from "./ComposeDialog";
 
 const NAV = [
-  { to: "/inbox",   label: "Inbox",   Icon: InboxIcon  },
-  { to: "/people",  label: "People",  Icon: Users      },
-  { to: "/saved",   label: "Saved",   Icon: Bookmark   },
-  { to: "/history", label: "History", Icon: HistoryIcon },
-  { to: "/devices", label: "Devices", Icon: Monitor    },
+  { to: "/inbox",     label: "Inbox",     Icon: InboxIcon  },
+  { to: "/people",    label: "People",    Icon: Users      },
+  { to: "/workflows", label: "Workflows", Icon: Workflow   },
+  { to: "/history",   label: "History",   Icon: HistoryIcon },
+  { to: "/devices",   label: "Devices",   Icon: Monitor    },
 ];
 
 export function Shell() {

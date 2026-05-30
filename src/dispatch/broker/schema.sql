@@ -106,3 +106,38 @@ ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS signature     BYTEA;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_nonce
     ON dispatches(sender_device, nonce)
     WHERE sender_device IS NOT NULL AND nonce IS NOT NULL;
+
+-- ============================================================================
+-- Workflows: visual n8n-style agentic chains owned by a single user.
+-- ============================================================================
+
+-- A saved workflow definition. The `definition` column holds a JSON blob
+-- with {nodes: [...], edges: [...]} produced by the desktop canvas. We keep
+-- the schema-less JSONB so we can iterate on node types without migrations.
+CREATE TABLE IF NOT EXISTS workflows (
+    workflow_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id     TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    definition   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflows_owner ON workflows(owner_id);
+
+-- One row per execution of a workflow. node_states is the per-node progress
+-- snapshot the daemon engine streams in as the run advances.
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    run_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id  UUID NOT NULL REFERENCES workflows(workflow_id) ON DELETE CASCADE,
+    triggered_by TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending|running|completed|failed|cancelled
+    input        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    node_states  JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error        TEXT,
+    started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_owner ON workflow_runs(triggered_by);
