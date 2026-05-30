@@ -151,6 +151,22 @@ def make_router(
     async def get_run(run_id: UUID) -> Response:
         return await _broker_request("GET", f"/runs/{run_id}")
 
+    @router.post("/api/runs/{run_id}/cancel", dependencies=[Depends(require_local_token)])
+    async def cancel_run(run_id: UUID) -> dict:
+        # Cancellation is purely local: the engine task is here, the
+        # in-flight dispatches stay alive on the recipient side (already
+        # signed). We tell the broker the run is cancelled so the UI
+        # reflects it everywhere even if the daemon disconnects.
+        was_running = engine.cancel(run_id)
+        try:
+            await _broker_request(
+                "PATCH", f"/runs/{run_id}",
+                json_body={"status": "cancelled", "ended": True},
+            )
+        except Exception:
+            pass
+        return {"status": "cancelled" if was_running else "noop"}
+
     return router
 
 
