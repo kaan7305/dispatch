@@ -158,3 +158,104 @@ DispatchEventType = Literal[
 class DispatchEvent(TypedDict):
     type: DispatchEventType
     data: dict[str, Any]
+
+
+# ============================================================================
+# Workflows — n8n-style visual chains of dispatches.
+# ============================================================================
+
+
+class WorkflowNode(BaseModel):
+    """One node in a workflow's canvas.
+
+    `type` controls execution: trigger.manual | dispatch | notify | wait_reply.
+    `params` is the per-type parameter bag (e.g. recipient_id + task for
+    dispatch nodes). We keep it schema-less so node types can evolve.
+    """
+
+    id: str = Field(..., min_length=1, max_length=64)
+    type: str = Field(..., min_length=1, max_length=64)
+    pos: list[float] = Field(default_factory=lambda: [0.0, 0.0], min_length=2, max_length=2)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowEdge(BaseModel):
+    """Directed edge connecting two nodes by their port names."""
+
+    from_node: str = Field(..., alias="from", min_length=1, max_length=64)
+    from_port: str = Field(default="out", max_length=32)
+    to_node: str = Field(..., alias="to", min_length=1, max_length=64)
+    to_port: str = Field(default="in", max_length=32)
+
+    model_config = {"populate_by_name": True}
+
+
+class WorkflowDefinition(BaseModel):
+    """The persisted canvas: nodes + edges."""
+
+    nodes: list[WorkflowNode] = Field(default_factory=list)
+    edges: list[WorkflowEdge] = Field(default_factory=list)
+
+
+class WorkflowCreateRequest(BaseModel):
+    """Body for POST /workflows. Update uses the same shape via PUT."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    definition: WorkflowDefinition = Field(default_factory=WorkflowDefinition)
+
+
+class WorkflowSummary(BaseModel):
+    """List-view representation of a workflow."""
+
+    workflow_id: UUID
+    name: str
+    node_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class NodeStatus(str, enum.Enum):
+    pending   = "pending"
+    running   = "running"
+    completed = "completed"
+    failed    = "failed"
+    skipped   = "skipped"
+
+
+class NodeState(BaseModel):
+    """Per-node execution snapshot inside a run."""
+
+    status: NodeStatus = NodeStatus.pending
+    output: Any = None              # whatever the node produced (string, dict)
+    dispatch_id: Optional[UUID] = None   # for dispatch nodes — linked dispatch
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+class WorkflowRunStatus(str, enum.Enum):
+    pending   = "pending"
+    running   = "running"
+    completed = "completed"
+    failed    = "failed"
+    cancelled = "cancelled"
+
+
+class WorkflowRunCreateRequest(BaseModel):
+    """Body for POST /workflows/{id}/run."""
+
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRun(BaseModel):
+    """Full execution record returned by GET /runs/{id}."""
+
+    run_id: UUID
+    workflow_id: UUID
+    triggered_by: str
+    status: WorkflowRunStatus
+    input: dict[str, Any]
+    node_states: dict[str, NodeState]
+    error: Optional[str] = None
+    started_at: datetime
+    ended_at: Optional[datetime] = None

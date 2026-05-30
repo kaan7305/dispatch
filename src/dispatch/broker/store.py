@@ -558,5 +558,130 @@ class Store:
             return result.endswith(" 1")
 
 
+    # ---------------- workflows ----------------
+
+    async def create_workflow(
+        self, owner_id: str, name: str, definition: dict
+    ) -> UUID:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                """
+                INSERT INTO workflows (owner_id, name, definition)
+                VALUES ($1, $2, $3)
+                RETURNING workflow_id
+                """,
+                owner_id, name, definition,
+            )
+
+    async def update_workflow(
+        self, workflow_id: UUID, owner_id: str, name: str, definition: dict
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE workflows
+                SET name = $1, definition = $2, updated_at = NOW()
+                WHERE workflow_id = $3 AND owner_id = $4
+                """,
+                name, definition, workflow_id, owner_id,
+            )
+            return result.endswith(" 1")
+
+    async def get_workflow(self, workflow_id: UUID, owner_id: str) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT workflow_id, owner_id, name, definition, created_at, updated_at
+                FROM workflows WHERE workflow_id = $1 AND owner_id = $2
+                """,
+                workflow_id, owner_id,
+            )
+            return dict(row) if row else None
+
+    async def list_workflows(self, owner_id: str) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT workflow_id, owner_id, name, definition, created_at, updated_at
+                FROM workflows WHERE owner_id = $1
+                ORDER BY updated_at DESC
+                """,
+                owner_id,
+            )
+            return [dict(r) for r in rows]
+
+    async def delete_workflow(self, workflow_id: UUID, owner_id: str) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM workflows WHERE workflow_id = $1 AND owner_id = $2",
+                workflow_id, owner_id,
+            )
+            return result.endswith(" 1")
+
+    # ---------------- workflow runs ----------------
+
+    async def create_workflow_run(
+        self, run_id: UUID, workflow_id: UUID, triggered_by: str, input_: dict,
+    ) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO workflow_runs (run_id, workflow_id, triggered_by, status, input, node_states)
+                VALUES ($1, $2, $3, 'running', $4, '{}'::jsonb)
+                """,
+                run_id, workflow_id, triggered_by, input_,
+            )
+
+    async def update_workflow_run(
+        self, run_id: UUID, *, status: Optional[str] = None,
+        node_states: Optional[dict] = None, error: Optional[str] = None,
+        ended: bool = False,
+    ) -> None:
+        sets: list[str] = []
+        args: list = []
+        if status is not None:
+            args.append(status); sets.append(f"status = ${len(args)}")
+        if node_states is not None:
+            args.append(node_states); sets.append(f"node_states = ${len(args)}")
+        if error is not None:
+            args.append(error); sets.append(f"error = ${len(args)}")
+        if ended:
+            sets.append("ended_at = NOW()")
+        if not sets:
+            return
+        args.append(run_id)
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"UPDATE workflow_runs SET {', '.join(sets)} WHERE run_id = ${len(args)}",
+                *args,
+            )
+
+    async def get_workflow_run(self, run_id: UUID, owner_id: str) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT run_id, workflow_id, triggered_by, status, input,
+                       node_states, error, started_at, ended_at
+                FROM workflow_runs WHERE run_id = $1 AND triggered_by = $2
+                """,
+                run_id, owner_id,
+            )
+            return dict(row) if row else None
+
+    async def list_workflow_runs(self, workflow_id: UUID, owner_id: str) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT run_id, workflow_id, triggered_by, status, started_at, ended_at
+                FROM workflow_runs
+                WHERE workflow_id = $1 AND triggered_by = $2
+                ORDER BY started_at DESC
+                LIMIT 50
+                """,
+                workflow_id, owner_id,
+            )
+            return [dict(r) for r in rows]
+
+
 # Module-level singleton; init/close lifecycle is managed by the broker app.
 STORE = Store()

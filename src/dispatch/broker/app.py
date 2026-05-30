@@ -1266,5 +1266,9 @@ async def _handle_inbox_message(user_id: str, msg: dict) -> None:
         logger.exception("failed to forward approval to daemon")
 
 
+from dispatch.broker.workflows import router as workflows_router, runs_router as workflow_runs_router
+app.include_router(workflows_router)
+app.include_router(workflow_runs_router)
+
 # Static mount last so it doesn't shadow the routes above.
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

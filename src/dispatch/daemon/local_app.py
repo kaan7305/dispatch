@@ -270,7 +270,12 @@ class _DeviceRename(BaseModel):
     label: str
 
 
-def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI:
+def make_app(
+    local_state: LocalState,
+    daemon_state,
+    local_token: str,
+    workflow_engine=None,
+) -> FastAPI:
     """Build the local FastAPI app.
 
     daemon_state is the DaemonState from dispatch.daemon.main; we resolve
@@ -280,8 +285,13 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
     local_token is the per-launch bearer that authenticates the locally-
     served SPA. Required on every /api/* and /ws/* call so a drive-by
     page or rogue browser extension at 127.0.0.1 can't drive the daemon.
+
+    workflow_engine is the WorkflowEngine created in main.run_session;
+    we stash it on app.state so handle_broker can find it via the
+    process-shared LocalServer handle.
     """
     app = FastAPI(title="Dispatch (local)")
+    app.state.workflow_engine = workflow_engine
 
     def require_local_token(request: Request) -> None:
         header = request.headers.get("authorization", "")
@@ -592,6 +602,21 @@ def make_app(local_state: LocalState, daemon_state, local_token: str) -> FastAPI
             except Exception:
                 pass
 
+    # Workflows: only mount when an engine was supplied. The router itself
+    # is just a proxy + local-token guard; routes are 503 until the engine
+    # is wired in by main.run_session.
+    if workflow_engine is not None:
+        from dispatch.daemon.workflow_routes import make_router as make_workflow_router
+        app.include_router(
+            make_workflow_router(
+                workflow_engine,
+                local_state,
+                daemon_state,
+                local_token,
+                local_state.broker_url,
+            )
+        )
+
     if STATIC_DIR.exists():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
     return app
@@ -626,10 +651,11 @@ async def serve(
     local_token: str,
     host: str = "127.0.0.1",
     port: int = 8001,
+    workflow_engine=None,
 ) -> None:
     """Run the local FastAPI app in the current event loop."""
     import uvicorn
-    app = make_app(local_state, daemon_state, local_token)
+    app = make_app(local_state, daemon_state, local_token, workflow_engine=workflow_engine)
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
     await server.serve()
@@ -641,6 +667,7 @@ def spawn(
     local_token: str,
     host: str = "127.0.0.1",
     port: int = 8001,
+    workflow_engine=None,
 ) -> LocalServer:
     """Start the local UI server. Returns a handle whose stop() releases
     the listen socket so the next iteration of a reconnect loop can
@@ -652,7 +679,7 @@ def spawn(
     """
     import socket as _s
     import uvicorn
-    app = make_app(local_state, daemon_state, local_token)
+    app = make_app(local_state, daemon_state, local_token, workflow_engine=workflow_engine)
     sock = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
     sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
     try:
