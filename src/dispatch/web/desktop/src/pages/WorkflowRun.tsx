@@ -5,8 +5,8 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
+  BackgroundVariant,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   type Node,
@@ -181,10 +181,22 @@ function Canvas({ workflow, run }: { workflow: Workflow; run: WorkflowRun }) {
       elementsSelectable={false}
       fitView
       proOptions={{ hideAttribution: true }}
+      defaultEdgeOptions={{
+        type: "default",
+        style: { stroke: "#a1a1aa", strokeWidth: 1.75 },
+      }}
     >
-      <Background gap={20} />
-      <Controls showInteractive={false} />
-      <MiniMap pannable zoomable />
+      <Background
+        variant={BackgroundVariant.Dots}
+        gap={18}
+        size={1.5}
+        color="#d4d4d8"
+      />
+      <Controls
+        position="bottom-left"
+        showInteractive={false}
+        className="!rounded-lg !border !border-zinc-200 !bg-white !shadow-sm"
+      />
     </ReactFlow>
   );
 }
