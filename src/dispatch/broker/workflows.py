@@ -1,14 +1,16 @@
-"""Workflows CRUD + run-orchestration endpoints.
+"""Workflows CRUD + dispatch-fan-out endpoints.
 
 Mounted onto the broker FastAPI app under /workflows and /runs. The
-workflow_run_start frame the POST /workflows/{id}/run handler emits is
-the one the daemon's engine listens for to begin local execution; the
-engine streams progress back via PATCH /runs/{id} so the broker's row
-is the durable source of truth.
+n8n-style execution model: the sender designs a graph, picks N
+recipients via POST /workflows/{id}/run, and the broker creates one
+dispatch + one run row per recipient. Each dispatch carries a
+WorkflowDispatchEnvelope as `metadata.workflow`; the recipient's
+daemon detects it and runs the engine locally instead of the normal
+single-prompt agent flow. The engine PATCHes /runs/{id} as it walks
+the graph.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Optional
 from uuid import UUID, uuid4
@@ -31,7 +33,6 @@ runs_router = APIRouter(prefix="/runs", tags=["workflows"])
 
 
 # Local copy of the dependency to avoid a circular import on broker.app.
-# Mirrors authed_user there: bearer token + server-side revocation check.
 async def _authed_user(authorization: Optional[str] = Header(None)) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -148,7 +149,7 @@ async def delete_workflow(
 
 
 # ----------------------------------------------------------------------------
-# Runs
+# Runs — fan-out via dispatch
 # ----------------------------------------------------------------------------
 
 
@@ -156,10 +157,9 @@ async def delete_workflow(
 async def list_runs(
     workflow_id: UUID, user_id: str = Depends(_authed_user)
 ) -> dict:
-    # 404 if the workflow isn't theirs — never leak rows from other owners.
     if await STORE.get_workflow(workflow_id, user_id) is None:
         raise HTTPException(status_code=404, detail="Unknown workflow")
-    rows = await STORE.list_workflow_runs(workflow_id, user_id)
+    rows = await STORE.list_workflow_runs(workflow_id)
     return {"runs": [_run_summary(r) for r in rows]}
 
 
@@ -169,36 +169,106 @@ async def start_run(
     req: WorkflowRunCreateRequest,
     user_id: str = Depends(_authed_user),
 ) -> dict:
-    """Create the run row, then fan out workflow_run_start to every connected
-    daemon of the user. The daemon's engine executes locally and streams
-    progress back via PATCH /runs/{id}."""
+    """Dispatch the workflow to each recipient. Returns one row per
+    recipient with the run_id + dispatch_id (or a failure reason).
+
+    The actual delivery uses the same trust → sign → deliver path as a
+    normal dispatch; only the payload is different — `task` is a human
+    header and `metadata.workflow` carries the envelope the recipient's
+    daemon engine consumes.
+    """
     workflow = await STORE.get_workflow(workflow_id, user_id)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Unknown workflow")
 
     definition = workflow.get("definition") or {"nodes": [], "edges": []}
-    run_id = uuid4()
-    await STORE.create_workflow_run(run_id, workflow_id, user_id, req.input)
+    workflow_name = workflow.get("name") or "workflow"
 
-    frame = json.dumps(
-        {
-            "type": "workflow_run_start",
+    # Sender daemon WS is needed for signing each dispatch — same
+    # constraint POST /dispatch enforces.
+    picked = STATE.pick_device(user_id)
+    if picked is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Your daemon is offline — start dispatch-daemon to run workflows.",
+        )
+    sender_device_id, sender_ws = picked
+
+    # _create_one_dispatch + _DispatchFailed live in broker/app.py to
+    # keep them next to the /dispatch endpoint that uses them. Import
+    # late to dodge the circular import (broker/app imports this module).
+    from dispatch.broker.app import _create_one_dispatch, _DispatchFailed
+
+    dispatched: list[dict] = []
+    failures: list[dict] = []
+    for recipient in _dedup_recipients(req.recipient_ids):
+        run_id = uuid4()
+        envelope = {
             "run_id": str(run_id),
             "workflow_id": str(workflow_id),
+            "workflow_name": workflow_name,
             "definition": definition,
             "input": req.input,
         }
-    )
-    devices = STATE.agents.get(user_id, {})
-    delivered = 0
-    for ws in list(devices.values()):
-        try:
-            await ws.send_text(frame)
-            delivered += 1
-        except Exception:
-            logger.exception("failed to push workflow_run_start")
+        task_line = f"Workflow: {workflow_name}"
 
-    return {"run_id": str(run_id), "notified": delivered}
+        # Create the run row FIRST so a fast-accept recipient daemon
+        # can PATCH it without racing the INSERT. triggered_by is the
+        # executor (recipient); list/get gate by workflow ownership.
+        await STORE.create_workflow_run(
+            run_id, workflow_id, recipient, req.input,
+        )
+
+        try:
+            result = await _create_one_dispatch(
+                sender=user_id,
+                recipient=recipient,
+                task=task_line,
+                expires_in_seconds=3600,
+                metadata={"workflow": envelope},
+                sender_device_id=sender_device_id,
+                sender_ws=sender_ws,
+            )
+        except _DispatchFailed as f:
+            # Roll back the run row we pre-inserted so it doesn't show
+            # up as a perpetually-pending run in the owner's history.
+            await STORE.update_workflow_run(
+                run_id,
+                status="failed",
+                error=f"dispatch refused: {f.detail}",
+                ended=True,
+            )
+            failures.append({
+                "recipient_id": recipient,
+                "status_code": f.status,
+                "error": f.detail,
+            })
+            continue
+
+        dispatched.append({
+            "recipient_id": recipient,
+            "run_id": str(run_id),
+            "dispatch_id": result["dispatch_id"],
+            "dispatch_status": result["status"],
+        })
+
+    if not dispatched and failures:
+        # Total failure — surface the first reason like POST /dispatch does.
+        only = failures[0]
+        raise HTTPException(status_code=only["status_code"], detail=only["error"])
+
+    return {"dispatched": dispatched, "failures": failures}
+
+
+def _dedup_recipients(ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in ids:
+        r = (r or "").strip().lower()
+        if r and r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
 
 
 # ----------------------------------------------------------------------------
@@ -215,7 +285,7 @@ class _RunPatch(BaseModel):
 
 @runs_router.get("/{run_id}")
 async def get_run(run_id: UUID, user_id: str = Depends(_authed_user)) -> dict:
-    row = await STORE.get_workflow_run(run_id, user_id)
+    row = await STORE.get_workflow_run_for_user(run_id, user_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Unknown run")
     return _run_full(row)
@@ -227,8 +297,9 @@ async def patch_run(
     req: _RunPatch,
     user_id: str = Depends(_authed_user),
 ) -> dict:
-    # Ownership check so a daemon can't checkpoint other users' runs.
-    if await STORE.get_workflow_run(run_id, user_id) is None:
+    # The recipient (executor) is the one writing checkpoints. The
+    # workflow owner is also allowed — useful for cancel-from-owner.
+    if await STORE.get_workflow_run_for_user(run_id, user_id) is None:
         raise HTTPException(status_code=404, detail="Unknown run")
     await STORE.update_workflow_run(
         run_id,

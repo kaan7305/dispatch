@@ -1,14 +1,14 @@
-"""HTTP + WS routes for the daemon's workflows feature.
+"""HTTP routes for the daemon's workflows feature.
 
 Mirrors the proxy pattern in local_app.py: the SPA hits /api/workflows*
 on 127.0.0.1 with the local bearer, the daemon forwards each request to
 the broker with the broker JWT attached. The browser never holds the
 broker token.
 
-The actual workflow ENGINE lives in dispatch.daemon.workflows. This
-module only owns the wire surface — it hands the engine a parsed
-{type:"workflow_run_start", ...} message when one arrives over the
-broker WS.
+The workflow engine lives in dispatch.daemon.workflows and is invoked
+from process_dispatch on the RECIPIENT side when a dispatch arrives
+with metadata.workflow set — there is no broker→daemon WS frame for
+workflow execution anymore.
 """
 from __future__ import annotations
 
@@ -136,9 +136,9 @@ def make_router(
         dependencies=[Depends(require_local_token)],
     )
     async def trigger_run(workflow_id: UUID, request: Request) -> Response:
-        # Broker creates the run row + WS-pushes workflow_run_start back
-        # to this daemon. We don't have to call engine.start_run here —
-        # that happens in handle_broker_workflow_message below.
+        # Broker creates one dispatch + one run row per recipient. The
+        # SPA gets back the list; the recipient daemons receive the
+        # dispatches and run the engine locally on Accept.
         try:
             body = await request.json()
         except ValueError:
@@ -153,10 +153,9 @@ def make_router(
 
     @router.post("/api/runs/{run_id}/cancel", dependencies=[Depends(require_local_token)])
     async def cancel_run(run_id: UUID) -> dict:
-        # Cancellation is purely local: the engine task is here, the
-        # in-flight dispatches stay alive on the recipient side (already
-        # signed). We tell the broker the run is cancelled so the UI
-        # reflects it everywhere even if the daemon disconnects.
+        # Cancellation is local on the recipient side where the engine
+        # task lives. We also PATCH the broker so the row reflects it
+        # for the workflow owner even if the recipient daemon drops.
         was_running = engine.cancel(run_id)
         try:
             await _broker_request(
@@ -167,30 +166,45 @@ def make_router(
             pass
         return {"status": "cancelled" if was_running else "noop"}
 
+    # ── Context packs (reusable system_prompt + files bundles) ──────────
+
+    @router.get("/api/contexts", dependencies=[Depends(require_local_token)])
+    async def list_contexts() -> Response:
+        return await _broker_request("GET", "/contexts")
+
+    @router.post("/api/contexts", dependencies=[Depends(require_local_token)])
+    async def create_context(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid JSON body")
+        return await _broker_request("POST", "/contexts", json_body=body)
+
+    @router.get(
+        "/api/contexts/{context_id}",
+        dependencies=[Depends(require_local_token)],
+    )
+    async def get_context(context_id: UUID) -> Response:
+        return await _broker_request("GET", f"/contexts/{context_id}")
+
+    @router.put(
+        "/api/contexts/{context_id}",
+        dependencies=[Depends(require_local_token)],
+    )
+    async def update_context(context_id: UUID, request: Request) -> Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid JSON body")
+        return await _broker_request(
+            "PUT", f"/contexts/{context_id}", json_body=body,
+        )
+
+    @router.delete(
+        "/api/contexts/{context_id}",
+        dependencies=[Depends(require_local_token)],
+    )
+    async def delete_context(context_id: UUID) -> Response:
+        return await _broker_request("DELETE", f"/contexts/{context_id}")
+
     return router
-
-
-async def handle_broker_workflow_message(engine, msg: dict) -> bool:
-    """Route a {type:"workflow_run_start",...} broker WS frame to the engine.
-
-    Returns True if the message was a workflow message (consumed),
-    False if the caller should keep dispatching. Lets handle_broker do:
-
-        if await handle_broker_workflow_message(engine, msg):
-            continue
-
-    without growing a giant elif chain.
-    """
-    if msg.get("type") != "workflow_run_start":
-        return False
-    try:
-        run_id = UUID(msg["run_id"])
-        workflow_id = UUID(msg["workflow_id"])
-        definition = msg.get("definition") or {}
-        input_ = msg.get("input") or {}
-        user_id = msg.get("user_id") or ""
-    except (KeyError, ValueError):
-        logger.exception("malformed workflow_run_start message: %s", msg)
-        return True  # consumed (but bad) — don't fall through
-    await engine.start_run(run_id, workflow_id, definition, input_, user_id)
-    return True

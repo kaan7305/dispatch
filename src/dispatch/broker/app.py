@@ -1270,5 +1270,8 @@ from dispatch.broker.workflows import router as workflows_router, runs_router as
 app.include_router(workflows_router)
 app.include_router(workflow_runs_router)
 
+from dispatch.broker.contexts import router as contexts_router
+app.include_router(contexts_router)
+
 # Static mount last so it doesn't shadow the routes above.
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

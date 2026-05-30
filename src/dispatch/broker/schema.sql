@@ -141,3 +141,20 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_owner ON workflow_runs(triggered_by);
+
+-- Reusable "context packs": a named system prompt + a bag of files that the
+-- recipient daemon materialises into its workspace before running an agent.
+-- Workflows reference these by id from a context node so the same context
+-- bundle can drive many workflows without duplicating the contents.
+CREATE TABLE IF NOT EXISTS contexts (
+    context_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    description    TEXT NOT NULL DEFAULT '',
+    system_prompt  TEXT NOT NULL DEFAULT '',
+    files          JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contexts_owner ON contexts(owner_id);

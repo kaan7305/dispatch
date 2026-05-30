@@ -27,6 +27,7 @@ import {
   type WorkflowNode,
   type WorkflowEdge,
 } from "@/lib/workflowApi";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -267,7 +268,7 @@ function WorkflowEditorInner() {
               ?.input_schema as Record<string, unknown>) ?? {}
           }
           onClose={() => setRunDialog(false)}
-          onStarted={(runId) => navigate(`/runs/${runId}`)}
+          onStarted={(firstRunId) => navigate(`/runs/${firstRunId}`)}
         />
       )}
     </div>
@@ -318,7 +319,7 @@ function TopBar({
           <Save className="size-3.5" /> Save
         </Button>
         <Button size="sm" onClick={onRun} disabled={!canRun}>
-          <Play className="size-3.5" /> Run
+          <Play className="size-3.5" /> Send
         </Button>
       </div>
     </div>
@@ -438,57 +439,155 @@ function RunDialog({
   workflowId: string;
   inputSchema: Record<string, unknown>;
   onClose: () => void;
-  onStarted: (runId: string) => void;
+  onStarted: (firstRunId: string) => void;
 }) {
   const keys = useMemo(() => Object.keys(inputSchema), [inputSchema]);
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(keys.map((k) => [k, ""])),
   );
+  const [recipients, setRecipients] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+
+  const trust = useQuery({ queryKey: ["trust"], queryFn: () => api.trust() });
+  const availablePeers = useMemo(
+    () =>
+      trust.data?.trust
+        .filter((t) => t.direction === "outgoing")
+        .map((t) => t.peer)
+        .filter((p) => !recipients.includes(p)) ?? [],
+    [trust.data, recipients],
+  );
+
+  function addRecipient(value: string) {
+    const v = value.trim().toLowerCase();
+    if (!v || recipients.includes(v)) {
+      setDraft("");
+      return;
+    }
+    setRecipients((rs) => [...rs, v]);
+    setDraft("");
+  }
 
   const start = useMutation({
-    mutationFn: () => workflows.run(workflowId, values),
-    onSuccess: (res) => onStarted(res.run_id),
+    mutationFn: () => workflows.run(workflowId, recipients, values),
+    onSuccess: (res) => {
+      // Fan-out can partially fail. If every recipient errored, show the
+      // first failure; otherwise navigate to the first successful run so
+      // the user sees something useful — the editor's RecentRunsPanel
+      // will surface the rest in parallel.
+      if (res.dispatched.length > 0) {
+        onStarted(res.dispatched[0].run_id);
+      }
+    },
   });
+
+  const totalFailures = start.data?.failures ?? [];
+  const canSubmit = recipients.length > 0 && !start.isPending;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Run workflow</DialogTitle>
+          <DialogTitle>Send workflow</DialogTitle>
           <DialogDescription>
-            Provide inputs for this run. Reference them as {"{ctx.<key>}"} inside dispatch tasks.
+            Send the workflow to one or more trusted teammates. Each runs
+            its own copy locally and streams progress back.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          {keys.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              No inputs declared on the trigger. Starting will run the workflow as-is.
-            </div>
-          ) : (
-            keys.map((k) => (
-              <label key={k} className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-foreground">{k}</span>
-                <input
-                  value={values[k] ?? ""}
-                  onChange={(e) =>
-                    setValues((cur) => ({ ...cur, [k]: e.target.value }))
+
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Recipients
+            </span>
+            <div className="flex flex-wrap items-center gap-1 rounded-md border bg-background px-2 py-1.5 min-h-[38px]">
+              {recipients.map((id) => (
+                <span
+                  key={id}
+                  className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium"
+                >
+                  {id}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRecipients((rs) => rs.filter((r) => r !== id))
+                    }
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${id}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                list="run-peers"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={
+                  recipients.length === 0 ? "teammate@example.com" : "+ add"
+                }
+                className="flex-1 min-w-[100px] bg-transparent px-1 py-0.5 text-sm focus:outline-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    addRecipient(draft);
                   }
-                  className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </label>
-            ))
+                }}
+                onBlur={() => draft && addRecipient(draft)}
+              />
+              <datalist id="run-peers">
+                {availablePeers.map((p) => <option key={p} value={p} />)}
+              </datalist>
+            </div>
+          </div>
+
+          {keys.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Inputs
+              </span>
+              {keys.map((k) => (
+                <label key={k} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-foreground">{k}</span>
+                  <input
+                    value={values[k] ?? ""}
+                    onChange={(e) =>
+                      setValues((cur) => ({ ...cur, [k]: e.target.value }))
+                    }
+                    className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </label>
+              ))}
+            </div>
           )}
+
           {start.error instanceof Error && (
             <div className="text-sm text-destructive">{start.error.message}</div>
           )}
+
+          {totalFailures.length > 0 && (
+            <div className="text-xs text-destructive space-y-1">
+              <div className="font-medium">Some recipients failed:</div>
+              {totalFailures.map((f) => (
+                <div key={f.recipient_id}>
+                  • <span className="font-medium">{f.recipient_id}</span>: {f.error}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={start.isPending}>
             Cancel
           </Button>
-          <Button onClick={() => start.mutate()} disabled={start.isPending}>
+          <Button onClick={() => start.mutate()} disabled={!canSubmit}>
             <Play className="size-4" />
-            {start.isPending ? "Starting…" : "Start run"}
+            {start.isPending
+              ? "Sending…"
+              : recipients.length > 1
+                ? `Send to ${recipients.length}`
+                : "Send"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -518,7 +617,7 @@ function defToReactFlow(wf: Workflow): { nodes: Node[]; edges: Edge[] } {
 function reactFlowToDef(nodes: Node[], edges: Edge[]): WorkflowDefinition {
   const defNodes: WorkflowNode[] = nodes.map((n) => ({
     id: n.id,
-    type: String(n.type ?? "dispatch"),
+    type: String(n.type ?? "agent"),
     pos: [n.position.x, n.position.y],
     params:
       ((n.data as { params?: Record<string, unknown> })?.params as Record<string, unknown>) ??

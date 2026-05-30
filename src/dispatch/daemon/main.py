@@ -586,13 +586,6 @@ async def handle_broker(
             continue
         mtype = msg.get("type")
 
-        # Workflow engine claims its own frame type before the dispatch
-        # switch below so the message loop stays linear.
-        if workflow_engine is not None and mtype == "workflow_run_start":
-            from dispatch.daemon.workflow_routes import handle_broker_workflow_message
-            if await handle_broker_workflow_message(workflow_engine, msg):
-                continue
-
         if mtype == "error":
             # Broker is telling us why it's about to close (e.g. unknown
             # device, revoked, replaced by another connection). Surface it
@@ -662,6 +655,7 @@ async def handle_broker(
                     payload, msg.get("scopes"), state, workspace,
                     send_status, send_event,
                     local_state=local_state,
+                    workflow_engine=workflow_engine,
                 )
             )
             state.running[did] = task
@@ -706,6 +700,7 @@ async def process_dispatch(
     send_status,
     send_event,
     local_state=None,
+    workflow_engine=None,
 ) -> None:
     dispatch_id = str(payload.dispatch_id)
     scope = Scopes(**(scopes_data or {}))
@@ -729,24 +724,39 @@ async def process_dispatch(
             local_state.on_event(dispatch_id_, event)
             await _orig_send_event(dispatch_id_, event)
 
-    # Step 1 — top-level Accept / Reject.
-    decision_fut: asyncio.Future = asyncio.get_running_loop().create_future()
-    state.pending_decisions[dispatch_id] = decision_fut
-    await send_status(payload.dispatch_id, DispatchStatus.delivered)
+    # n8n-style: workflows execute the moment they arrive. The trust
+    # edge already gates which senders may dispatch to this device and
+    # which tools their agents may use — making the recipient click
+    # Accept on every workflow defeats the "automation" purpose. For
+    # single-prompt dispatches we still require Accept so a teammate
+    # can opt out of any one ad-hoc task.
+    is_workflow = bool((payload.metadata or {}).get("workflow"))
 
-    try:
-        top_decision = await asyncio.wait_for(decision_fut, timeout=DISPATCH_DECISION_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        await send_status(payload.dispatch_id, DispatchStatus.expired)
-        return
-    finally:
-        state.pending_decisions.pop(dispatch_id, None)
+    if is_workflow:
+        # Skip the Accept/Reject decision; jump straight to accepted.
+        # The recipient still sees the dispatch in their local UI
+        # immediately so they can watch (and Cancel) the auto-run.
+        await send_status(payload.dispatch_id, DispatchStatus.delivered)
+        await send_status(payload.dispatch_id, DispatchStatus.accepted)
+    else:
+        # Step 1 — top-level Accept / Reject.
+        decision_fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        state.pending_decisions[dispatch_id] = decision_fut
+        await send_status(payload.dispatch_id, DispatchStatus.delivered)
 
-    if top_decision != "accept":
-        await send_status(payload.dispatch_id, DispatchStatus.denied)
-        return
+        try:
+            top_decision = await asyncio.wait_for(decision_fut, timeout=DISPATCH_DECISION_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            await send_status(payload.dispatch_id, DispatchStatus.expired)
+            return
+        finally:
+            state.pending_decisions.pop(dispatch_id, None)
 
-    await send_status(payload.dispatch_id, DispatchStatus.accepted)
+        if top_decision != "accept":
+            await send_status(payload.dispatch_id, DispatchStatus.denied)
+            return
+
+        await send_status(payload.dispatch_id, DispatchStatus.accepted)
 
     # Step 2 — per-tool gating, scoped to the trust edge.
     scope_tools = set(scope.tools)
@@ -788,8 +798,11 @@ async def process_dispatch(
                         interrupt=False,
                     )
 
-        # Approval mode.
-        if scope.approval == "auto":
+        # Approval mode. Workflow dispatches always run unattended —
+        # the n8n model is "if the recipient trusted the sender enough
+        # to receive the workflow, then every step inside it inherits
+        # that trust." The tool list + path allowlist above still apply.
+        if is_workflow or scope.approval == "auto":
             return PermissionResultAllow(updated_input=tool_input)
 
         # Manual — every tool call goes to the recipient for approval.
@@ -831,9 +844,72 @@ async def process_dispatch(
             return PermissionResultAllow(updated_input=tool_input)
         return PermissionResultDeny(message="Recipient denied", interrupt=False)
 
-    # Step 3 — actually run the agent, restricted to the edge's tools.
+    # Step 3 — run the payload.
+    #
+    # Two flavors:
+    #   - A regular single-prompt dispatch → run_dispatch() generator.
+    #   - A workflow dispatch (metadata.workflow present) → hand the
+    #     definition to the WorkflowEngine, which walks the graph using
+    #     the same can_use_tool callback for every agent node so tool
+    #     scopes / approvals stay identical to a single-prompt dispatch.
     await send_status(payload.dispatch_id, DispatchStatus.running)
     final = DispatchStatus.completed
+
+    envelope = (payload.metadata or {}).get("workflow")
+    if envelope and workflow_engine is not None:
+        try:
+            from uuid import UUID as _UUID
+            run_id = _UUID(envelope["run_id"])
+            definition = envelope.get("definition") or {"nodes": [], "edges": []}
+            wf_input = envelope.get("input") or {}
+        except (KeyError, ValueError) as exc:
+            await send_event(
+                payload.dispatch_id,
+                {
+                    "type": "error",
+                    "data": {"message": f"bad workflow envelope: {exc}", "exception": "BadEnvelope"},
+                },
+            )
+            await send_status(payload.dispatch_id, DispatchStatus.failed)
+            return
+
+        try:
+            run_status = await workflow_engine.run_for_dispatch(
+                run_id=run_id,
+                definition=definition,
+                input_=wf_input,
+                workspace=workspace,
+                allowed_tools=list(scope.tools),
+                can_use_tool=can_use_tool,
+                sender_id=payload.sender_id,
+                send_event=send_event,
+            )
+        except asyncio.CancelledError:
+            await send_status(payload.dispatch_id, DispatchStatus.cancelled)
+            raise
+        except Exception as exc:
+            logger.exception("workflow engine crashed")
+            await send_event(
+                payload.dispatch_id,
+                {
+                    "type": "error",
+                    "data": {"message": str(exc), "exception": type(exc).__name__},
+                },
+            )
+            await send_status(payload.dispatch_id, DispatchStatus.failed)
+            return
+
+        # Map workflow terminal status onto the parent dispatch's status
+        # so the sender's sent-list / detail page reflects the outcome.
+        if run_status.value == "completed":
+            final = DispatchStatus.completed
+        elif run_status.value == "cancelled":
+            final = DispatchStatus.cancelled
+        else:
+            final = DispatchStatus.failed
+        await send_status(payload.dispatch_id, final)
+        return
+
     try:
         async for event in run_dispatch(
             payload,

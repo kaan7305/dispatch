@@ -107,6 +107,7 @@ async def run_dispatch(
     cwd: str | Path | None = None,
     allowed_tools: list[str] | None = None,
     can_use_tool: CanUseTool | None = None,
+    system_prompt: str | None = None,
 ) -> AsyncIterator[DispatchEvent]:
     """Run one dispatch.
 
@@ -118,6 +119,9 @@ async def run_dispatch(
     call is routed through the callback, which the caller uses to enforce
     path scope and the manual/auto approval policy. Without a callback
     (script use) the in-scope tools are auto-accepted.
+
+    `system_prompt` lets a workflow attach context-specific instructions
+    to a single agent invocation without polluting the user task body.
     """
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
@@ -129,13 +133,16 @@ async def run_dispatch(
         sdk_allowed_tools = in_scope
         permission_mode = "acceptEdits"
 
-    options = ClaudeAgentOptions(
-        allowed_tools=sdk_allowed_tools,
-        disallowed_tools=disallowed,
-        permission_mode=permission_mode,
-        cwd=cwd,
-        can_use_tool=can_use_tool,
-    )
+    options_kwargs: dict[str, Any] = {
+        "allowed_tools": sdk_allowed_tools,
+        "disallowed_tools": disallowed,
+        "permission_mode": permission_mode,
+        "cwd": cwd,
+        "can_use_tool": can_use_tool,
+    }
+    if system_prompt:
+        options_kwargs["system_prompt"] = system_prompt
+    options = ClaudeAgentOptions(**options_kwargs)
 
     async with ClaudeSDKClient(options=options) as client:
         try:

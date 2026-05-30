@@ -1,4 +1,4 @@
-import { Bell, Clock, Play, Send } from "lucide-react";
+import { Bell, Bot, GitBranch, Play } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { WorkflowNodeType } from "@/lib/workflowApi";
@@ -22,12 +22,20 @@ const ITEMS: PaletteItem[] = [
     iconClass: "text-indigo-600",
   },
   {
-    type: "dispatch",
-    title: "Dispatch",
-    description: "Send a task to one trusted teammate.",
+    type: "agent",
+    title: "Agent",
+    description: "Run a Claude prompt on the recipient.",
     stripe: "bg-neutral-300",
-    icon: Send,
+    icon: Bot,
     iconClass: "text-neutral-700",
+  },
+  {
+    type: "branch",
+    title: "Branch",
+    description: "Route on a condition.",
+    stripe: "bg-zinc-400",
+    icon: GitBranch,
+    iconClass: "text-zinc-700",
   },
   {
     type: "notify",
@@ -36,14 +44,6 @@ const ITEMS: PaletteItem[] = [
     stripe: "bg-amber-400",
     icon: Bell,
     iconClass: "text-amber-700",
-  },
-  {
-    type: "wait_reply",
-    title: "Wait reply",
-    description: "Pause until a follow-up dispatch arrives.",
-    stripe: "bg-sky-400",
-    icon: Clock,
-    iconClass: "text-sky-700",
   },
 ];
 

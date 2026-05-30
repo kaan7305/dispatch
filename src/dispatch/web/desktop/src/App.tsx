@@ -10,6 +10,8 @@ import DispatchDetail from "./pages/DispatchDetail";
 import Workflows from "./pages/Workflows";
 import WorkflowEditor from "./pages/WorkflowEditor";
 import WorkflowRun from "./pages/WorkflowRun";
+import Contexts from "./pages/Contexts";
+import ContextEditor from "./pages/ContextEditor";
 
 export default function App() {
   return (
@@ -25,6 +27,9 @@ export default function App() {
             <Route path="/workflows/new" element={<WorkflowEditor />} />
             <Route path="/workflows/:id/edit" element={<WorkflowEditor />} />
             <Route path="/runs/:runId" element={<WorkflowRun />} />
+            <Route path="/contexts" element={<Contexts />} />
+            <Route path="/contexts/new" element={<ContextEditor />} />
+            <Route path="/contexts/:id/edit" element={<ContextEditor />} />
             <Route path="/history" element={<History />} />
             <Route path="/devices" element={<Devices />} />
             <Route path="*" element={<Navigate to="/inbox" replace />} />
