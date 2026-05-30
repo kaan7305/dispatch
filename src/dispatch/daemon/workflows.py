@@ -104,6 +104,16 @@ class WorkflowEngine:
         self.runs[run_id] = task
         task.add_done_callback(lambda _t, rid=run_id: self.runs.pop(rid, None))
 
+    def cancel(self, run_id: UUID) -> bool:
+        """Cancel a running workflow. In-flight dispatches keep going on
+        the recipient side — they're already signed and the recipient owns
+        approval. Returns False if the run isn't active."""
+        task = self.runs.get(run_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
     async def _execute(
         self,
         run_id: UUID,
@@ -149,10 +159,42 @@ class WorkflowEngine:
             )
             return
 
+        # Track which (source, source_port) pairs were "taken" by branch
+        # nodes. A node is skipped if every incoming edge originates from
+        # either a skipped predecessor or a not-taken branch port.
+        taken_ports: set[tuple[str, str]] = set()  # {(source_id, port)}
+        skipped_nodes: set[str] = set()
+
+        def is_edge_alive(edge: dict) -> bool:
+            src = edge.get("from")
+            sport = edge.get("from_port", "out")
+            if src in skipped_nodes:
+                return False
+            src_node = nodes_by_id.get(src)
+            # Branch nodes gate their outgoing edges; non-branch sources
+            # always pass their single 'out' through when reached.
+            if src_node and src_node.get("type") == "branch":
+                return (src, sport) in taken_ports
+            return True
+
         try:
             for node_id in order:
                 node = nodes_by_id[node_id]
                 ntype = node.get("type", "")
+                incoming = [e for e in edges if e.get("to") == node_id]
+
+                # Trigger always runs; other nodes need at least one live
+                # incoming edge. Orphans (no incoming, not trigger) are
+                # treated as skipped — they can't have been reached.
+                if ntype != "trigger.manual":
+                    if not incoming or not any(is_edge_alive(e) for e in incoming):
+                        skipped_nodes.add(node_id)
+                        await self._set_node_state(
+                            run_id, node_states, node_id,
+                            status=NodeStatus.skipped,
+                            ended_at=_utcnow(),
+                        )
+                        continue
 
                 await self._set_node_state(
                     run_id, node_states, node_id,
@@ -167,6 +209,17 @@ class WorkflowEngine:
                         output = await self._run_dispatch_node(
                             run_id, node, node_states, input_,
                         )
+                    elif ntype == "dispatch.multi":
+                        output = await self._run_multi_dispatch_node(
+                            run_id, node, node_states, input_,
+                        )
+                    elif ntype == "branch":
+                        # Branch returns the port name to pass through;
+                        # we DON'T store the port in 'output' (kept for
+                        # downstream templates), only in taken_ports.
+                        branch_result = self._run_branch_node(node, node_states, input_)
+                        taken_ports.add((node_id, branch_result["port"]))
+                        output = branch_result["value"]
                     elif ntype == "notify":
                         output = self._run_notify_node(node, node_states, input_)
                     elif ntype == "wait_reply":
@@ -301,6 +354,111 @@ class WorkflowEngine:
 
         # denied / failed / expired / cancelled — fold into the node error.
         raise _NodeError(f"dispatch terminated as {terminal.value}")
+
+    def _run_branch_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> dict:
+        """Evaluate the condition + return which output port to take.
+
+        Params: { left: str, op: str ("==", "!=", "contains"), right: str }
+        Both sides go through template hydration. Returns:
+          { port: "out_true"|"out_false", value: dict for downstream nodes }
+        """
+        params = node.get("params", {}) or {}
+        left  = _hydrate(str(params.get("left", "")), node_states, input_).strip()
+        right = _hydrate(str(params.get("right", "")), node_states, input_).strip()
+        op    = str(params.get("op", "==")).strip()
+        if op == "==":
+            result = left == right
+        elif op == "!=":
+            result = left != right
+        elif op == "contains":
+            result = right in left
+        else:
+            raise _NodeError(f"branch op must be ==, !=, or contains (got {op!r})")
+        return {
+            "port": "out_true" if result else "out_false",
+            "value": {"left": left, "right": right, "op": op, "result": result},
+        }
+
+    async def _run_multi_dispatch_node(
+        self,
+        run_id: UUID,
+        node: dict,
+        node_states: dict[str, dict],
+        input_: dict,
+    ) -> dict:
+        """Fan-out: send the same task to N recipients in one call, wait
+        until every dispatch reaches a terminal status, return per-recipient
+        results. Half-failure is tolerated — only fails the node if EVERY
+        recipient failed."""
+        params = node.get("params", {}) or {}
+        recipient_ids = params.get("recipient_ids") or []
+        if not isinstance(recipient_ids, list) or not recipient_ids:
+            raise _NodeError("multi-dispatch needs at least one recipient_id")
+        task = _hydrate(str(params.get("task", "")), node_states, input_)
+        if not task:
+            raise _NodeError("multi-dispatch task is empty")
+
+        scopes = params.get("scopes") or {}
+        timeout_s = int(params.get("timeout_s") or 3600)
+        async with self._client_factory() as client:
+            resp = await client.post(
+                f"{self.broker_url}/dispatch",
+                json={
+                    "recipient_ids": list(recipient_ids),
+                    "task": task,
+                    "expires_in_seconds": timeout_s,
+                    "metadata": {
+                        "workflow_run_id": str(run_id),
+                        "node_id": node.get("id", ""),
+                    },
+                },
+                headers={"Authorization": f"Bearer {self.broker_token}"},
+            )
+        if resp.status_code != 200:
+            raise _NodeError(f"broker rejected fan-out: {resp.text[:200]}")
+        body = resp.json()
+        # Single-recipient back-compat: the broker returns the legacy shape
+        # if there's only one recipient. Normalize to the fan-out shape.
+        if "dispatches" not in body:
+            body = {"dispatches": [body], "failures": []}
+
+        # Poll every dispatch in parallel until each is terminal.
+        async def wait_one(dispatch_entry: dict) -> dict:
+            from uuid import UUID as _UUID
+            did = _UUID(dispatch_entry["dispatch_id"])
+            terminal = await self._await_dispatch_terminal(did)
+            output = ""
+            entry = self.local_state.entries.get(did)
+            if entry is not None:
+                for ev in reversed(entry.events):
+                    if ev.get("type") == "agent_text":
+                        output = str(ev.get("data", {}).get("text", "") or "")
+                        break
+            return {
+                "recipient_id": dispatch_entry["recipient_id"],
+                "dispatch_id": str(did),
+                "status": terminal.value,
+                "output": output,
+            }
+
+        results = await asyncio.gather(
+            *(wait_one(d) for d in body["dispatches"]),
+            return_exceptions=True,
+        )
+        completed = [r for r in results if isinstance(r, dict) and r.get("status") == "completed"]
+        all_failed = (
+            len(completed) == 0
+            and len(body.get("failures", [])) + len(results) > 0
+        )
+        if all_failed:
+            raise _NodeError("every recipient failed or denied the dispatch")
+        return {
+            "dispatches": [r for r in results if isinstance(r, dict)],
+            "failures": body.get("failures", []),
+            "completed_count": len(completed),
+        }
 
     def _run_notify_node(
         self, node: dict, node_states: dict[str, dict], input_: dict,

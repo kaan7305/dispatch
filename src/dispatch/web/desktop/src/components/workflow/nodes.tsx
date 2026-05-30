@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Bell, Hourglass, Loader2, Play, Send } from "lucide-react";
+import { Bell, GitBranch, Hourglass, Loader2, Play, Send, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { NodeStatus } from "@/lib/workflowApi";
@@ -193,6 +193,56 @@ export function NotifyNode({ data, selected }: NodeProps) {
   );
 }
 
+export function BranchNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const left = (d.params?.left as string | undefined) || "value";
+  const op = (d.params?.op as string | undefined) || "==";
+  const right = (d.params?.right as string | undefined) || "expected";
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-white border-zinc-200"
+      icon={<GitBranch className="size-6 text-zinc-700" />}
+      title={d.label || "Branch"}
+      subtitle={`${truncate(left, 8)} ${op} ${truncate(right, 8)}`}
+      showLeftHandle
+      showRightHandle={false}
+      rightHandles={[
+        { id: "out_true",  label: "true",  topPct: 30 },
+        { id: "out_false", label: "false", topPct: 70 },
+      ]}
+    />
+  );
+}
+
+export function MultiDispatchNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const ids = (d.params?.recipient_ids as string[] | undefined) ?? [];
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-white border-zinc-200"
+      icon={<Users className="size-6 text-zinc-700" />}
+      title={d.label || "Fan-out"}
+      subtitle={
+        ids.length === 0
+          ? "no recipients"
+          : ids.length === 1
+            ? ids[0]
+            : `${ids.length} recipients`
+      }
+      showLeftHandle
+      showRightHandle
+    />
+  );
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
 export function WaitReplyNode({ data, selected }: NodeProps) {
   const d = (data ?? {}) as NodeData;
   const from = (d.params?.from_recipient_id as string | undefined)?.trim();
@@ -213,6 +263,8 @@ export function WaitReplyNode({ data, selected }: NodeProps) {
 export const NODE_TYPES = {
   "trigger.manual": TriggerManualNode,
   dispatch: DispatchNode,
+  "dispatch.multi": MultiDispatchNode,
+  branch: BranchNode,
   notify: NotifyNode,
   wait_reply: WaitReplyNode,
 };
@@ -242,6 +294,22 @@ export const PALETTE: PaletteItem[] = [
     icon: <Send className="size-4 text-zinc-700" />,
     accent: "bg-white border-zinc-200",
     defaultParams: { recipient_id: "", task: "" },
+  },
+  {
+    type: "dispatch.multi",
+    label: "Fan-out dispatch",
+    description: "Send the same task to multiple recipients",
+    icon: <Users className="size-4 text-zinc-700" />,
+    accent: "bg-white border-zinc-200",
+    defaultParams: { recipient_ids: [], task: "", timeout_s: 3600 },
+  },
+  {
+    type: "branch",
+    label: "Branch",
+    description: "If left {op} right → true / false outputs",
+    icon: <GitBranch className="size-4 text-zinc-700" />,
+    accent: "bg-white border-zinc-200",
+    defaultParams: { left: "{{n1.output}}", op: "==", right: "" },
   },
   {
     type: "notify",

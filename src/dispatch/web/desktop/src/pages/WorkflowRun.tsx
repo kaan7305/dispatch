@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -13,7 +13,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Square } from "lucide-react";
 
 import {
   workflows,
@@ -39,6 +39,7 @@ export default function WorkflowRunPage() {
 function WorkflowRunInner() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const run = useQuery({
     queryKey: ["run", runId],
@@ -58,6 +59,11 @@ function WorkflowRunInner() {
     enabled: !!workflowId,
   });
 
+  const cancel = useMutation({
+    mutationFn: () => workflows.cancelRun(runId!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["run", runId] }),
+  });
+
   return (
     <div className="h-full flex flex-col">
       <TopBar
@@ -65,6 +71,12 @@ function WorkflowRunInner() {
         status={run.data?.status}
         error={run.data?.error}
         onBack={() => navigate("/workflows")}
+        onCancel={
+          run.data && !TERMINAL.includes(run.data.status)
+            ? () => cancel.mutate()
+            : undefined
+        }
+        cancelling={cancel.isPending}
       />
       <div className="flex-1 min-h-0">
         {wf.data && run.data ? (
@@ -88,11 +100,15 @@ function TopBar({
   status,
   error,
   onBack,
+  onCancel,
+  cancelling,
 }: {
   name: string;
   status?: WorkflowRunStatus;
   error?: string | null;
   onBack: () => void;
+  onCancel?: () => void;
+  cancelling?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 border-b px-4 h-14 shrink-0">
@@ -104,6 +120,16 @@ function TopBar({
         <span className="text-xs text-destructive truncate max-w-xs">{error}</span>
       )}
       {status && <StatusPill status={status} />}
+      {onCancel && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCancel}
+          disabled={cancelling}
+        >
+          <Square className="size-3.5" /> {cancelling ? "Cancelling…" : "Cancel"}
+        </Button>
+      )}
     </div>
   );
 }

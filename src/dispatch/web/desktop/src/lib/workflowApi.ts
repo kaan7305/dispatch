@@ -137,4 +137,6 @@ export const workflows = {
   getRun: (runId: string) => request<WorkflowRun>(`/api/runs/${runId}`),
   listRuns: (workflowId: string) =>
     request<{ runs: WorkflowRun[] }>(`/api/workflows/${workflowId}/runs`),
+  cancelRun: (runId: string) =>
+    request<{ status: string }>(`/api/runs/${runId}/cancel`, { method: "POST" }),
 };

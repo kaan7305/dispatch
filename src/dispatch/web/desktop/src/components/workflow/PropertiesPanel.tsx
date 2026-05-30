@@ -13,9 +13,10 @@ const TOOL_OPTIONS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] as const;
 interface Props {
   node: WorkflowNode | null;
   onChange: (updated: WorkflowNode) => void;
+  onDelete?: () => void;
 }
 
-export function PropertiesPanel({ node, onChange }: Props) {
+export function PropertiesPanel({ node, onChange, onDelete }: Props) {
   return (
     <aside className="w-72 shrink-0 border-l bg-background flex flex-col">
       <div className="px-4 py-3 border-b">
@@ -38,6 +39,20 @@ export function PropertiesPanel({ node, onChange }: Props) {
           <NodeFields node={node} onChange={onChange} />
         )}
       </div>
+
+      {node && onDelete && (
+        <div className="border-t px-4 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="w-full text-destructive hover:text-destructive"
+          >
+            Delete node
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
@@ -52,6 +67,10 @@ function NodeFields({ node, onChange }: { node: WorkflowNode; onChange: (n: Work
       return <TriggerFields node={node} setParam={setParam} />;
     case "dispatch":
       return <DispatchFields node={node} setParam={setParam} />;
+    case "dispatch.multi":
+      return <MultiDispatchFields node={node} setParam={setParam} />;
+    case "branch":
+      return <BranchFields node={node} setParam={setParam} />;
     case "notify":
       return <NotifyFields node={node} setParam={setParam} />;
     case "wait_reply":
@@ -63,6 +82,159 @@ function NodeFields({ node, onChange }: { node: WorkflowNode; onChange: (n: Work
         </p>
       );
   }
+}
+
+// ─── branch ────────────────────────────────────────────────────────────────
+
+function BranchFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const left  = (node.params.left  as string | undefined) ?? "";
+  const op    = (node.params.op    as string | undefined) ?? "==";
+  const right = (node.params.right as string | undefined) ?? "";
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="branch-left">Left</FieldLabel>
+        <input
+          id="branch-left"
+          value={left}
+          onChange={(e) => setParam("left", e.target.value)}
+          placeholder="{{n1.output}}"
+          className={inputClass}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="branch-op">Operator</FieldLabel>
+        <select
+          id="branch-op"
+          value={op}
+          onChange={(e) => setParam("op", e.target.value)}
+          className={inputClass}
+        >
+          <option value="==">equals (==)</option>
+          <option value="!=">not equals (!=)</option>
+          <option value="contains">contains</option>
+        </select>
+      </div>
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="branch-right">Right</FieldLabel>
+        <input
+          id="branch-right"
+          value={right}
+          onChange={(e) => setParam("right", e.target.value)}
+          placeholder="approved"
+          className={inputClass}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Both sides accept <code>{"{{ctx.key}}"}</code> and{" "}
+          <code>{"{{nN.output}}"}</code>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── dispatch.multi (fan-out) ─────────────────────────────────────────────
+
+function MultiDispatchFields({
+  node, setParam,
+}: { node: WorkflowNode; setParam: <T>(k: string, v: T) => void }) {
+  const ids = (node.params.recipient_ids as string[] | undefined) ?? [];
+  const task = (node.params.task as string | undefined) ?? "";
+  const timeout = (node.params.timeout_s as number | undefined) ?? 3600;
+
+  const trust = useQuery({ queryKey: ["trust"], queryFn: () => api.trust() });
+  const peers = useMemo(
+    () =>
+      trust.data?.trust
+        .filter((t) => t.direction === "outgoing")
+        .map((t) => t.peer)
+        .filter((p) => !ids.includes(p)) ?? [],
+    [trust.data, ids],
+  );
+
+  function add(value: string) {
+    const v = value.trim().toLowerCase();
+    if (!v || ids.includes(v)) return;
+    setParam("recipient_ids", [...ids, v]);
+  }
+  function remove(value: string) {
+    setParam("recipient_ids", ids.filter((id) => id !== value));
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <FieldLabel>Recipients</FieldLabel>
+        <div className="flex flex-wrap items-center gap-1 rounded-md border bg-background px-2 py-1.5 min-h-[36px]">
+          {ids.map((id) => (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium"
+            >
+              {id}
+              <button
+                type="button"
+                onClick={() => remove(id)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={`Remove ${id}`}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <input
+            list="multi-peers"
+            placeholder={ids.length === 0 ? "teammate@example.com" : "+ add"}
+            className="flex-1 min-w-[100px] bg-transparent px-1 py-0.5 text-xs focus:outline-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                add((e.target as HTMLInputElement).value);
+                (e.target as HTMLInputElement).value = "";
+              }
+            }}
+            onBlur={(e) => {
+              if (e.target.value) {
+                add(e.target.value);
+                e.target.value = "";
+              }
+            }}
+          />
+          <datalist id="multi-peers">
+            {peers.map((p) => <option key={p} value={p} />)}
+          </datalist>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Enter or comma to add.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="multi-task">Task</FieldLabel>
+        <textarea
+          id="multi-task"
+          rows={5}
+          value={task}
+          onChange={(e) => setParam("task", e.target.value)}
+          placeholder="Same task sent to every recipient"
+          className={`${inputClass} resize-y`}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="multi-timeout_s">Timeout (seconds)</FieldLabel>
+        <input
+          id="multi-timeout_s"
+          type="number"
+          min={60}
+          max={86400}
+          value={timeout}
+          onChange={(e) => setParam("timeout_s", Number(e.target.value))}
+          className={inputClass}
+        />
+      </div>
+    </div>
+  );
 }
 
 // ─── trigger.manual ─────────────────────────────────────────────────────────

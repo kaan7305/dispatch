@@ -18,7 +18,7 @@ import {
   type DefaultEdgeOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Save, Play, ArrowLeft, Trash2 } from "lucide-react";
+import { Save, Play, ArrowLeft } from "lucide-react";
 
 import {
   workflows,
@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { NODE_TYPES, PALETTE, type PaletteItem } from "@/components/workflow/nodes";
+import { PropertiesPanel as RichPropertiesPanel } from "@/components/workflow/PropertiesPanel";
 import { cn } from "@/lib/utils";
 
 const DRAG_MIME = "application/x-dispatch-node";
@@ -236,10 +237,24 @@ function WorkflowEditorInner() {
               className="!rounded-lg !border !border-zinc-200 !bg-white !shadow-sm"
             />
           </ReactFlow>
+          {!isNew && <RecentRunsPanel workflowId={id!} />}
         </div>
-        <PropertiesPanel
-          node={selectedNode}
-          onChange={updateSelectedParams}
+        <RichPropertiesPanel
+          node={
+            selectedNode
+              ? {
+                  id: selectedNode.id,
+                  type: String(selectedNode.type ?? ""),
+                  pos: [selectedNode.position.x, selectedNode.position.y],
+                  params:
+                    ((selectedNode.data as { params?: Record<string, unknown> })
+                      .params) ?? {},
+                }
+              : null
+          }
+          onChange={(updated) =>
+            updateSelectedParams(updated.params as Record<string, unknown>)
+          }
           onDelete={deleteSelected}
         />
       </div>
@@ -358,125 +373,58 @@ function PaletteSidebar() {
   );
 }
 
-// ─── Properties panel ────────────────────────────────────────────────────
+// ─── Recent runs overlay ─────────────────────────────────────────────────
 
-function PropertiesPanel({
-  node,
-  onChange,
-  onDelete,
-}: {
-  node: Node | null;
-  onChange: (patch: Record<string, unknown>) => void;
-  onDelete: () => void;
-}) {
-  if (!node) {
-    return (
-      <aside className="w-72 shrink-0 border-l px-4 py-4 text-sm text-muted-foreground">
-        Select a node to edit its parameters.
-      </aside>
-    );
-  }
-  const data = (node.data ?? {}) as { label?: string; params?: Record<string, unknown> };
-  const params = data.params ?? {};
-  const fields = PARAM_FIELDS[node.type as keyof typeof PARAM_FIELDS] ?? [];
+function RecentRunsPanel({ workflowId }: { workflowId: string }) {
+  const navigate = useNavigate();
+  const runsQ = useQuery({
+    queryKey: ["workflow-runs", workflowId],
+    queryFn: () => workflows.listRuns(workflowId),
+    refetchInterval: 4000,
+  });
+  const runs = (runsQ.data?.runs ?? []).slice(0, 6);
+  if (runs.length === 0) return null;
 
   return (
-    <aside className="w-72 shrink-0 border-l overflow-y-auto">
-      <div className="px-4 py-4 border-b">
-        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1">
-          {String(node.type ?? "node")}
+    <div className="absolute bottom-4 right-4 w-72 rounded-lg border border-zinc-200 bg-white shadow-lg overflow-hidden">
+      <div className="px-3 py-2 border-b border-zinc-200 bg-zinc-50/60">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          Recent runs
         </div>
-        <div className="font-semibold">{data.label || node.id}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">id: {node.id}</div>
       </div>
-      <div className="px-4 py-4 flex flex-col gap-3">
-        {fields.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No parameters.</div>
-        ) : (
-          fields.map((f) => (
-            <Field
-              key={f.key}
-              label={f.label}
-              placeholder={f.placeholder}
-              multiline={f.multiline}
-              value={String(params[f.key] ?? "")}
-              onChange={(v) => onChange({ [f.key]: v })}
-            />
-          ))
-        )}
-      </div>
-      <div className="px-4 pb-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="size-4" /> Delete node
-        </Button>
-      </div>
-    </aside>
+      <ul className="divide-y divide-zinc-100 max-h-72 overflow-y-auto">
+        {runs.map((r) => (
+          <li key={r.run_id}>
+            <button
+              type="button"
+              onClick={() => navigate(`/runs/${r.run_id}`)}
+              className="w-full text-left px-3 py-2 hover:bg-zinc-50 flex items-center gap-2"
+            >
+              <RunStatusDot status={r.status} />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">
+                  {new Date(r.started_at).toLocaleString()}
+                </div>
+                <div className="text-[10px] text-muted-foreground capitalize">
+                  {r.status}
+                </div>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-interface ParamField {
-  key: string;
-  label: string;
-  placeholder?: string;
-  multiline?: boolean;
-}
-
-const PARAM_FIELDS: Record<string, ParamField[]> = {
-  "trigger.manual": [
-    { key: "input_label", label: "Input label", placeholder: "What's the task?" },
-  ],
-  dispatch: [
-    { key: "recipient_id", label: "Recipient (email)", placeholder: "alice@example.com" },
-    { key: "task", label: "Task", placeholder: "Use {ctx.foo} for inputs", multiline: true },
-  ],
-  notify: [
-    { key: "title", label: "Title", placeholder: "Dispatch finished" },
-    { key: "message", label: "Message", placeholder: "{ctx.previous}", multiline: true },
-  ],
-  wait_reply: [
-    { key: "from_recipient_id", label: "From recipient", placeholder: "alice@example.com" },
-  ],
-};
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  multiline,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  multiline?: boolean;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium text-foreground">{label}</span>
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          rows={3}
-          className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-        />
-      ) : (
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      )}
-    </label>
-  );
+function RunStatusDot({ status }: { status: string }) {
+  const color =
+    status === "completed" ? "bg-emerald-500"
+    : status === "running" ? "bg-indigo-500 animate-pulse"
+    : status === "failed"  ? "bg-red-500"
+    : status === "cancelled" ? "bg-zinc-400"
+    : "bg-zinc-300";
+  return <span className={`size-2 rounded-full ${color}`} />;
 }
 
 // ─── Run dialog ──────────────────────────────────────────────────────────
@@ -518,12 +466,16 @@ function RunDialog({
             </div>
           ) : (
             keys.map((k) => (
-              <Field
-                key={k}
-                label={k}
-                value={values[k] ?? ""}
-                onChange={(v) => setValues((cur) => ({ ...cur, [k]: v }))}
-              />
+              <label key={k} className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-foreground">{k}</span>
+                <input
+                  value={values[k] ?? ""}
+                  onChange={(e) =>
+                    setValues((cur) => ({ ...cur, [k]: e.target.value }))
+                  }
+                  className="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </label>
             ))
           )}
           {start.error instanceof Error && (
