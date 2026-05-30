@@ -37,9 +37,39 @@ function formatBrokerError(body: unknown, status: number): string {
 
 export type WorkflowNodeType =
   | "trigger.manual"
-  | "dispatch"
+  | "trigger.cron"
+  | "context"
+  | "agent"
+  | "ai.classify"
+  | "ai.extract"
+  | "ai.summarize"
+  | "ai.judge"
   | "notify"
-  | "wait_reply";
+  | "notify.sound"
+  | "log"
+  | "branch"
+  | "switch"
+  | "filter"
+  | "merge"
+  | "set"
+  | "format"
+  | "random"
+  | "math"
+  | "string"
+  | "regex"
+  | "json.parse"
+  | "json.stringify"
+  | "hash"
+  | "base64"
+  | "datetime"
+  | "file.read"
+  | "file.write"
+  | "transform.code"
+  | "http.request"
+  | "delay"
+  | "wait_until"
+  | "end.success"
+  | "end.error";
 
 export interface WorkflowNode {
   id: string;
@@ -87,10 +117,27 @@ export type NodeStatus =
 export interface NodeState {
   status: NodeStatus;
   output: unknown;
-  dispatch_id?: string | null;
   started_at?: string | null;
   ended_at?: string | null;
   error?: string | null;
+}
+
+export interface WorkflowDispatch {
+  recipient_id: string;
+  run_id: string;
+  dispatch_id: string;
+  dispatch_status: string;
+}
+
+export interface WorkflowDispatchFailure {
+  recipient_id: string;
+  status_code: number;
+  error: string;
+}
+
+export interface WorkflowRunResponse {
+  dispatched: WorkflowDispatch[];
+  failures: WorkflowDispatchFailure[];
 }
 
 export type WorkflowRunStatus =
@@ -129,10 +176,14 @@ export const workflows = {
     }),
   remove: (id: string) =>
     request<{ status: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
-  run: (id: string, input: Record<string, unknown>) =>
-    request<{ run_id: string }>(`/api/workflows/${id}/run`, {
+  run: (
+    id: string,
+    recipient_ids: string[],
+    input: Record<string, unknown>,
+  ) =>
+    request<WorkflowRunResponse>(`/api/workflows/${id}/run`, {
       method: "POST",
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ recipient_ids, input }),
     }),
   getRun: (runId: string) => request<WorkflowRun>(`/api/runs/${runId}`),
   listRuns: (workflowId: string) =>

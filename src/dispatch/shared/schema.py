@@ -161,16 +161,22 @@ class DispatchEvent(TypedDict):
 
 
 # ============================================================================
-# Workflows — n8n-style visual chains of dispatches.
+# Workflows — n8n-style graphs of local operations, fan-out via dispatch.
 # ============================================================================
+#
+# The workflow is the PAYLOAD: a sender designs a graph of local nodes
+# (agent / notify / branch / transform / http / delay / end.*), then
+# dispatches the whole graph to N recipients. Each recipient's daemon
+# runs its own copy of the engine. There is no `dispatch` node — dispatch
+# is the delivery mechanism, not a step in the graph.
 
 
 class WorkflowNode(BaseModel):
     """One node in a workflow's canvas.
 
-    `type` controls execution: trigger.manual | dispatch | notify | wait_reply.
-    `params` is the per-type parameter bag (e.g. recipient_id + task for
-    dispatch nodes). We keep it schema-less so node types can evolve.
+    `type` controls execution: trigger.manual | trigger.cron | agent |
+    notify | branch | transform.code | http.request | delay |
+    end.success | end.error. Schemaless `params` so node types can evolve.
     """
 
     id: str = Field(..., min_length=1, max_length=64)
@@ -227,7 +233,6 @@ class NodeState(BaseModel):
 
     status: NodeStatus = NodeStatus.pending
     output: Any = None              # whatever the node produced (string, dict)
-    dispatch_id: Optional[UUID] = None   # for dispatch nodes — linked dispatch
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     error: Optional[str] = None
@@ -242,8 +247,71 @@ class WorkflowRunStatus(str, enum.Enum):
 
 
 class WorkflowRunCreateRequest(BaseModel):
-    """Body for POST /workflows/{id}/run."""
+    """Body for POST /workflows/{id}/run.
 
+    Sender picks N recipients; the broker creates one dispatch + one run
+    row per recipient, each carrying the workflow definition + input as
+    a dispatch payload (WorkflowDispatchEnvelope in metadata.workflow).
+    """
+
+    recipient_ids: list[str] = Field(..., min_length=1, max_length=50)
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContextFile(BaseModel):
+    """One file in a context pack. Path is workspace-relative."""
+
+    path: str = Field(..., min_length=1, max_length=512)
+    content: str = Field(default="")
+
+
+class ContextCreateRequest(BaseModel):
+    """Body for POST /contexts (and PUT /contexts/{id})."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    system_prompt: str = Field(default="")
+    files: list[ContextFile] = Field(default_factory=list, max_length=50)
+
+
+class ContextSummary(BaseModel):
+    """List-view representation of a context pack."""
+
+    context_id: UUID
+    name: str
+    description: str
+    file_count: int
+    has_system_prompt: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ContextPack(BaseModel):
+    """Full context pack returned by GET /contexts/{id}."""
+
+    context_id: UUID
+    owner_id: str
+    name: str
+    description: str
+    system_prompt: str
+    files: list[ContextFile]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowDispatchEnvelope(BaseModel):
+    """Lives on `DispatchPayload.metadata["workflow"]` when the dispatch
+    is carrying a whole workflow to be executed by the recipient's daemon.
+
+    The recipient daemon detects this and runs the engine instead of the
+    normal single-prompt agent flow. `run_id` is pre-allocated by the
+    broker so the recipient PATCHes a row that already exists.
+    """
+
+    run_id: UUID
+    workflow_id: UUID
+    workflow_name: str = Field(default="")
+    definition: WorkflowDefinition
     input: dict[str, Any] = Field(default_factory=dict)
 
 

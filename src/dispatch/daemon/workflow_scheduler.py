@@ -126,36 +126,41 @@ class CronScheduler:
                     static_input = params.get("input") or {}
                     if not isinstance(static_input, dict):
                         static_input = {}
-                    run_id = await self._start_run_via_broker(
-                        wf_id, static_input, token,
+                    # Recipients now live on the cron node — without them
+                    # the broker has nobody to dispatch the workflow to.
+                    recipient_ids = params.get("recipient_ids") or []
+                    if not isinstance(recipient_ids, list) or not recipient_ids:
+                        logger.info(
+                            "skipping cron for %s: no recipient_ids on node",
+                            wf_id_str,
+                        )
+                        self.last_fired[key] = now
+                        continue
+                    fired = await self._start_run_via_broker(
+                        wf_id, recipient_ids, static_input, token,
                     )
-                    if run_id:
+                    if fired:
                         self.last_fired[key] = now
                         logger.info(
-                            "cron-triggered workflow %s (run %s)",
-                            wf_id_str, run_id,
+                            "cron-triggered workflow %s for %d recipient(s)",
+                            wf_id_str, len(recipient_ids),
                         )
 
     async def _start_run_via_broker(
-        self, workflow_id: UUID, input_: dict, token: str,
-    ) -> Optional[str]:
-        # Going through the broker (not engine.start_run directly) means
-        # the run gets a real DB row + the broker WS-pushes the start back
-        # to us — so scheduler-launched runs look identical to ones the
-        # user clicked.
+        self, workflow_id: UUID, recipient_ids: list, input_: dict, token: str,
+    ) -> bool:
+        # POST through the broker (not engine.run_for_dispatch directly)
+        # so the dispatch fan-out + run-row creation happen exactly as
+        # they would for a manual click — scheduler-launched runs are
+        # indistinguishable in the history view.
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 r = await client.post(
                     f"{self.broker_url}/workflows/{workflow_id}/run",
-                    json={"input": input_},
+                    json={"recipient_ids": list(recipient_ids), "input": input_},
                     headers={"Authorization": f"Bearer {token}"},
                 )
         except httpx.HTTPError:
             logger.exception("failed to POST cron-trigger run for %s", workflow_id)
-            return None
-        if r.status_code != 200:
-            return None
-        try:
-            return r.json().get("run_id")
-        except ValueError:
-            return None
+            return False
+        return r.status_code == 200

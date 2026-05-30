@@ -558,6 +558,75 @@ class Store:
             return result.endswith(" 1")
 
 
+    # ---------------- contexts (reusable system_prompt + files) ----------
+
+    async def create_context(
+        self, owner_id: str, name: str, description: str,
+        system_prompt: str, files: list[dict],
+    ) -> UUID:
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                """
+                INSERT INTO contexts (owner_id, name, description, system_prompt, files)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING context_id
+                """,
+                owner_id, name, description, system_prompt, files,
+            )
+
+    async def update_context(
+        self, context_id: UUID, owner_id: str, name: str,
+        description: str, system_prompt: str, files: list[dict],
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE contexts
+                SET name = $1, description = $2, system_prompt = $3,
+                    files = $4, updated_at = NOW()
+                WHERE context_id = $5 AND owner_id = $6
+                """,
+                name, description, system_prompt, files, context_id, owner_id,
+            )
+            return result.endswith(" 1")
+
+    async def get_context(
+        self, context_id: UUID, owner_id: str,
+    ) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT context_id, owner_id, name, description, system_prompt,
+                       files, created_at, updated_at
+                FROM contexts WHERE context_id = $1 AND owner_id = $2
+                """,
+                context_id, owner_id,
+            )
+            return dict(row) if row else None
+
+    async def list_contexts(self, owner_id: str) -> list[dict]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT context_id, owner_id, name, description, system_prompt,
+                       files, created_at, updated_at
+                FROM contexts WHERE owner_id = $1
+                ORDER BY updated_at DESC
+                """,
+                owner_id,
+            )
+            return [dict(r) for r in rows]
+
+    async def delete_context(
+        self, context_id: UUID, owner_id: str,
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM contexts WHERE context_id = $1 AND owner_id = $2",
+                context_id, owner_id,
+            )
+            return result.endswith(" 1")
+
     # ---------------- workflows ----------------
 
     async def create_workflow(
@@ -656,29 +725,44 @@ class Store:
                 *args,
             )
 
-    async def get_workflow_run(self, run_id: UUID, owner_id: str) -> Optional[dict]:
+    async def get_workflow_run_for_user(
+        self, run_id: UUID, user_id: str,
+    ) -> Optional[dict]:
+        """Return the run row if `user_id` is either the workflow owner
+        OR the executor (triggered_by). Used by GET /runs/{id} and the
+        PATCH endpoint so the recipient daemon (executor) can stream
+        checkpoints back even though the workflow itself is owned by
+        the sender."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT run_id, workflow_id, triggered_by, status, input,
-                       node_states, error, started_at, ended_at
-                FROM workflow_runs WHERE run_id = $1 AND triggered_by = $2
+                SELECT r.run_id, r.workflow_id, r.triggered_by, r.status,
+                       r.input, r.node_states, r.error,
+                       r.started_at, r.ended_at
+                FROM workflow_runs r
+                JOIN workflows w ON w.workflow_id = r.workflow_id
+                WHERE r.run_id = $1
+                  AND (r.triggered_by = $2 OR w.owner_id = $2)
                 """,
-                run_id, owner_id,
+                run_id, user_id,
             )
             return dict(row) if row else None
 
-    async def list_workflow_runs(self, workflow_id: UUID, owner_id: str) -> list[dict]:
+    async def list_workflow_runs(self, workflow_id: UUID) -> list[dict]:
+        """All runs for a workflow. Caller is responsible for gating
+        ownership via get_workflow() before calling — we don't filter by
+        triggered_by because runs are now executed by recipients, not
+        the workflow owner."""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
                 SELECT run_id, workflow_id, triggered_by, status, started_at, ended_at
                 FROM workflow_runs
-                WHERE workflow_id = $1 AND triggered_by = $2
+                WHERE workflow_id = $1
                 ORDER BY started_at DESC
                 LIMIT 50
                 """,
-                workflow_id, owner_id,
+                workflow_id,
             )
             return [dict(r) for r in rows]
 
