@@ -1,5 +1,19 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Bell, GitBranch, Hourglass, Loader2, Play, Send, Users } from "lucide-react";
+import {
+  AlertCircle,
+  Bell,
+  CheckCircle,
+  Clock,
+  Code,
+  GitBranch,
+  Globe,
+  Hourglass,
+  Loader2,
+  Pause,
+  Play,
+  Send,
+  Users,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { NodeStatus } from "@/lib/workflowApi";
@@ -260,13 +274,123 @@ export function WaitReplyNode({ data, selected }: NodeProps) {
   );
 }
 
+export function CronTriggerNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const expr = (d.params?.expression as string | undefined)?.trim();
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-300"
+      icon={<Clock className="size-7 text-indigo-600" />}
+      title={d.label || "When schedule fires"}
+      subtitle={expr || "Cron schedule"}
+      showLeftHandle={false}
+      showRightHandle
+      loud
+    />
+  );
+}
+
+export function CodeNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const code = (d.params?.code as string | undefined) ?? "";
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-zinc-50 border-zinc-300"
+      icon={<Code className="size-6 text-zinc-700" />}
+      title={d.label || "Code"}
+      subtitle={code ? truncate(code, 24) : "no expression"}
+      showLeftHandle
+      showRightHandle
+    />
+  );
+}
+
+export function HTTPNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const method = (d.params?.method as string | undefined) ?? "GET";
+  const url = (d.params?.url as string | undefined) ?? "";
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-white border-zinc-200"
+      icon={<Globe className="size-6 text-zinc-700" />}
+      title={d.label || "HTTP Request"}
+      subtitle={`${method} ${truncate(url, 20)}`}
+      showLeftHandle
+      showRightHandle
+    />
+  );
+}
+
+export function DelayNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const seconds = (d.params?.seconds as number | undefined) ?? 0;
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-sky-50/70 border-sky-200"
+      icon={<Pause className="size-6 text-sky-600" />}
+      title={d.label || "Wait"}
+      subtitle={`${seconds}s`}
+      showLeftHandle
+      showRightHandle
+    />
+  );
+}
+
+export function EndSuccessNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const message = (d.params?.message as string | undefined) ?? "";
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-emerald-50 border-emerald-300"
+      icon={<CheckCircle className="size-6 text-emerald-600" />}
+      title={d.label || "End — success"}
+      subtitle={message ? truncate(message, 20) : "completes run"}
+      showLeftHandle
+      showRightHandle={false}
+    />
+  );
+}
+
+export function EndErrorNode({ data, selected }: NodeProps) {
+  const d = (data ?? {}) as NodeData;
+  const message = (d.params?.message as string | undefined) ?? "";
+  return (
+    <NodeShell
+      status={d.status}
+      selected={!!selected}
+      accent="bg-red-50 border-red-300"
+      icon={<AlertCircle className="size-6 text-red-600" />}
+      title={d.label || "End — error"}
+      subtitle={message ? truncate(message, 20) : "fails run"}
+      showLeftHandle
+      showRightHandle={false}
+    />
+  );
+}
+
 export const NODE_TYPES = {
   "trigger.manual": TriggerManualNode,
+  "trigger.cron": CronTriggerNode,
   dispatch: DispatchNode,
   "dispatch.multi": MultiDispatchNode,
   branch: BranchNode,
   notify: NotifyNode,
   wait_reply: WaitReplyNode,
+  "transform.code": CodeNode,
+  "http.request": HTTPNode,
+  delay: DelayNode,
+  "end.success": EndSuccessNode,
+  "end.error": EndErrorNode,
 };
 
 export interface PaletteItem {
@@ -326,5 +450,53 @@ export const PALETTE: PaletteItem[] = [
     icon: <Hourglass className="size-4 text-sky-600" />,
     accent: "bg-sky-50/70 border-sky-200",
     defaultParams: { from_recipient_id: "" },
+  },
+  {
+    type: "trigger.cron",
+    label: "Cron trigger",
+    description: "Run on a cron schedule",
+    icon: <Clock className="size-4 text-indigo-600" />,
+    accent: "bg-gradient-to-br from-indigo-50 to-violet-50 border-indigo-200",
+    defaultParams: { expression: "0 9 * * *", input: {} },
+  },
+  {
+    type: "transform.code",
+    label: "Code",
+    description: "Run a Python expression",
+    icon: <Code className="size-4 text-zinc-700" />,
+    accent: "bg-zinc-50 border-zinc-300",
+    defaultParams: { code: "ctx" },
+  },
+  {
+    type: "http.request",
+    label: "HTTP Request",
+    description: "HTTP API call",
+    icon: <Globe className="size-4 text-zinc-700" />,
+    accent: "bg-white border-zinc-200",
+    defaultParams: { method: "GET", url: "", headers: {}, timeout_s: 30 },
+  },
+  {
+    type: "delay",
+    label: "Delay",
+    description: "Pause for N seconds",
+    icon: <Pause className="size-4 text-sky-600" />,
+    accent: "bg-sky-50/70 border-sky-200",
+    defaultParams: { seconds: 5 },
+  },
+  {
+    type: "end.success",
+    label: "End — success",
+    description: "Halt with success",
+    icon: <CheckCircle className="size-4 text-emerald-600" />,
+    accent: "bg-emerald-50 border-emerald-300",
+    defaultParams: { message: "" },
+  },
+  {
+    type: "end.error",
+    label: "End — error",
+    description: "Halt with failure",
+    icon: <AlertCircle className="size-4 text-red-600" />,
+    accent: "bg-red-50 border-red-300",
+    defaultParams: { message: "" },
   },
 ];

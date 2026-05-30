@@ -19,7 +19,9 @@ Flow:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -145,16 +147,17 @@ class WorkflowEngine:
             )
             return
 
-        # Exactly one trigger.manual node is required. The broker would
-        # ideally reject malformed workflows at save-time, but the daemon
-        # double-checks so a corrupt definition can't crash the engine.
-        triggers = [n for n in nodes if n.get("type") == "trigger.manual"]
+        # Exactly one trigger.* node is required (trigger.manual or
+        # trigger.cron). The broker would ideally reject malformed
+        # workflows at save-time, but the daemon double-checks so a
+        # corrupt definition can't crash the engine.
+        triggers = [n for n in nodes if str(n.get("type", "")).startswith("trigger.")]
         if len(triggers) != 1:
             await self._patch_run(
                 run_id,
                 status=WorkflowRunStatus.failed,
                 node_states=node_states,
-                error=f"expected exactly one trigger.manual node, found {len(triggers)}",
+                error=f"expected exactly one trigger.* node, found {len(triggers)}",
                 ended=True,
             )
             return
@@ -186,7 +189,7 @@ class WorkflowEngine:
                 # Trigger always runs; other nodes need at least one live
                 # incoming edge. Orphans (no incoming, not trigger) are
                 # treated as skipped — they can't have been reached.
-                if ntype != "trigger.manual":
+                if not ntype.startswith("trigger."):
                     if not incoming or not any(is_edge_alive(e) for e in incoming):
                         skipped_nodes.add(node_id)
                         await self._set_node_state(
@@ -205,6 +208,11 @@ class WorkflowEngine:
                 try:
                     if ntype == "trigger.manual":
                         output: Any = input_
+                    elif ntype == "trigger.cron":
+                        # Scheduler populates input_ from the node's
+                        # static params.input; here we just pass it through
+                        # so downstream nodes see ctx.* like trigger.manual.
+                        output = input_
                     elif ntype == "dispatch":
                         output = await self._run_dispatch_node(
                             run_id, node, node_states, input_,
@@ -224,6 +232,16 @@ class WorkflowEngine:
                         output = self._run_notify_node(node, node_states, input_)
                     elif ntype == "wait_reply":
                         output = await self._run_wait_reply_node(node, node_states)
+                    elif ntype == "transform.code":
+                        output = self._run_code_node(node, node_states, input_)
+                    elif ntype == "http.request":
+                        output = await self._run_http_node(node, node_states, input_)
+                    elif ntype == "delay":
+                        output = await self._run_delay_node(node, node_states, input_)
+                    elif ntype == "end.success":
+                        output = self._run_end_success_node(node, node_states, input_)
+                    elif ntype == "end.error":
+                        output = self._run_end_error_node(node, node_states, input_)
                     else:
                         raise _NodeError(f"unknown node type: {ntype!r}")
                 except _NodeError as exc:
@@ -238,6 +256,24 @@ class WorkflowEngine:
                         status=WorkflowRunStatus.failed,
                         node_states=node_states,
                         error=f"node {node_id}: {exc}",
+                        ended=True,
+                    )
+                    return
+                except _EndRun as exc:
+                    # end.success / end.error halt the run. The originating
+                    # node itself ran successfully — record the message as
+                    # its output before we close out the run row.
+                    await self._set_node_state(
+                        run_id, node_states, node_id,
+                        status=NodeStatus.completed,
+                        output={"message": exc.message},
+                        ended_at=_utcnow(),
+                    )
+                    await self._patch_run(
+                        run_id,
+                        status=exc.status,
+                        node_states=node_states,
+                        error=exc.message if exc.status == WorkflowRunStatus.failed else None,
                         ended=True,
                     )
                     return
@@ -504,6 +540,131 @@ class WorkflowEngine:
                 )
             await asyncio.sleep(POLL_INTERVAL_S)
 
+    def _run_code_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> Any:
+        # User-written Python expression. Sandboxed by stripping __builtins__
+        # and only injecting a curated namespace. This is "trusted-author"
+        # safe, not "untrusted-author" safe — anyone who can edit the
+        # workflow definition can already trigger dispatches.
+        params = node.get("params", {}) or {}
+        code = str(params.get("code", "")).strip()
+        if not code:
+            raise _NodeError("transform.code missing 'code'")
+
+        namespace: dict[str, Any] = {
+            "ctx": input_,
+            "json": json,
+            "math": math,
+            "len": len,
+            "str": str,
+            "int": int,
+            "float": float,
+            "dict": dict,
+            "list": list,
+            "sum": sum,
+            "min": min,
+            "max": max,
+            "sorted": sorted,
+            "any": any,
+            "all": all,
+        }
+        for nid, state in node_states.items():
+            if state.get("status") == NodeStatus.completed.value:
+                namespace[nid] = state.get("output")
+        try:
+            return eval(code, {"__builtins__": {}}, namespace)
+        except Exception as exc:
+            raise _NodeError(f"code eval failed: {exc}")
+
+    async def _run_http_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> dict:
+        params = node.get("params", {}) or {}
+        method = str(params.get("method", "GET")).upper().strip() or "GET"
+        url_tpl = str(params.get("url", "")).strip()
+        if not url_tpl:
+            raise _NodeError("http.request missing 'url'")
+        url = _hydrate(url_tpl, node_states, input_)
+
+        headers_in = params.get("headers") or {}
+        if not isinstance(headers_in, dict):
+            raise _NodeError("http.request 'headers' must be an object")
+        headers = {
+            str(k): _hydrate(str(v), node_states, input_)
+            for k, v in headers_in.items()
+        }
+
+        body_tpl = params.get("body")
+        body_text: Optional[str] = None
+        if body_tpl is not None and str(body_tpl) != "":
+            body_text = _hydrate(str(body_tpl), node_states, input_)
+
+        try:
+            timeout_s = float(params.get("timeout_s", 30) or 30)
+        except (TypeError, ValueError):
+            timeout_s = 30.0
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout_s, follow_redirects=False,
+            ) as client:
+                resp = await client.request(
+                    method, url, headers=headers, content=body_text,
+                )
+        except httpx.HTTPError as exc:
+            raise _NodeError(f"http.request failed: {exc}")
+
+        parsed_json: Any = None
+        ctype = resp.headers.get("content-type", "")
+        if "json" in ctype.lower():
+            try:
+                parsed_json = resp.json()
+            except ValueError:
+                parsed_json = None
+
+        return {
+            "status": resp.status_code,
+            "body": resp.text,
+            "json": parsed_json,
+            "headers": dict(resp.headers),
+        }
+
+    async def _run_delay_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> dict:
+        params = node.get("params", {}) or {}
+        try:
+            seconds = int(params.get("seconds", 1))
+        except (TypeError, ValueError):
+            raise _NodeError("delay 'seconds' must be an integer")
+        seconds = min(max(seconds, 1), 3600)
+        # asyncio.sleep is cancellable — task.cancel() will propagate.
+        await asyncio.sleep(seconds)
+        return {"delayed_for": seconds}
+
+    def _run_end_success_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> Any:
+        params = node.get("params", {}) or {}
+        msg_tpl = params.get("message")
+        msg = (
+            _hydrate(str(msg_tpl), node_states, input_)
+            if msg_tpl else "ended"
+        )
+        raise _EndRun(status=WorkflowRunStatus.completed, message=msg)
+
+    def _run_end_error_node(
+        self, node: dict, node_states: dict[str, dict], input_: dict,
+    ) -> Any:
+        params = node.get("params", {}) or {}
+        msg_tpl = params.get("message")
+        msg = (
+            _hydrate(str(msg_tpl), node_states, input_)
+            if msg_tpl else "workflow ended with error"
+        )
+        raise _EndRun(status=WorkflowRunStatus.failed, message=msg)
+
     # ────────────────────────────────────────────────────────────────────
     # State writeback
     # ────────────────────────────────────────────────────────────────────
@@ -588,6 +749,20 @@ class WorkflowEngine:
 
 class _NodeError(Exception):
     """Per-node failure that should halt the run and surface a message."""
+
+
+class _EndRun(Exception):
+    """Raised by end.success / end.error nodes to halt the engine cleanly.
+
+    Carries the terminal run status + a (templatable) message that gets
+    written to the originating node's output and — for failures — into
+    the run row's `error` column.
+    """
+
+    def __init__(self, status: WorkflowRunStatus, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
 
 
 class _WorkflowGraphError(Exception):
