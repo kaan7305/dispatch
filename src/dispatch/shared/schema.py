@@ -58,7 +58,12 @@ class DispatchCreateRequest(BaseModel):
     recipient_id: Optional[str] = Field(default=None, max_length=64)
     recipient_ids: Optional[list[str]] = Field(default=None, max_length=50)
     task: str = Field(..., min_length=1)
-    expires_in_seconds: int = Field(default=3600, ge=60, le=86400)
+    # Async/offline delivery: a dispatch may wait for a long-offline recipient,
+    # so the lifetime defaults to a day and may run up to 30 days. The ceiling
+    # MUST stay <= the recipient daemon's nonce-retention horizon
+    # (daemon.main.OFFLINE_RETENTION_S), or a dispatch could outlive the
+    # replay-guard record that keeps it one-time-use.
+    expires_in_seconds: int = Field(default=86400, ge=60, le=30 * 24 * 3600)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
