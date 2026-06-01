@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS pending_for_offline (
     PRIMARY KEY (user_id, dispatch_id)
 );
 
+-- Sender-side counterpart: dispatches composed while the SENDER's daemon was
+-- offline. The broker can't sign them yet (the signing key lives on the
+-- sender's device), so they wait here until that daemon reconnects, then get
+-- signed and routed to the recipient. Keyed by sender_id.
+CREATE TABLE IF NOT EXISTS pending_for_signature (
+    sender_id    TEXT NOT NULL,
+    dispatch_id  UUID NOT NULL REFERENCES dispatches(dispatch_id) ON DELETE CASCADE,
+    queued_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (sender_id, dispatch_id)
+);
+
 -- Magic-link auth removed; sign-in is now Clerk (Google OAuth). The
 -- broker still mints daemon JWTs via DISPATCH_JWT_SECRET. Old deployments
 -- can drop the legacy table manually:  DROP TABLE IF EXISTS magic_links;
