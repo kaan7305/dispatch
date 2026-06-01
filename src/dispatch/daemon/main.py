@@ -56,6 +56,7 @@ from dispatch.daemon.identity import (
     load_pins,
     save_pins,
 )
+from dispatch.daemon.nonces import NonceStore
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
 from dispatch.shared.schema import (
@@ -80,7 +81,17 @@ _PATH_ARGS = {
 DEFAULT_WORKSPACE = Path.home() / "dispatch" / "workspace"
 DISPATCH_DECISION_TIMEOUT_S = 300.0     # how long the recipient has to accept/reject
 TOOL_APPROVAL_TIMEOUT_S = 120.0          # how long they have to allow/deny one tool call
-FRESHNESS_WINDOW_S = 300.0               # reject dispatches signed > 5 min ago
+
+# Async/offline delivery: a dispatch may sit queued for an offline recipient
+# for a long time, so the signature-freshness window is widened from minutes
+# to a long retention horizon. Replay is caught by the *durable* nonce store
+# (NonceStore), not by this clock — the window is now just an upper bound on
+# how stale a delivered dispatch may be. The nonce store retains accepted
+# pairs for the SAME horizon, so a dispatch can never outlive its own nonce
+# record (which would make it replayable). Keep the broker's max dispatch
+# expiry (schema.DispatchCreateRequest) <= this value to preserve that.
+OFFLINE_RETENTION_S = 30 * 24 * 3600.0   # 30 days
+FRESHNESS_WINDOW_S = OFFLINE_RETENTION_S  # reject dispatches signed > this ago
 
 logger = logging.getLogger("dispatch.daemon")
 
@@ -182,8 +193,9 @@ class DaemonState:
     pending_decisions: dict[str, asyncio.Future] = field(default_factory=dict)
     # (dispatch_id, request_id) → Future resolved with "allow" | "deny"
     pending_approvals: dict[tuple[str, str], asyncio.Future] = field(default_factory=dict)
-    # (sender_device, nonce) pairs already accepted this session — replay guard
-    seen_nonces: set[tuple[str, str]] = field(default_factory=set)
+    # Durable replay guard: accepted (sender_device, nonce) pairs survive
+    # daemon restarts (see nonces.NonceStore). Set in run_session.
+    nonce_store: NonceStore | None = None
     # dispatch_id (str) → the running process_dispatch task, so a
     # cancel_dispatch from the broker can stop it.
     running: dict[str, asyncio.Task] = field(default_factory=dict)
@@ -328,11 +340,23 @@ async def run_session(
 
     state = DaemonState()
 
+    # Durable replay guard. Persisting accepted (sender_device, nonce) pairs
+    # across restarts lets us widen the freshness window to a long horizon so
+    # dispatches can wait for an offline recipient — without ever re-running a
+    # replayed dispatch. Prune on startup so the table stays bounded.
+    my_user = verify_token_user(args.token)
+    nonce_store = NonceStore(dispatch_home() / "nonces.db", FRESHNESS_WINDOW_S)
+    try:
+        nonce_store.prune(datetime.now(timezone.utc).timestamp())
+    except Exception:
+        logger.exception("nonce store prune failed (continuing)")
+    state.nonce_store = nonce_store
+
     # Local approval UI — the ONLY surface that resolves user-intent
     # decisions. The broker's WS no longer carries them.
     from dispatch.daemon.local_app import LocalState, issue_local_token, spawn as spawn_local_ui
     local_state = LocalState(
-        user_id=verify_token_user(args.token),
+        user_id=my_user,
         broker_url=args.broker,
         broker_token=args.token,
         notify=on_notification,
@@ -407,6 +431,8 @@ async def run_session(
                 ws, state, workspace, private_key,
                 local_state=local_state,
                 workflow_engine=workflow_engine,
+                my_user=my_user,
+                my_device=device_id,
             )
     except websockets.InvalidStatus as e:
         # 401/403 means the JWT is revoked or otherwise rejected by the
@@ -444,6 +470,7 @@ async def run_session(
         local_state.watchers.clear()
         await scheduler.stop()
         await local_server.stop()
+        nonce_store.close()
     return 0
 
 
@@ -487,15 +514,24 @@ def _path_allowed(raw: str, allowed_dirs: list[Path]) -> bool:
 
 
 def verify_inbound(
-    payload: DispatchPayload, signing: dict | None, state: DaemonState
+    payload: DispatchPayload,
+    signing: dict | None,
+    state: DaemonState,
+    my_user: str | None = None,
+    my_device: str | None = None,
 ) -> tuple[bool, str]:
     """Layer 2 verification of an incoming dispatch.
 
     Checks, in order: a signing block is present and complete; the
-    dispatch is fresh (signed within FRESHNESS_WINDOW_S); the nonce
-    hasn't been seen; the sender device's public key matches the locally
-    pinned key (TOFU — first sighting pins it); the Ed25519 signature is
-    valid. Returns (ok, reason).
+    dispatch is actually addressed to this user (and this device, when
+    pinned to one); it is fresh (signed within FRESHNESS_WINDOW_S); the
+    (sender_device, nonce) pair hasn't been seen before (durable replay
+    guard); the sender device's public key matches the locally pinned key
+    (TOFU — first sighting pins it); the Ed25519 signature is valid.
+    Returns (ok, reason).
+
+    The nonce is only recorded as seen *after* every check passes, so a
+    dispatch that fails verification doesn't burn a nonce.
     """
     if not signing:
         return False, "unsigned dispatch"
@@ -504,8 +540,21 @@ def verify_inbound(
     signature_b64 = signing.get("signature")
     pubkey_b64 = signing.get("sender_public_key")
     created_at = signing.get("created_at")
+    target_device = signing.get("target_device")
     if not all((sender_device, nonce, signature_b64, pubkey_b64, created_at)):
         return False, "incomplete signing block"
+
+    # Addressing. The signature covers recipient_user and target_device, so
+    # these can't be rewritten in flight — but the daemon must still refuse
+    # a dispatch the broker misrouted (or replayed) to the wrong user or a
+    # sibling device. recipient_user binds to a person; target_device, when
+    # the sender pins one, binds to a single machine so a dispatch can't be
+    # re-run on another of the same user's devices. A null target_device
+    # means "any of my devices" (today's default) and is accepted.
+    if my_user is not None and payload.recipient_id != my_user:
+        return False, f"misaddressed dispatch (for {payload.recipient_id}, not {my_user})"
+    if target_device is not None and my_device is not None and target_device != my_device:
+        return False, "dispatch targeted at a different device"
 
     # Freshness.
     try:
@@ -516,8 +565,8 @@ def verify_inbound(
     if age > FRESHNESS_WINDOW_S:
         return False, f"stale dispatch ({int(age)}s old)"
 
-    # Replay.
-    if (sender_device, nonce) in state.seen_nonces:
+    # Replay — durable across daemon restarts.
+    if state.nonce_store is not None and state.nonce_store.seen(sender_device, nonce):
         return False, "replayed nonce"
 
     # TOFU key pin — first sight pins the key; a later change is rejected.
@@ -534,7 +583,7 @@ def verify_inbound(
         instruction=payload.task,
         sender_device=sender_device,
         recipient_user=payload.recipient_id,
-        target_device=signing.get("target_device"),
+        target_device=target_device,
         nonce=nonce,
         created_at=created_at,
     )
@@ -545,7 +594,8 @@ def verify_inbound(
     ):
         return False, "invalid signature"
 
-    state.seen_nonces.add((sender_device, nonce))
+    if state.nonce_store is not None:
+        state.nonce_store.record(sender_device, nonce, datetime.now(timezone.utc).timestamp())
     return True, ""
 
 
@@ -556,6 +606,8 @@ async def handle_broker(
     private_key: bytes,
     local_state=None,
     workflow_engine=None,
+    my_user: str | None = None,
+    my_device: str | None = None,
 ) -> None:
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
         await ws.send(
@@ -630,7 +682,10 @@ async def handle_broker(
             except Exception:
                 logger.exception("rejecting malformed dispatch")
                 continue
-            ok, reason = verify_inbound(payload, msg.get("signing"), state)
+            ok, reason = verify_inbound(
+                payload, msg.get("signing"), state,
+                my_user=my_user, my_device=my_device,
+            )
             if not ok:
                 print(
                     f"[daemon] REJECTED dispatch {str(payload.dispatch_id)[:8]}…: {reason}"
