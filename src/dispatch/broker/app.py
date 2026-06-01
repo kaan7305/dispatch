@@ -263,11 +263,14 @@ async def install_script() -> PlainTextResponse:
     """One-shot recipient installer.
 
     Usage on the recipient's machine:
-        curl -fsSL <broker>/install.sh | bash -s -- <jwt>
+        curl -fsSL <broker>/install.sh | bash -s -- <jwt> [anthropic-api-key]
 
     It installs pipx (if needed), installs the daemon, saves broker+token
-    to ~/.dispatch/config.json, and starts the daemon. Subsequent runs are
-    just `dispatch-daemon`.
+    to ~/.dispatch/config.json, optionally persists the Anthropic API key,
+    and starts the daemon. Subsequent runs are just `dispatch-daemon`.
+
+    The API key may be given as the 2nd positional arg, or via an
+    ANTHROPIC_API_KEY env var on the `bash` side of the pipe.
     """
     broker = _public_url()
     spec = _daemon_install_spec()
@@ -277,10 +280,12 @@ set -e
 BROKER="{broker}"
 INSTALL_SPEC="{spec}"
 TOKEN="${{1:-$DISPATCH_TOKEN}}"
+# 2nd positional arg is the Anthropic API key; fall back to the env var.
+API_KEY="${{2:-${{ANTHROPIC_API_KEY:-}}}}"
 
 if [ -z "$TOKEN" ]; then
   echo "dispatch: no token supplied." >&2
-  echo "  usage: curl -fsSL $BROKER/install.sh | bash -s -- <your-token>" >&2
+  echo "  usage: curl -fsSL $BROKER/install.sh | bash -s -- <your-token> [anthropic-api-key]" >&2
   exit 1
 fi
 
@@ -307,13 +312,17 @@ cat > "$HOME/.dispatch/config.json" <<EOF
 {{"broker": "$BROKER", "token": "$TOKEN"}}
 EOF
 
-# 4. Start it. If the installer's shell has an ANTHROPIC_API_KEY exported,
-#    pass it through so the daemon persists it to ~/.dispatch/config.json.
+# 4. Start it. When an API key was provided (2nd arg or env), pass it through
+#    so the daemon persists it to ~/.dispatch/config.json — future bare
+#    `dispatch-daemon` runs then pick it up automatically.
 DAEMON="$(command -v dispatch-daemon || echo "$HOME/.local/bin/dispatch-daemon")"
 echo "dispatch: installed. starting daemon (next time, just run: dispatch-daemon)"
-if [ -n "${{ANTHROPIC_API_KEY:-}}" ]; then
-  exec "$DAEMON" --anthropic-key "$ANTHROPIC_API_KEY"
+if [ -n "$API_KEY" ]; then
+  exec "$DAEMON" --anthropic-key "$API_KEY"
 else
+  echo "dispatch: no ANTHROPIC_API_KEY given — the daemon will run, but accepting a"
+  echo "          dispatch needs a key. Add one later with:"
+  echo "          dispatch-daemon --anthropic-key sk-ant-..."
   exec "$DAEMON"
 fi
 """
