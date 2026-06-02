@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "dispatch",
-      "source": ".",
+      "source": "./",
       "description": "Peer-to-peer agentic task courier driven from Claude Code. Delegate, receive, approve, and track dispatches in natural language; wraps the `dispatch` CLI."
     }
   ]
