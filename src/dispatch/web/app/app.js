@@ -56,8 +56,10 @@ function refreshAuth() {
     }
   } else {
     if (!authStatus.classList.contains("error")) {
-      authStatus.textContent = "not signed in";
-      authStatus.className = "status idle";
+      authStatus.textContent = deviceParam
+        ? `Sign in to approve your terminal login${deviceCode ? " (code " + deviceCode + ")" : ""}.`
+        : "not signed in";
+      authStatus.className = deviceParam ? "status running" : "status idle";
     }
     installPanel.hidden = true;
     tokenDisplay.textContent = "";
@@ -171,7 +173,11 @@ loginBtn.addEventListener("click", async () => {
     if (window.Clerk.user) {
       await exchangeClerkForBrokerJwt();
     } else {
-      window.Clerk.openSignIn({ afterSignInUrl: location.pathname });
+      // Preserve the query string (?device=… / ?invite=…) across the sign-in
+      // redirect — otherwise we land back on "/" and lose the device code, so
+      // the terminal-approval panel never reappears.
+      const returnTo = location.pathname + location.search;
+      window.Clerk.openSignIn({ afterSignInUrl: returnTo, afterSignUpUrl: returnTo });
     }
   } catch (err) {
     authStatus.className = "status error";
