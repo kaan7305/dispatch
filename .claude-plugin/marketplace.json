@@ -1,0 +1,14 @@
+{
+  "name": "dispatch",
+  "owner": {
+    "name": "Kaan",
+    "url": "https://github.com/kaan7305"
+  },
+  "plugins": [
+    {
+      "name": "dispatch",
+      "source": ".",
+      "description": "Peer-to-peer agentic task courier driven from Claude Code. Delegate, receive, approve, and track dispatches in natural language; wraps the `dispatch` CLI."
+    }
+  ]
+}

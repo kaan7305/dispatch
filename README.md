@@ -173,24 +173,33 @@ Two pieces ship with the package:
    else to configure.
 
    ```
+   # Broker-backed:
    dispatch whoami                          # who am I + which broker
    dispatch contacts                        # trust edges: who can dispatch to whom
-   dispatch send <recipient> '<task>'       # create a dispatch (daemon must be online to sign)
+   dispatch send <recipient> '<task>'       # create a dispatch (your daemon signs it)
      [--expires <s>] [--cwd <dir>] [--meta k=v]
    dispatch sent                            # dispatches I've sent
    dispatch inbox                           # dispatches addressed to me
    dispatch status <id>                     # one dispatch: status + event trace
-   dispatch accept <id> | decline <id>      # decide on an inbound dispatch (daemon online)
    dispatch cancel <id>                     # cancel an in-flight dispatch (either party)
+
+   # Resolved by THIS machine's daemon (loopback API, not the broker):
+   dispatch accept <id> | decline <id>      # decide on an inbound dispatch
+   dispatch approvals                       # tool calls awaiting allow/deny
+   dispatch approve <id> <request_id>       # allow one pending tool call
+   dispatch deny <id> <request_id>          # deny one pending tool call
    ```
 
    Add `--json` to any command for machine-readable output (works before or
    after the subcommand). `--broker` / `--token` (or `$DISPATCH_BROKER` /
    `$DISPATCH_TOKEN`) override the saved config. `recipient` is the contact's
-   user id as shown under `peer` in `dispatch contacts`. The CLI is a client
-   only — it never holds a signing key; `send`/`accept` still require *your*
-   daemon online so the signature (Layer 2) and the agent run on your machine,
-   not the broker.
+   user id as shown under `peer` in `dispatch contacts`. The CLI never holds a
+   signing key: `send` needs *your* daemon online to sign (Layer 2), and
+   `accept`/`approve` hit your daemon's loopback API (`127.0.0.1`, token at
+   `~/.dispatch/local.token`) — the daemon **ignores** decisions relayed by the
+   broker so a compromised broker can't fabricate your approval. Accepting a
+   dispatch is **not** blanket approval: under a `manual` edge each tool call
+   still needs `dispatch approve`/`deny` (or a click in the local UI).
 
 2. **The skill** — `skills/dispatch/SKILL.md`. Symlink it into Claude Code:
 

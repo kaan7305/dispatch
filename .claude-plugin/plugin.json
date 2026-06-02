@@ -1,0 +1,13 @@
+{
+  "name": "dispatch",
+  "version": "0.1.0",
+  "description": "Peer-to-peer agentic task courier between two humans. Delegate a task to a trusted contact's machine — their Claude agent runs it across an explicit, scoped, revocable trust edge, cryptographically signed by your device and approved by them. Check your inbox, accept/decline, and track dispatches in natural language. Wraps the `dispatch` CLI.",
+  "author": {
+    "name": "Kaan",
+    "url": "https://github.com/kaan7305"
+  },
+  "homepage": "https://github.com/kaan7305/dispatch",
+  "repository": "https://github.com/kaan7305/dispatch",
+  "license": "MIT",
+  "keywords": ["dispatch", "delegation", "agent", "peer-to-peer", "task-courier"]
+}

@@ -27,25 +27,17 @@ parses) and ``--broker`` / ``--token`` overrides.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse, urlunparse
 
 import certifi
 import httpx
 
-# WebSocket client is only needed for accept/decline; import lazily there so
-# the common HTTP commands stay fast and don't hard-require it at import time.
-
 
 HTTP_TIMEOUT_S = 30.0
-# How long accept/decline waits on the inbox socket for the daemon to react
-# before reporting "sent, awaiting daemon".
-DECISION_CONFIRM_TIMEOUT_S = 8.0
 
 
 # ----------------------------------------------------------------------------
@@ -137,6 +129,85 @@ def _detail(resp: httpx.Response) -> str:
         return json.dumps(body)
     except ValueError:
         return resp.text.strip() or "(no body)"
+
+
+# ----------------------------------------------------------------------------
+# Local daemon API (127.0.0.1) — the ONLY surface that resolves accept/reject
+# and per-tool allow/deny.
+#
+# The daemon deliberately ignores decision/approval messages arriving over the
+# broker WebSocket (so a compromised broker can't fabricate the human's
+# intent); they must be delivered to the daemon's own loopback HTTP server,
+# authenticated by the per-machine token at ~/.dispatch/local.token. That's
+# why accept/decline/approve do NOT go through the broker.
+# ----------------------------------------------------------------------------
+
+
+def _local_port(config: dict) -> int:
+    raw = os.environ.get("DISPATCH_LOCAL_PORT") or config.get("local_port") or 8001
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 8001
+
+
+def _local_token() -> str:
+    path = _dispatch_home() / "local.token"
+    try:
+        tok = path.read_text().strip()
+    except (FileNotFoundError, OSError):
+        tok = ""
+    if not tok:
+        raise CliError(
+            f"no local daemon token at {path}. The daemon writes it on start — "
+            "is `dispatch-daemon` running on this machine?"
+        )
+    return tok
+
+
+def _local_request(config: dict, method: str, path: str, **kw: Any) -> Any:
+    """Call the local daemon's loopback HTTP API. Clean CliErrors on the
+    failure modes a user will actually hit (daemon down, token stale, nothing
+    pending)."""
+    port = _local_port(config)
+    base = f"http://127.0.0.1:{port}"
+    token = _local_token()
+    try:
+        with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {token}"},
+                          timeout=HTTP_TIMEOUT_S) as c:
+            resp = c.request(method, path, **kw)
+    except httpx.ConnectError:
+        raise CliError(
+            f"the local daemon isn't reachable on {base}. Start `dispatch-daemon` "
+            "on this machine and retry (accept/approve are resolved locally, not "
+            "via the broker)."
+        )
+    except httpx.HTTPError as e:
+        raise CliError(f"local daemon request to {path} failed: {e}")
+
+    if resp.status_code == 401:
+        raise CliError(
+            f"local daemon rejected the token in {_dispatch_home()}/local.token. "
+            "Restart `dispatch-daemon` to reissue it."
+        )
+    if resp.status_code == 404:
+        raise CliError(
+            "this daemon doesn't know that dispatch (404). It only resolves "
+            "dispatches it received while running — check `dispatch inbox` for the "
+            "full id, and confirm the daemon was up when it arrived."
+        )
+    if resp.status_code == 409:
+        # No pending decision/approval for that id — already decided, expired,
+        # or the daemon hasn't surfaced it yet.
+        raise CliError(f"nothing pending: {_detail(resp)}")
+    if resp.status_code >= 400:
+        raise CliError(f"local daemon error {resp.status_code}: {_detail(resp)}")
+    if not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except ValueError:
+        return {"raw": resp.text}
 
 
 # ----------------------------------------------------------------------------
@@ -304,94 +375,83 @@ def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------
+# accept / decline / tool-approvals — resolved by the LOCAL daemon, not the
+# broker. (See _local_request above for why.)
+# ----------------------------------------------------------------------------
+
+
+def _decide_local(args: argparse.Namespace, config: dict, *, decision: str) -> int:
+    target = args.dispatch_id
+    _local_request(
+        config, "POST", f"/api/dispatch/{target}/decision", json={"decision": decision}
+    )
+    verb = "Accepted" if decision == "accept" else "Declined"
+    payload = {"dispatch_id": target, "decision": decision, "ok": True}
+    tail = " The agent is starting; tool calls still need per-call approval " \
+           "under a `manual` edge — watch `dispatch approvals`." if decision == "accept" else ""
+    _emit(args, payload, f"{verb} {_short(target)}.{tail}")
+    return 0
+
+
 def cmd_accept(args: argparse.Namespace, broker: str, token: str) -> int:
-    return asyncio.run(_decide(args, broker, token, decision="accept"))
+    return _decide_local(args, _load_config(), decision="accept")
 
 
 def cmd_decline(args: argparse.Namespace, broker: str, token: str) -> int:
-    return asyncio.run(_decide(args, broker, token, decision="reject"))
+    return _decide_local(args, _load_config(), decision="reject")
 
 
-# ----------------------------------------------------------------------------
-# accept / decline over the /inbox WebSocket
-# ----------------------------------------------------------------------------
-
-
-def _inbox_ws_url(broker: str, token: str) -> str:
-    p = urlparse(broker)
-    scheme = "wss" if p.scheme == "https" else "ws"
-    return urlunparse((scheme, p.netloc, "/inbox", "", f"token={token}", ""))
-
-
-async def _decide(args: argparse.Namespace, broker: str, token: str, *, decision: str) -> int:
-    """Send a dispatch_decision over the inbox socket.
-
-    The broker forwards the decision to the recipient's daemon. The daemon
-    must be online for it to take effect; if it isn't, the broker silently
-    drops it (by design). We connect, confirm the dispatch is in our received
-    inbox snapshot, send the decision, then wait briefly for a status event
-    to confirm the daemon acted.
-    """
-    import ssl
-
-    import websockets
-
-    target = args.dispatch_id
-    url = _inbox_ws_url(broker, token)
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where()) if url.startswith("wss://") else None
-
-    seen_in_inbox = False
-    confirmed: Optional[str] = None
-    try:
-        async with websockets.connect(url, ssl=ssl_ctx, open_timeout=HTTP_TIMEOUT_S) as ws:
-            # The broker replays the inbox snapshot on connect. Drain it briefly
-            # to confirm `target` is actually addressed to us before deciding.
-            try:
-                async with asyncio.timeout(5.0):
-                    while not seen_in_inbox:
-                        msg = json.loads(await ws.recv())
-                        if msg.get("type") == "inbox_new":
-                            if str(msg.get("data", {}).get("dispatch_id")) == target:
-                                seen_in_inbox = True
-            except (asyncio.TimeoutError, TimeoutError):
-                pass
-
-            if not seen_in_inbox:
-                raise CliError(
-                    f"dispatch {target} is not in your inbox. Run `dispatch inbox` "
-                    "to list what's actually addressed to you (check the full id)."
-                )
-
-            await ws.send(json.dumps(
-                {"type": "dispatch_decision", "dispatch_id": target, "decision": decision}
-            ))
-
-            # Wait for a status/event echo on this dispatch as confirmation the
-            # daemon picked it up.
-            try:
-                async with asyncio.timeout(DECISION_CONFIRM_TIMEOUT_S):
-                    while confirmed is None:
-                        msg = json.loads(await ws.recv())
-                        if str(msg.get("dispatch_id")) == target:
-                            confirmed = msg.get("type") or msg.get("data", {}).get("status") or "event"
-            except (asyncio.TimeoutError, TimeoutError):
-                pass
-    except CliError:
-        raise
-    except Exception as e:  # connection / protocol errors
-        raise CliError(f"inbox socket failed: {e}")
-
-    verb = "Accepted" if decision == "accept" else "Declined"
-    payload = {"dispatch_id": target, "decision": decision, "confirmed": confirmed is not None}
-    if confirmed:
-        _emit(args, payload, f"{verb} {_short(target)}. Daemon acknowledged ({confirmed}).")
-    else:
-        _emit(
-            args, payload,
-            f"{verb} {_short(target)} — decision sent. No echo yet; if nothing happens, "
-            "your daemon may be offline. Start `dispatch-daemon` and re-run.",
-        )
+def cmd_approvals(args: argparse.Namespace, broker: str, token: str) -> int:
+    """List tool calls currently waiting for allow/deny on this daemon."""
+    config = _load_config()
+    entries = _local_request(config, "GET", "/api/inbox")
+    pending = []
+    for e in entries if isinstance(entries, list) else []:
+        for request_id, info in (e.get("pending_tools") or {}).items():
+            pending.append({
+                "dispatch_id": e["dispatch_id"],
+                "request_id": request_id,
+                "tool": info.get("tool"),
+                "input": info.get("input"),
+                "sender_id": e.get("sender_id"),
+            })
+    if args.json:
+        print(json.dumps(pending, indent=2))
+        return 0
+    if not pending:
+        print("No tool calls awaiting approval.")
+        return 0
+    print(f"Pending tool approvals ({len(pending)}):")
+    for p in pending:
+        inp = json.dumps(p["input"]) if not isinstance(p["input"], str) else p["input"]
+        if len(inp) > 80:
+            inp = inp[:77] + "…"
+        print(f"  {_short(p['dispatch_id'])}  req={p['request_id']}  {p['tool']}  {inp}")
+        print(f"      approve: dispatch approve {p['dispatch_id']} {p['request_id']}")
     return 0
+
+
+def _tool_decide(args: argparse.Namespace, *, decision: str) -> int:
+    config = _load_config()
+    _local_request(
+        config, "POST",
+        f"/api/dispatch/{args.dispatch_id}/tool/{args.request_id}/decision",
+        json={"decision": decision},
+    )
+    verb = "Allowed" if decision == "allow" else "Denied"
+    payload = {"dispatch_id": args.dispatch_id, "request_id": args.request_id,
+               "decision": decision, "ok": True}
+    _emit(args, payload, f"{verb} tool call {args.request_id} on {_short(args.dispatch_id)}.")
+    return 0
+
+
+def cmd_approve(args: argparse.Namespace, broker: str, token: str) -> int:
+    return _tool_decide(args, decision="allow")
+
+
+def cmd_deny(args: argparse.Namespace, broker: str, token: str) -> int:
+    return _tool_decide(args, decision="deny")
 
 
 # ----------------------------------------------------------------------------
@@ -446,12 +506,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("status", "Show one dispatch + its event trace.", cmd_status).add_argument(
         "dispatch_id", help="Full dispatch id (UUID).")
-    add("accept", "Accept an inbound dispatch (daemon must be online).", cmd_accept).add_argument(
-        "dispatch_id", help="Full dispatch id (UUID).")
-    add("decline", "Decline an inbound dispatch.", cmd_decline).add_argument(
-        "dispatch_id", help="Full dispatch id (UUID).")
     add("cancel", "Cancel a dispatch (either party).", cmd_cancel).add_argument(
         "dispatch_id", help="Full dispatch id (UUID).")
+
+    # Local-only commands: resolved by THIS machine's daemon (127.0.0.1), not
+    # the broker. They don't need broker creds.
+    def add_local(name: str, help: str, func) -> argparse.ArgumentParser:
+        p = add(name, help, func)
+        p.set_defaults(local_only=True)
+        return p
+
+    add_local("accept", "Accept an inbound dispatch (resolved by your local daemon).",
+              cmd_accept).add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    add_local("decline", "Decline an inbound dispatch (local daemon).",
+              cmd_decline).add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    add_local("approvals", "List tool calls awaiting allow/deny on your local daemon.",
+              cmd_approvals)
+    p_approve = add_local("approve", "Allow a pending tool call (manual-approval edge).", cmd_approve)
+    p_approve.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_approve.add_argument("request_id", help="Tool-call request id (from `dispatch approvals`).")
+    p_deny = add_local("deny", "Deny a pending tool call.", cmd_deny)
+    p_deny.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_deny.add_argument("request_id", help="Tool-call request id (from `dispatch approvals`).")
 
     return parser
 
@@ -467,7 +543,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     broker = _resolve_broker(getattr(args, "broker", None), config)
     token = _resolve_token(getattr(args, "token", None), config)
 
-    if not token:
+    # Local-only commands (accept/decline/approve/deny/approvals) talk to the
+    # loopback daemon and don't need broker creds.
+    local_only = getattr(args, "local_only", False)
+    if not token and not local_only:
         sys.stderr.write(
             "error: no token. Sign in to the broker, run the daemon installer "
             "(which writes ~/.dispatch/config.json), or pass --token / set "

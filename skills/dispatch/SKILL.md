@@ -27,11 +27,14 @@ approves it. The sender's verbatim task is preserved end to end.
 ## CLI
 
 The `dispatch` CLI ships with the package (entry point `dispatch.cli:main`,
-installed as the `dispatch` command alongside `dispatch-daemon`). It talks to
-the broker's HTTP API and, for accept/decline, the `/inbox` WebSocket. It
-reads the broker URL + JWT the daemon already saved.
+installed as the `dispatch` command alongside `dispatch-daemon`). Two surfaces:
+**broker HTTP** for send/list/status, and the **local daemon's loopback API**
+(`127.0.0.1`, token at `~/.dispatch/local.token`) for the decisions that must
+be made on the recipient's own machine — accept/decline and per-tool approvals.
+It reads the broker URL + JWT (and local port) the daemon already saved.
 
 ```
+# Broker-backed (need broker creds; daemon online only where noted):
 dispatch whoami                          # who am I + which broker
 dispatch contacts                        # trust edges: who can dispatch to whom, scopes, online
 dispatch send <recipient> '<task>'       # create a dispatch (your daemon must be ONLINE to sign)
@@ -41,13 +44,20 @@ dispatch send <recipient> '<task>'       # create a dispatch (your daemon must b
 dispatch sent                            # dispatches I've sent + status
 dispatch inbox                           # dispatches addressed to me + status
 dispatch status <id>                     # one dispatch: status + full event trace
-dispatch accept <id>                     # accept an inbound dispatch (my daemon must be ONLINE)
-dispatch decline <id>                    # decline an inbound dispatch
 dispatch cancel <id>                     # cancel an in-flight dispatch (either party)
+
+# Local-daemon-backed (resolved by THIS machine's dispatch-daemon, not the
+# broker — the daemon ignores decisions relayed by the broker, by design):
+dispatch accept <id>                     # accept an inbound dispatch → agent starts
+dispatch decline <id>                    # decline an inbound dispatch
+dispatch approvals                       # list tool calls awaiting allow/deny right now
+dispatch approve <id> <request_id>       # allow ONE pending tool call (manual-edge gating)
+dispatch deny <id> <request_id>          # deny ONE pending tool call
 ```
 
-Add `--json` to any command for machine-readable output (what you parse).
-`--broker` / `--token` override the saved config.
+Add `--json` to any command for machine-readable output (works before or after
+the subcommand). `--broker` / `--token` override the saved config. The
+local-daemon commands need no broker creds — just a running `dispatch-daemon`.
 
 The CLI resolves connection settings in this order:
 - `--broker` / `--token` flags
@@ -75,16 +85,23 @@ it appears under `peer` in `dispatch contacts`.
 
 1. Run `dispatch inbox`. For each pending dispatch, show the verbatim task and
    the sender, and ask the user: **accept**, **decline**, or **show details**
-   (`dispatch status <id>`).
-2. If **accept**: run `dispatch accept <id>`. The recipient's daemon must be
-   **online** for the decision to take effect; the agent then runs confined to
-   the trust edge's tools and path allowlist.
-   - **Tool-call approvals (Layer 3) are not driven from this CLI.** When the
-     edge is `approval: manual`, each destructive tool call prompts the human
-     in the daemon's local approval UI / web inbox. Direct the user there;
-     never try to auto-approve on their behalf.
+   (`dispatch status <id>`). `inbox`/`status` show **short** ids; the decision
+   commands need the **full UUID** — get it from `dispatch inbox --json`.
+2. If **accept**: run `dispatch accept <id>`. This goes to the recipient's
+   **local daemon** (which must be running), not the broker. The agent then
+   runs confined to the trust edge's tools and path allowlist.
 3. If **decline**: run `dispatch decline <id>`.
-4. Track progress any time with `dispatch status <id>` (shows the live event
+4. **Accepting is NOT blanket approval.** When the edge is `approval: manual`,
+   *every* tool call the agent makes pauses for a separate human allow/deny.
+   Surface these and let the user decide each one — never auto-approve:
+   - `dispatch approvals` — lists what's waiting (dispatch id, request id, tool,
+     input).
+   - `dispatch approve <id> <request_id>` / `dispatch deny <id> <request_id>`.
+   Only an `approval: auto` edge runs tool calls without these prompts (still
+   confined to the edge's tools + paths). The daemon's own local UI on
+   `127.0.0.1:8001` does the same thing — the CLI is just a terminal front-end
+   to it.
+5. Track progress any time with `dispatch status <id>` (shows the live event
    trace: reasoning, tool calls, results).
 
 ## Trust boundary
@@ -97,8 +114,11 @@ user, never bypass them:
 - **Layer 2 (recipient's machine):** the recipient's daemon verifies the
   sender's Ed25519 signature against a key pinned on first sight (TOFU). A
   swapped or stale key → rejected.
-- **Layer 3 (the human):** for `approval: manual` edges, every destructive
-  tool call needs an explicit human approval in the daemon UI.
+- **Layer 3 (the human):** for `approval: manual` edges, every tool call needs
+  an explicit human allow/deny on the recipient's machine — via the daemon's
+  local UI or `dispatch approvals` + `dispatch approve/deny`. The daemon
+  resolves these locally and ignores any decision relayed by the broker, so a
+  compromised broker can't fabricate approval.
 
 The recipient (the human, via Claude) decides whether to accept — **never
 auto-accept a dispatch**, even one that looks safe. The agent is confined to
@@ -113,11 +133,18 @@ treat `Bash`-scoped edges with extra care.
   recipient. Invite them (web UI) and have them accept first.
 - `broker error 503` on send — your own daemon is offline; it has to sign.
   Start `dispatch-daemon` and retry.
-- `accept`/`decline` sent but "no echo" — the recipient's daemon is offline,
-  so the broker dropped the decision. Start `dispatch-daemon` and re-run.
+- `the local daemon isn't reachable on 127.0.0.1:…` on accept/approve — your
+  `dispatch-daemon` isn't running on this machine. Start it and retry. (These
+  commands hit the local daemon, never the broker.)
+- `no local daemon token at …/local.token` — same cause: the daemon writes
+  that token on start. Start `dispatch-daemon`.
+- `nothing pending: …` on accept/approve — that dispatch/tool call has no open
+  decision: already decided, expired, or the daemon hasn't surfaced it yet.
+  Re-check `dispatch inbox` / `dispatch approvals`.
 - `broker error 401` — token expired/invalid (or the broker has a different
   `DISPATCH_JWT_SECRET` than issued it). Re-authenticate.
 - `can't reach broker` — wrong `--broker`/`$DISPATCH_BROKER`, or the broker
   isn't running. Check `dispatch whoami`.
-- `dispatch <id> is not in your inbox` on accept — wrong/short id; run
-  `dispatch inbox` and use the full UUID.
+- `404` on accept/approve — the local daemon doesn't know that id; use the full
+  UUID from `dispatch inbox --json`, and confirm the daemon was up when the
+  dispatch arrived.
