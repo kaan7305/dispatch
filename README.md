@@ -157,6 +157,56 @@ Manual install: `pipx install git+<repo>` then `dispatch-daemon --broker URL
 
 ---
 
+## Claude Code skill (`/dispatch`)
+
+Drive Dispatch from inside Claude Code with natural language — "dispatch this
+to Edward", "what's in my dispatch inbox?", "accept that dispatch" — or the
+`/dispatch` slash command. The skill is pure instructions; the real work runs
+through the `dispatch` CLI it calls.
+
+Two pieces ship with the package:
+
+1. **`dispatch` CLI** — a thin terminal client for the broker, installed as
+   the `dispatch` command alongside `dispatch-daemon` (entry point
+   `dispatch.cli:main`). It reads the broker URL + JWT the daemon already saved
+   to `~/.dispatch/config.json`, so once your daemon is set up there's nothing
+   else to configure.
+
+   ```
+   dispatch whoami                          # who am I + which broker
+   dispatch contacts                        # trust edges: who can dispatch to whom
+   dispatch send <recipient> '<task>'       # create a dispatch (daemon must be online to sign)
+     [--expires <s>] [--cwd <dir>] [--meta k=v]
+   dispatch sent                            # dispatches I've sent
+   dispatch inbox                           # dispatches addressed to me
+   dispatch status <id>                     # one dispatch: status + event trace
+   dispatch accept <id> | decline <id>      # decide on an inbound dispatch (daemon online)
+   dispatch cancel <id>                     # cancel an in-flight dispatch (either party)
+   ```
+
+   Add `--json` to any command for machine-readable output (works before or
+   after the subcommand). `--broker` / `--token` (or `$DISPATCH_BROKER` /
+   `$DISPATCH_TOKEN`) override the saved config. `recipient` is the contact's
+   user id as shown under `peer` in `dispatch contacts`. The CLI is a client
+   only — it never holds a signing key; `send`/`accept` still require *your*
+   daemon online so the signature (Layer 2) and the agent run on your machine,
+   not the broker.
+
+2. **The skill** — `skills/dispatch/SKILL.md`. Symlink it into Claude Code:
+
+   ```bash
+   mkdir -p ~/.claude/skills
+   ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch
+   ```
+
+   Confirm with `ls ~/.claude/skills/dispatch/SKILL.md`. After that, Claude
+   auto-invokes it on the trigger phrases above and walks you through the
+   send / inbox / accept flows, always confirming before it sends or accepts.
+   Tool-call approvals (Layer 3) stay in the daemon's local approval UI — the
+   skill points you there rather than approving on your behalf.
+
+---
+
 ## Using it
 
 1. **Sign in** — enter your email, click the magic link.
@@ -226,6 +276,7 @@ caught by a per-`(device,nonce)` guard; staleness by a 5-minute window.
 
 ```
 src/dispatch/
+  cli.py          dispatch — terminal client for the broker (drives the /dispatch skill)
   shared/
     schema.py     DispatchPayload, DispatchEvent, DispatchStatus, Scopes, …
     identity.py   JWT issue/verify (HS256)
