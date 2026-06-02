@@ -65,6 +65,10 @@ INVITATION_TTL_DAYS = 7
 
 SIGN_TIMEOUT_S = 20.0
 
+# How often the broker sweeps for dispatches that passed their expires_at
+# without being started, marks them expired, and clears them from the queues.
+EXPIRY_SWEEP_INTERVAL_S = 60.0
+
 logger = logging.getLogger("dispatch.broker")
 
 # request_id → Future resolved with the base64 signature returned by a
@@ -72,6 +76,22 @@ logger = logging.getLogger("dispatch.broker")
 _pending_signatures: dict[str, asyncio.Future] = {}
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "app"
+
+
+async def _expiry_sweeper() -> None:
+    """Background loop: expire overdue, not-yet-started dispatches and notify
+    watchers. Runs for the life of the app."""
+    while True:
+        try:
+            await asyncio.sleep(EXPIRY_SWEEP_INTERVAL_S)
+            for row in await STORE.expire_overdue():
+                await _broadcast_status(
+                    row["dispatch_id"], row["recipient_id"], DispatchStatus.expired
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("expiry sweep failed")
 
 
 @asynccontextmanager
@@ -84,9 +104,15 @@ async def lifespan(app: FastAPI):
     except IdentityError as e:
         logger.warning("%s", e)
     await STORE.init()
+    sweeper = asyncio.create_task(_expiry_sweeper())
     try:
         yield
     finally:
+        sweeper.cancel()
+        try:
+            await sweeper
+        except asyncio.CancelledError:
+            pass
         await STORE.close()
 
 
@@ -437,16 +463,82 @@ class _DispatchFailed(Exception):
         self.detail = detail
 
 
+async def _deliver_or_queue(payload: DispatchPayload) -> DispatchStatus:
+    """Push a signed dispatch to the recipient's daemon, or queue it offline.
+
+    Returns the resulting status. Shared by the online send path and the
+    sign-on-reconnect path so both route identically. Notifies the
+    recipient's inbox watchers.
+    """
+    stored = await STORE.get_dispatch(payload.dispatch_id)
+    new_dispatch_msg = json.dumps(await _build_new_dispatch(stored))
+
+    agent_ws = STATE.pick_device_ws(payload.recipient_id)
+    if agent_ws is not None:
+        try:
+            await agent_ws.send_text(new_dispatch_msg)
+            await STORE.update_status(payload.dispatch_id, DispatchStatus.delivered)
+        except Exception:
+            logger.exception("failed to push dispatch to recipient daemon")
+            await STORE.enqueue_for_offline(payload.recipient_id, payload.dispatch_id)
+    else:
+        await STORE.enqueue_for_offline(payload.recipient_id, payload.dispatch_id)
+
+    current = await STORE.get_dispatch(payload.dispatch_id)
+    final_status = current.status if current else DispatchStatus.pending
+
+    inbox_watchers = STATE.recipient_watchers.get(payload.recipient_id, [])
+    if inbox_watchers:
+        await _fan_out(
+            inbox_watchers,
+            json.dumps({"type": "inbox_new", "data": _payload_summary(payload, final_status)}),
+        )
+    return final_status
+
+
+async def _drain_signature_queue(
+    ws: WebSocket, user_id: str, device_id: str, device_uuid: UUID
+) -> None:
+    """Sign and route the sender's dispatches that were composed while their
+    daemon was offline. Runs as a background task alongside the daemon's
+    receive loop (each sign step awaits a `signed` reply that the loop reads).
+    A dispatch that can't be signed is put back on the queue for next time.
+    """
+    for did in await STORE.pop_signature_queue(user_id):
+        stored = await STORE.get_dispatch(did)
+        if stored is None or stored.status != DispatchStatus.awaiting_signature:
+            continue
+        try:
+            signature = await _request_signature(
+                ws,
+                instruction=stored.payload.task,
+                sender_device=device_id,
+                recipient_user=stored.payload.recipient_id,
+                nonce=stored.nonce,
+                created_at=stored.payload.created_at.isoformat(),
+            )
+        except Exception:
+            logger.exception("deferred signing failed; re-queueing %s", str(did)[:8])
+            await STORE.enqueue_for_signature(user_id, did)
+            continue
+        await STORE.attach_signature(did, device_uuid, signature, DispatchStatus.pending)
+        await _deliver_or_queue(stored.payload)
+
+
 async def _create_one_dispatch(
     sender: str,
     recipient: str,
     task: str,
     expires_in_seconds: int,
     metadata: dict,
-    sender_device_id: str,
-    sender_ws: WebSocket,
+    sender_device_id: Optional[str],
+    sender_ws: Optional[WebSocket],
 ) -> dict:
     """Run the full per-recipient flow (trust → sign → store → deliver).
+
+    When the sender's daemon is offline (``sender_ws is None``) the dispatch
+    can't be signed yet — it's stored as ``awaiting_signature`` and queued so
+    the daemon signs and routes it on reconnect.
 
     Raises _DispatchFailed for any per-recipient reason so the caller can
     keep going with other recipients in a fan-out.
@@ -481,6 +573,27 @@ async def _create_one_dispatch(
     )
 
     nonce = secrets.token_urlsafe(16)
+
+    # Sender offline → defer. Store unsigned + queue for signing on the
+    # sender daemon's next connect. The nonce + created_at fixed here are
+    # what the deferred signature will cover.
+    if sender_ws is None:
+        await STORE.create_dispatch(
+            payload,
+            DispatchStatus.awaiting_signature,
+            trust_link_id=edge["trust_link_id"],
+            sender_device=None,
+            nonce=nonce,
+            signature=None,
+        )
+        await STORE.enqueue_for_signature(sender, payload.dispatch_id)
+        return {
+            "recipient_id": recipient,
+            "dispatch_id": str(payload.dispatch_id),
+            "status": DispatchStatus.awaiting_signature.value,
+        }
+
+    # Sender online → sign now.
     try:
         signature = await _request_signature(
             sender_ws,
@@ -496,40 +609,16 @@ async def _create_one_dispatch(
             502, f"Your daemon did not sign the dispatch to {recipient}."
         )
 
-    initial_status = DispatchStatus.pending
     await STORE.create_dispatch(
         payload,
-        initial_status,
+        DispatchStatus.pending,
         trust_link_id=edge["trust_link_id"],
         sender_device=UUID(sender_device_id),
         nonce=nonce,
         signature=signature,
     )
 
-    stored = await STORE.get_dispatch(payload.dispatch_id)
-    new_dispatch_msg = json.dumps(await _build_new_dispatch(stored))
-
-    agent_ws = STATE.pick_device_ws(recipient)
-    if agent_ws is not None:
-        try:
-            await agent_ws.send_text(new_dispatch_msg)
-            await STORE.update_status(payload.dispatch_id, DispatchStatus.delivered)
-        except Exception:
-            logger.exception("failed to push dispatch to recipient daemon")
-            await STORE.enqueue_for_offline(recipient, payload.dispatch_id)
-    else:
-        await STORE.enqueue_for_offline(recipient, payload.dispatch_id)
-
-    current = await STORE.get_dispatch(payload.dispatch_id)
-    final_status = current.status if current else initial_status
-
-    inbox_watchers = STATE.recipient_watchers.get(recipient, [])
-    if inbox_watchers:
-        await _fan_out(
-            inbox_watchers,
-            json.dumps({"type": "inbox_new", "data": _payload_summary(payload, final_status)}),
-        )
-
+    final_status = await _deliver_or_queue(payload)
     return {
         "recipient_id": recipient,
         "dispatch_id": str(payload.dispatch_id),
@@ -545,13 +634,13 @@ async def create_dispatch(
 
     # Signing happens on the sender's device. One daemon, one device, many
     # recipients — each gets its own nonce + signature via the same WS.
+    # If the sender's daemon is offline we don't reject: each dispatch is
+    # stored unsigned and signed + routed when that daemon reconnects.
     picked = STATE.pick_device(sender)
     if picked is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Your daemon is offline — start dispatch-daemon to send.",
-        )
-    sender_device_id, sender_ws = picked
+        sender_device_id, sender_ws = None, None
+    else:
+        sender_device_id, sender_ws = picked
 
     dispatches: list[dict] = []
     failures: list[dict] = []
@@ -984,6 +1073,15 @@ async def agent_connect(ws: WebSocket, token: Optional[str] = Query(None)) -> No
     await STORE.touch_device_last_seen(device_uuid)
     logger.info("daemon connected: user_id=%s device=%s", user_id, device_id[:8])
 
+    # Sign + route any dispatches this user composed while their daemon was
+    # offline (sender-offline path). This must run *concurrently* with the
+    # receive loop below: each sign step awaits the daemon's `signed` reply,
+    # which only the receive loop can read. So it's a background task, not
+    # inline (which would deadlock waiting for a reply nothing is reading).
+    sign_drain = asyncio.create_task(
+        _drain_signature_queue(ws, user_id, device_id, device_uuid)
+    )
+
     # Deliver any queued dispatches to this freshly-connected device.
     queued = await STORE.pop_offline_queue(user_id)
     for did in queued:
@@ -1010,11 +1108,20 @@ async def agent_connect(ws: WebSocket, token: Optional[str] = Query(None)) -> No
     except Exception:
         logger.exception("agent_connect crash")
     finally:
+        sign_drain.cancel()
         user_devices = STATE.agents.get(user_id)
         if user_devices is not None and user_devices.get(device_id) is ws:
             del user_devices[device_id]
             if not user_devices:
                 STATE.agents.pop(user_id, None)
+            # Genuine disconnect (not replaced by a newer socket): re-queue any
+            # dispatch pushed to this recipient but not yet accepted, so the
+            # next reconnect re-offers it instead of silently dropping it.
+            try:
+                for did in await STORE.requeue_undelivered(user_id):
+                    await _broadcast_status(did, user_id, DispatchStatus.pending)
+            except Exception:
+                logger.exception("requeue-on-disconnect failed for %s", user_id)
 
 
 async def _handle_agent_message(msg: dict) -> None:
