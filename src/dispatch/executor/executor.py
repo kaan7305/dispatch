@@ -161,6 +161,14 @@ async def run_dispatch(
         # Default framing so the task is understood as work to perform, not a
         # message to relay. Overridable by the caller (workflows).
         "system_prompt": system_prompt or DELEGATED_TASK_SYSTEM_PROMPT,
+        # Clean base: do NOT inherit the recipient's settings (their plugins,
+        # skills, or filesystem MCP config). This is what makes the
+        # dispatch-control exclusion airtight — the dispatch plugin can't even
+        # load into a delegated task — and keeps the task least-privilege. The
+        # only MCP servers a task gets are the ones explicitly passed below,
+        # gated per-call by can_use_tool.
+        "setting_sources": [],
+        "strict_mcp_config": True,
     }
     if mcp_servers:
         options_kwargs["mcp_servers"] = mcp_servers

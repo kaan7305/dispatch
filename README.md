@@ -64,15 +64,40 @@ machine against a key the broker can't substitute.
   ```json
   {
     "tools": ["Read", "Glob", "Grep"],     // subset of Read/Write/Edit/Bash/Glob/Grep
+    "mcp": [],                             // recipient's MCP servers a dispatch may use
     "paths": ["~/work"],                   // file-path allowlist ([] = no path limit)
     "approval": "manual",                  // "manual" = approve every tool call | "auto"
     "max_dispatches_per_day": 50,
     "expires_at": null
   }
   ```
-  New edges default to least privilege: read-only tools, manual approval.
+  New edges default to least privilege: read-only tools, no MCP, manual approval.
 - **Dispatch** — one task. Signed by the sender's device, authorized by an
   edge, executed by the recipient's daemon.
+
+### Letting dispatches use your MCP tools
+
+A dispatch can use the recipient's **own MCP servers** (their Notion, search,
+domain tools) — that's what makes it powerful — without exposing the rest of
+your machine. Two layers, **no per-invite curation**:
+
+1. **Shareable pool (once).** List the servers you're willing to expose in
+   `~/.dispatch/shareable-mcp.json` — same shape as a Claude `.mcp.json`:
+   ```json
+   { "mcpServers": { "notion": { "type": "stdio", "command": "notion-mcp" } } }
+   ```
+   A dispatched task can *only* reach servers in this pool, and never the
+   `dispatch` control plane (sending/inviting/approving is always withheld).
+   Empty by default — nothing exposed until you opt in.
+2. **Ask-on-first-use (per sender).** The first time a sender's dispatch tries
+   to use a pooled server, you get a one-tap allow/deny (like an app
+   permission). Allow once and it's remembered for that sender for the
+   session — you don't pre-grant anything per contact. (Pre-granting via the
+   edge's `mcp` scope, and durable cross-session grants, are optional.)
+
+The task itself runs on a **clean base** — it does *not* inherit your plugins,
+skills, or other MCP config — so only the servers you pooled (and explicitly
+granted) are ever reachable.
 
 ---
 

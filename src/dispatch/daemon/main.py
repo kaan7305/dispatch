@@ -197,6 +197,11 @@ class DaemonState:
     # Durable replay guard: accepted (sender_device, nonce) pairs survive
     # daemon restarts (see nonces.NonceStore). Set in run_session.
     nonce_store: NonceStore | None = None
+    # Ask-on-first-use MCP grants: sender_id -> set of MCP server names the
+    # recipient approved for that sender THIS session. Lets the recipient grant
+    # a server once (on first request) instead of curating up front; cleared on
+    # restart (durable per-edge persistence is a follow-up).
+    session_mcp_grants: dict[str, set] = field(default_factory=dict)
     # dispatch_id (str) → the running process_dispatch task, so a
     # cancel_dispatch from the broker can stop it.
     running: dict[str, asyncio.Task] = field(default_factory=dict)
@@ -541,6 +546,36 @@ def _is_dispatch_control_tool(tool_name: str) -> bool:
     return n.startswith("mcp__dispatch__") or n == "dispatch" or n.startswith("dispatch_")
 
 
+def _mcp_server_of(tool_name: str) -> str:
+    """Extract the server name from an MCP tool: mcp__<server>__<tool>."""
+    parts = tool_name.split("__")
+    return parts[1] if tool_name.startswith("mcp__") and len(parts) >= 3 else ""
+
+
+def _shareable_mcp_path() -> Path:
+    return dispatch_home() / "shareable-mcp.json"
+
+
+def load_shareable_mcp() -> dict:
+    """The recipient's pool of MCP servers exposable to incoming dispatches.
+
+    Curated once in ~/.dispatch/shareable-mcp.json — either a {name: config}
+    map or {"mcpServers": {...}} (same shape as a Claude .mcp.json). This is
+    the *only* set a dispatch can ever reach; the dispatch control plane is
+    never shareable, so any 'dispatch' entry is dropped. Empty by default
+    (no MCP exposed until the recipient opts in)."""
+    try:
+        raw = json.loads(_shareable_mcp_path().read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    servers = raw.get("mcpServers", raw)
+    if not isinstance(servers, dict):
+        return {}
+    return {k: v for k, v in servers.items() if k.lower() != "dispatch"}
+
+
 def _mcp_tool_allowed(tool_name: str, patterns: list[str]) -> bool:
     """Does an MCP tool (`mcp__<server>__<tool>`) match the edge's `mcp`
     allowlist? Supports an exact tool name, a trailing-`*` prefix, or a bare
@@ -865,6 +900,39 @@ async def process_dispatch(
     allowed_dirs = [workspace.resolve()] + [
         Path(p).expanduser().resolve() for p in scope.paths
     ]
+    # The recipient's pool of MCP servers exposable to dispatches. A delegated
+    # task can only ever reach servers in this pool (it's what we hand the
+    # executor); within it a server becomes usable for this sender once granted
+    # — pre-granted in the edge's `mcp` scope, or approved on first use (then
+    # remembered for the session). No up-front curation required.
+    mcp_pool = load_shareable_mcp()
+
+    async def _request_approval(tool_name: str, tool_input: dict[str, Any]) -> str:
+        """Surface one tool call to the recipient (Layer 3); await allow/deny
+        (timeout → deny)."""
+        request_id = str(uuid.uuid4())
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        state.pending_approvals[(dispatch_id, request_id)] = fut
+        if local_state is not None:
+            local_state.on_pending_tool(payload.dispatch_id, request_id, tool_name, tool_input)
+        await send_event(
+            payload.dispatch_id,
+            {"type": "permission_request",
+             "data": {"id": request_id, "tool": tool_name, "input": tool_input}},
+        )
+        try:
+            decision = await asyncio.wait_for(fut, timeout=TOOL_APPROVAL_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            decision = "deny"
+        finally:
+            state.pending_approvals.pop((dispatch_id, request_id), None)
+            if local_state is not None:
+                local_state.on_tool_resolved(payload.dispatch_id, request_id)
+        await send_event(
+            payload.dispatch_id,
+            {"type": "permission_response", "data": {"tool": tool_name, "decision": decision}},
+        )
+        return decision
 
     async def can_use_tool(
         tool_name: str,
@@ -888,14 +956,32 @@ async def process_dispatch(
                 interrupt=False,
             )
 
-        # (b) Capability check: built-in tools via the edge's `tools`; the
-        # recipient's MCP tools via the edge's `mcp` allowlist (this is what
-        # lets a dispatch use the recipient's powerful tools, scoped per edge).
-        is_mcp = tool_name.startswith("mcp__")
-        permitted = (tool_name in scope_tools) or (
-            is_mcp and _mcp_tool_allowed(tool_name, scope_mcp)
-        )
-        if not permitted:
+        # (b) Capability check. Built-ins via the edge's `tools`. MCP tools via
+        # the edge's `mcp` allowlist OR a session grant — and if neither, a
+        # first use of a shareable-pool server prompts the recipient to grant
+        # it once for this sender (then it's remembered).
+        if tool_name.startswith("mcp__"):
+            server = _mcp_server_of(tool_name)
+            granted = _mcp_tool_allowed(tool_name, scope_mcp) or (
+                server in state.session_mcp_grants.get(payload.sender_id, set())
+            )
+            if not granted:
+                if not server or server not in mcp_pool:
+                    return PermissionResultDeny(
+                        message=f"MCP server '{server}' is not in your shareable pool",
+                        interrupt=False,
+                    )
+                # First use → ask the recipient to grant this server (once).
+                decision = await _request_approval(tool_name, tool_input)
+                if decision != "allow":
+                    return PermissionResultDeny(
+                        message=f"recipient did not grant MCP server '{server}'",
+                        interrupt=False,
+                    )
+                state.session_mcp_grants.setdefault(payload.sender_id, set()).add(server)
+                return PermissionResultAllow(updated_input=tool_input)
+            # granted → fall through to path + approval-mode handling
+        elif tool_name not in scope_tools:
             return PermissionResultDeny(
                 message=f"'{tool_name}' is outside the granted trust scope",
                 interrupt=False,
@@ -921,48 +1007,11 @@ async def process_dispatch(
                         interrupt=False,
                     )
 
-        # Approval mode. Workflow dispatches always run unattended —
-        # the n8n model is "if the recipient trusted the sender enough
-        # to receive the workflow, then every step inside it inherits
-        # that trust." The tool list + path allowlist above still apply.
+        # (d) Approval mode for an already-permitted tool. Workflows + `auto`
+        # edges run unattended; `manual` edges approve every call (Layer 3).
         if is_workflow or scope.approval == "auto":
             return PermissionResultAllow(updated_input=tool_input)
-
-        # Manual — every tool call goes to the recipient for approval.
-        request_id = str(uuid.uuid4())
-        fut: asyncio.Future = asyncio.get_running_loop().create_future()
-        state.pending_approvals[(dispatch_id, request_id)] = fut
-        if local_state is not None:
-            local_state.on_pending_tool(
-                payload.dispatch_id, request_id, tool_name, tool_input
-            )
-        await send_event(
-            payload.dispatch_id,
-            {
-                "type": "permission_request",
-                "data": {
-                    "id": request_id,
-                    "tool": tool_name,
-                    "input": tool_input,
-                },
-            },
-        )
-        try:
-            decision = await asyncio.wait_for(fut, timeout=TOOL_APPROVAL_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            decision = "deny"
-        finally:
-            state.pending_approvals.pop((dispatch_id, request_id), None)
-            if local_state is not None:
-                local_state.on_tool_resolved(payload.dispatch_id, request_id)
-
-        await send_event(
-            payload.dispatch_id,
-            {
-                "type": "permission_response",
-                "data": {"tool": tool_name, "decision": decision},
-            },
-        )
+        decision = await _request_approval(tool_name, tool_input)
         if decision == "allow":
             return PermissionResultAllow(updated_input=tool_input)
         return PermissionResultDeny(message="Recipient denied", interrupt=False)
@@ -1039,6 +1088,7 @@ async def process_dispatch(
             cwd=str(workspace),
             allowed_tools=list(scope.tools),
             can_use_tool=can_use_tool,
+            mcp_servers=mcp_pool or None,
         ):
             await send_event(payload.dispatch_id, event)
             if event["type"] == "error":
