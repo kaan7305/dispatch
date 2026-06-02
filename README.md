@@ -136,10 +136,17 @@ broker, the page shows a one-line installer:
 curl -fsSL https://your-broker/install.sh | bash -s -- <your-token>
 ```
 
+To set your Anthropic API key in the same step (the recipient runs the agent
+on their own key), pass it as a second argument:
+
+```bash
+curl -fsSL https://your-broker/install.sh | bash -s -- <your-token> sk-ant-...
+```
+
 It installs `pipx` if needed, installs the `dispatch-daemon` command, saves
-broker + token to `~/.dispatch/config.json`, and starts the daemon. On first
-run it generates this machine's Ed25519 device keypair and enrolls the
-public key with the broker. Every later run is just:
+broker + token (and the API key, if given) to `~/.dispatch/config.json`, and
+starts the daemon. On first run it generates this machine's Ed25519 device
+keypair and enrolls the public key with the broker. Every later run is just:
 
 ```bash
 dispatch-daemon
