@@ -167,9 +167,17 @@ machine. You establish an edge with an invitation:
    the sender, and ask the user: **accept**, **decline**, or **show details**
    (`dispatch status <id>`). `inbox`/`status` show **short** ids; the decision
    commands need the **full UUID** — get it from `dispatch inbox --json`.
-2. If **accept**: run `dispatch accept <id>`. This goes to the recipient's
-   **local daemon** (which must be running), not the broker. The agent then
-   runs confined to the trust edge's tools and path allowlist.
+2. If **accept**: call **`dispatch_accept`** (MCP). **Accepting *is* running the
+   task** — it executes in the sandboxed dp-agent, confined to the edge's tools
+   and paths, and `dispatch_accept` **blocks until that finishes**, prompting you
+   inline for each tool call on a `manual` edge. **You MUST NOT perform the task
+   yourself.** After accepting: do not announce "now creating/sending …", do not
+   call Bash/Write/Edit or any tool to carry the task out, and do not re-do it —
+   the sandbox already did. Your job is only to report the result
+   `dispatch_accept` returns. (Doing it yourself would run it *unconfined*, with
+   no scope and no approval — exactly what must not happen.) The CLI
+   `dispatch accept <id>` is the daemon-mode alternative; it routes to the
+   recipient's local daemon, not the broker.
 3. If **decline**: run `dispatch decline <id>`.
 4. **Accepting is NOT blanket approval.** When the edge is `approval: manual`,
    *every* tool call the agent makes pauses for a separate human allow/deny.
