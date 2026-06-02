@@ -1,7 +1,7 @@
 {
   "name": "dispatch",
-  "version": "0.1.0",
-  "description": "Peer-to-peer agentic task courier between two humans. Delegate a task to a trusted contact's machine — their Claude agent runs it across an explicit, scoped, revocable trust edge, cryptographically signed by your device and approved by them. Check your inbox, accept/decline, and track dispatches in natural language.",
+  "version": "0.2.0",
+  "description": "Peer-to-peer agentic task courier between two humans, run from your terminal. Sign in with `dispatch login`, then delegate a task to a trusted contact's machine — their Claude agent runs it across an explicit, scoped, revocable trust edge, cryptographically signed by your device and approved by them. Runs in-session (no separate daemon needed); a dispatch can use the recipient's own MCP tools, scoped per edge. Invite contacts, check your inbox, accept/decline, and track dispatches in natural language.",
   "author": {
     "name": "Kaan",
     "url": "https://github.com/kaan7305"
@@ -9,7 +9,7 @@
   "homepage": "https://github.com/kaan7305/dispatch",
   "repository": "https://github.com/kaan7305/dispatch",
   "license": "MIT",
-  "keywords": ["dispatch", "delegation", "agent", "peer-to-peer", "task-courier"],
+  "keywords": ["dispatch", "delegation", "agent", "peer-to-peer", "task-courier", "mcp"],
   "mcpServers": {
     "dispatch": {
       "command": "dispatch-mcp"
