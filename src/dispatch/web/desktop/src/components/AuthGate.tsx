@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { KeyRound } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import { getToken } from "@/lib/token";
+import { getToken, clearToken } from "@/lib/token";
+import { isBroker } from "@/lib/config";
 import { Button } from "./ui/button";
 
 /** Wraps the app and only renders children once the local token is valid.
@@ -25,12 +26,37 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (probe.error instanceof ApiError && probe.error.status === 401) {
       // Stale or wrong token — clear it so the user sees the gate.
-      sessionStorage.removeItem("dispatch_local_token");
+      clearToken();
       setTick((n) => n + 1);
     }
   }, [probe.error]);
 
-  if (!hasToken || (probe.error instanceof ApiError && probe.error.status === 401)) {
+  const unauthed =
+    !hasToken || (probe.error instanceof ApiError && probe.error.status === 401);
+
+  // Broker site: send the user to the Clerk sign-in / install landing page,
+  // which mints the broker JWT this app reads from localStorage.
+  if (unauthed && isBroker) {
+    return (
+      <div className="min-h-full grid place-items-center p-8">
+        <div className="max-w-md w-full text-center space-y-5">
+          <div className="mx-auto grid place-items-center size-12 rounded-full bg-muted">
+            <KeyRound className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">Sign in to Dispatch</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Sign in on the Dispatch home page, then return here to view your
+              inbox, contacts, devices, and history.
+            </p>
+          </div>
+          <Button onClick={() => { location.href = "/"; }}>Go to sign in</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (unauthed) {
     return (
       <div className="min-h-full grid place-items-center p-8">
         <div className="max-w-md w-full text-center space-y-5">

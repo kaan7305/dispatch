@@ -35,7 +35,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from pydantic import BaseModel
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from dispatch.broker.clerk import ClerkAuthError, extract_email, verify_clerk_token
@@ -1388,6 +1388,44 @@ app.include_router(workflow_runs_router)
 
 from dispatch.broker.contexts import router as contexts_router
 app.include_router(contexts_router)
+
+# ----------------------------------------------------------------------------
+# Deployed web dashboard: the same React SPA the daemon serves locally, run in
+# "broker mode" (broker JWT auth, broker-native data, compose/approve deferred
+# to the local app). Served under /app so the install/sign-in page stays at /.
+# ----------------------------------------------------------------------------
+
+DESKTOP_DIR = Path(__file__).resolve().parent.parent / "web" / "desktop" / "dist"
+
+
+def _desktop_index_html() -> str:
+    """index.html for the dashboard, with a <base href="/app/"> so the
+    relative ('./') asset URLs resolve under /app, and a config script that
+    flips the SPA into broker mode before the bundle runs."""
+    raw = (DESKTOP_DIR / "index.html").read_text()
+    inject = (
+        '<base href="/app/">'
+        '<script>window.__DISPATCH__={mode:"broker",basename:"/app"};</script>'
+    )
+    if "<head>" in raw:
+        return raw.replace("<head>", "<head>" + inject, 1)
+    return inject + raw
+
+
+if DESKTOP_DIR.exists():
+    # Hashed asset bundles. Mounted before the SPA catch-all so they win.
+    app.mount(
+        "/app/assets",
+        StaticFiles(directory=str(DESKTOP_DIR / "assets")),
+        name="app-assets",
+    )
+
+    @app.get("/app", response_class=HTMLResponse)
+    @app.get("/app/{spa_path:path}", response_class=HTMLResponse)
+    async def serve_dashboard(spa_path: str = "") -> HTMLResponse:
+        # Single-page app: every /app route returns index.html and the
+        # client-side router takes over. (Assets are handled by the mount above.)
+        return HTMLResponse(_desktop_index_html())
 
 # Static mount last so it doesn't shadow the routes above.
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

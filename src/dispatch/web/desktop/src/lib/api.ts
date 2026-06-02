@@ -1,9 +1,42 @@
 import { getToken } from "./token";
+import { isBroker, openLocalApp } from "./config";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
+}
+
+// In broker mode the SPA talks straight to the broker's native endpoints,
+// which return the same shapes the daemon's /api/* proxies pass through. The
+// daemon prefixes those with /api; the broker doesn't — so drop the prefix.
+// (session + inbox have no 1:1 broker route and are handled explicitly below.)
+function resolvePath(path: string): string {
+  if (isBroker && path.startsWith("/api/")) return path.slice(4);
+  return path;
+}
+
+/** Compose + approve must happen on the trusted local surface. On the broker
+ *  site we surface them but defer: open the local app and fail loudly. */
+function redirectToLocal(action: string): never {
+  openLocalApp();
+  throw new ApiError(409, `${action} happens in the local Dispatch app — opening it now.`);
+}
+
+/** Adapt a broker dispatch summary into the InboxEntry shape the UI expects.
+ *  The broker doesn't track per-entry scopes / live pending tool calls (those
+ *  live on the recipient's daemon), so they come back empty in broker mode. */
+function summaryToInboxEntry(s: DispatchSummary): InboxEntry {
+  return {
+    dispatch_id: s.dispatch_id,
+    sender_id: s.sender_id,
+    task: s.task,
+    created_at: s.created_at,
+    expires_at: s.expires_at ?? "",
+    status: s.status,
+    scopes: {},
+    pending_tools: {},
+  };
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -13,7 +46,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(resolvePath(path), { ...init, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({} as unknown));
     throw new ApiError(res.status, formatBrokerError(body, res.status));
@@ -41,8 +74,15 @@ function formatBrokerError(body: unknown, status: number): string {
 }
 
 export const api = {
-  // ── Local-only (daemon hosts the state) ─────────────────────────────
-  session: () => request<{ user_id: string; broker_url: string }>("/api/session"),
+  // ── Session ─────────────────────────────────────────────────────────
+  // Local: daemon hosts identity. Broker: derive from /me.
+  session: () =>
+    isBroker
+      ? request<{ user_id: string }>("/me").then((r) => ({
+          user_id: r.user_id,
+          broker_url: location.origin,
+        }))
+      : request<{ user_id: string; broker_url: string }>("/api/session"),
   installCommand: () =>
     request<{ command: string; broker: string }>("/api/install-command"),
   openBroker: () =>
@@ -53,19 +93,31 @@ export const api = {
     request<{ status: string; broker: string }>("/api/sign-out", {
       method: "POST",
     }),
-  inbox: () => request<InboxEntry[]>("/api/inbox"),
+  // Inbox = received dispatches. Local mode has a richer per-entry view
+  // (scopes + live pending tool calls); the broker mirror lists received
+  // dispatches read-only (approvals happen in the local app).
+  inbox: () =>
+    isBroker
+      ? request<{ role: string; dispatches: DispatchSummary[] }>(
+          "/dispatches?role=received",
+        ).then((b) => b.dispatches.map(summaryToInboxEntry))
+      : request<InboxEntry[]>("/api/inbox"),
   dispatchDetail: (id: string) =>
     request<InboxEntry & { events: DispatchEvent[] }>(`/api/dispatch/${id}`),
   decide: (id: string, decision: "accept" | "reject") =>
-    request<{ status: string }>(`/api/dispatch/${id}/decision`, {
-      method: "POST",
-      body: JSON.stringify({ decision }),
-    }),
+    isBroker
+      ? redirectToLocal("Approving a dispatch")
+      : request<{ status: string }>(`/api/dispatch/${id}/decision`, {
+          method: "POST",
+          body: JSON.stringify({ decision }),
+        }),
   decideTool: (dispatchId: string, requestId: string, decision: "allow" | "deny") =>
-    request<{ status: string }>(
-      `/api/dispatch/${dispatchId}/tool/${requestId}/decision`,
-      { method: "POST", body: JSON.stringify({ decision }) },
-    ),
+    isBroker
+      ? redirectToLocal("Approving a tool call")
+      : request<{ status: string }>(
+          `/api/dispatch/${dispatchId}/tool/${requestId}/decision`,
+          { method: "POST", body: JSON.stringify({ decision }) },
+        ),
   cancelDispatch: (dispatchId: string) =>
     request<{ status: string }>(`/api/dispatch/${dispatchId}/cancel`, {
       method: "POST",
@@ -73,10 +125,12 @@ export const api = {
 
   // ── Broker proxy ────────────────────────────────────────────────────
   compose: (body: ComposeRequest) =>
-    request<DispatchSummary | ComposeFanOutResult>("/api/compose", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    isBroker
+      ? redirectToLocal("Composing a dispatch")
+      : request<DispatchSummary | ComposeFanOutResult>("/api/compose", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
   trust: () => request<{ trust: TrustEdge[] }>("/api/trust"),
   updateTrust: (id: string, scopes: Scopes) =>
     request<{ status: string }>(`/api/trust/${id}`, {

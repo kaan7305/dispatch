@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { isBroker, openLocalApp } from "@/lib/config";
 import { openEventStream, type EventMessage } from "@/lib/ws";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/format";
@@ -138,11 +139,24 @@ function AccountMenu({ email }: { email?: string }) {
 function Sidebar() {
   return (
     <aside className="w-60 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
-      <ComposeDialog>
-        <Button className="w-full justify-center gap-2 mb-3" size="lg">
+      {isBroker ? (
+        // Compose stays on the trusted local surface; the broker site defers
+        // to the local app instead of composing here.
+        <Button
+          className="w-full justify-center gap-2 mb-3"
+          size="lg"
+          onClick={() => openLocalApp()}
+          title="Compose runs in the local Dispatch app"
+        >
           <Plus className="size-4" /> Compose
         </Button>
-      </ComposeDialog>
+      ) : (
+        <ComposeDialog>
+          <Button className="w-full justify-center gap-2 mb-3" size="lg">
+            <Plus className="size-4" /> Compose
+          </Button>
+        </ComposeDialog>
+      )}
       {NAV.map(({ to, label, Icon }) => (
         <NavLink
           key={to}

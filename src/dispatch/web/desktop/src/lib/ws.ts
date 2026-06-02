@@ -1,4 +1,5 @@
 import { getToken } from "./token";
+import { isBroker } from "./config";
 
 export type EventMessage =
   | { type: "snapshot"; data: unknown[] }
@@ -17,10 +18,13 @@ function openWs(
 
   const connect = () => {
     if (closed) return;
+    // Daemon authenticates its WS with ?t=<local-token>; the broker with
+    // ?token=<jwt>.
+    const tokenParam = isBroker ? "token" : "t";
     const url =
       `${location.origin.replace(/^http/, "ws")}${path}` +
       (path.includes("?") ? "&" : "?") +
-      `t=${encodeURIComponent(getToken())}`;
+      `${tokenParam}=${encodeURIComponent(getToken())}`;
     ws = new WebSocket(url);
     ws.addEventListener("message", (e) => {
       try { onMessage(JSON.parse(e.data)); } catch { /* ignore */ }
@@ -49,7 +53,10 @@ export function openEventStream(
   onMessage: (m: EventMessage) => void,
   onStatus?: (connected: boolean) => void,
 ): () => void {
-  return openWs("/ws/events", (raw) => onMessage(raw as EventMessage), onStatus);
+  // Local: daemon's /ws/events (inbox snapshot + deltas).
+  // Broker: the recipient inbox stream /inbox.
+  const path = isBroker ? "/inbox" : "/ws/events";
+  return openWs(path, (raw) => onMessage(raw as EventMessage), onStatus);
 }
 
 /** Live broker-side stream for a single dispatch — works for sent
@@ -58,5 +65,10 @@ export function openDispatchWatch(
   dispatchId: string,
   onMessage: (data: unknown) => void,
 ): () => void {
-  return openWs(`/ws/dispatch/${dispatchId}`, onMessage);
+  // Local: daemon proxies to the broker at /ws/dispatch/{id}.
+  // Broker: the native watch stream /dispatch/{id}/watch.
+  const path = isBroker
+    ? `/dispatch/${dispatchId}/watch`
+    : `/ws/dispatch/${dispatchId}`;
+  return openWs(path, onMessage);
 }

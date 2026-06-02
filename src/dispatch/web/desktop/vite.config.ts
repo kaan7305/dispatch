@@ -6,6 +6,9 @@ import path from "node:path";
 // daemon running on 8001. Build output goes to dist/, which the daemon's
 // local_app.py mounts via StaticFiles when present.
 export default defineConfig({
+  // Relative asset URLs so the one build works whether it's served at "/"
+  // (daemon) or under "/app/" (broker, via an injected <base href>).
+  base: "./",
   plugins: [react()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
