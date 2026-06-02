@@ -529,6 +529,35 @@ def _path_allowed(raw: str, allowed_dirs: list[Path]) -> bool:
     return False
 
 
+def _is_dispatch_control_tool(tool_name: str) -> bool:
+    """The dispatch control plane (send / invite / accept / approve / cancel).
+
+    A *delegated task* must never invoke these, regardless of the edge scope
+    or approval mode — otherwise task text (benign-ambiguous like 'to edward',
+    or adversarial via prompt injection) could re-wield the recipient's
+    identity to dispatch onward. Withheld structurally (capability removal),
+    not by a system prompt."""
+    n = tool_name.lower()
+    return n.startswith("mcp__dispatch__") or n == "dispatch" or n.startswith("dispatch_")
+
+
+def _mcp_tool_allowed(tool_name: str, patterns: list[str]) -> bool:
+    """Does an MCP tool (`mcp__<server>__<tool>`) match the edge's `mcp`
+    allowlist? Supports an exact tool name, a trailing-`*` prefix, or a bare
+    server name (= any tool from that server)."""
+    for pat in patterns:
+        p = (pat or "").strip()
+        if not p:
+            continue
+        if p == tool_name:
+            return True
+        if p.endswith("*") and tool_name.startswith(p[:-1]):
+            return True
+        if "__" not in p and tool_name.startswith(f"mcp__{p}__"):
+            return True
+    return False
+
+
 def verify_inbound(
     payload: DispatchPayload,
     signing: dict | None,
@@ -831,6 +860,7 @@ async def process_dispatch(
 
     # Step 2 — per-tool gating, scoped to the trust edge.
     scope_tools = set(scope.tools)
+    scope_mcp = list(scope.mcp or [])
     paths_restricted = bool(scope.paths)
     allowed_dirs = [workspace.resolve()] + [
         Path(p).expanduser().resolve() for p in scope.paths
@@ -841,9 +871,31 @@ async def process_dispatch(
         tool_input: dict[str, Any],
         ctx: ToolPermissionContext,
     ):
-        # Tool must be in the edge's scope (the executor also disallows
-        # out-of-scope tools — this is defense in depth).
-        if tool_name not in scope_tools:
+        # (a) Self-delegation / authority — NEVER allowed in a delegated task,
+        # independent of scope or approval mode. This is the structural fix for
+        # task text re-wielding the recipient's identity (the "to edward"
+        # hijack): you can't call a tool you don't have. Robust to prompt
+        # injection in a way a system prompt is not.
+        if _is_dispatch_control_tool(tool_name):
+            await send_event(
+                payload.dispatch_id,
+                {"type": "permission_response",
+                 "data": {"tool": tool_name, "decision": "deny",
+                          "reason": "dispatch control plane withheld from delegated tasks"}},
+            )
+            return PermissionResultDeny(
+                message="a delegated task cannot send, relay, or re-dispatch",
+                interrupt=False,
+            )
+
+        # (b) Capability check: built-in tools via the edge's `tools`; the
+        # recipient's MCP tools via the edge's `mcp` allowlist (this is what
+        # lets a dispatch use the recipient's powerful tools, scoped per edge).
+        is_mcp = tool_name.startswith("mcp__")
+        permitted = (tool_name in scope_tools) or (
+            is_mcp and _mcp_tool_allowed(tool_name, scope_mcp)
+        )
+        if not permitted:
             return PermissionResultDeny(
                 message=f"'{tool_name}' is outside the granted trust scope",
                 interrupt=False,

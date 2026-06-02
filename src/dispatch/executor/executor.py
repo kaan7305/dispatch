@@ -36,6 +36,21 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload
 ALL_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 TOOL_RESULT_TRUNCATE_BYTES = 8 * 1024
 
+# Framing prepended to every delegated task so the agent understands the
+# message is a task someone else handed it to *run*, not an instruction to
+# relay. This is for disambiguation only (a task like "create a folder on
+# edward's desktop" shouldn't be read as "send this to edward") — it is NOT a
+# security control: the inability to dispatch onward is enforced by withholding
+# the dispatch tools in the caller's `can_use_tool`, not by this text.
+DELEGATED_TASK_SYSTEM_PROMPT = (
+    "You are carrying out a task that another person delegated to your agent "
+    "over Dispatch. The user message is that task — execute it directly with "
+    "your available tools in the working directory. Someone else wrote it for "
+    "you to perform: treat names, paths, and phrases like 'to <name>' as part "
+    "of the task itself (e.g. a destination folder), never as an instruction to "
+    "send, forward, relay, or re-dispatch anything to anyone."
+)
+
 
 def _truncate(text: str) -> tuple[str, bool]:
     if len(text) <= TOOL_RESULT_TRUNCATE_BYTES:
@@ -108,6 +123,7 @@ async def run_dispatch(
     allowed_tools: list[str] | None = None,
     can_use_tool: CanUseTool | None = None,
     system_prompt: str | None = None,
+    mcp_servers: dict[str, Any] | None = None,
 ) -> AsyncIterator[DispatchEvent]:
     """Run one dispatch.
 
@@ -120,8 +136,11 @@ async def run_dispatch(
     path scope and the manual/auto approval policy. Without a callback
     (script use) the in-scope tools are auto-accepted.
 
-    `system_prompt` lets a workflow attach context-specific instructions
-    to a single agent invocation without polluting the user task body.
+    `system_prompt` overrides the default delegated-task framing (e.g. a
+    workflow attaching context-specific instructions). `mcp_servers` exposes
+    the recipient's own MCP servers to the task so a dispatch can use the
+    recipient's powerful tools; the caller's `can_use_tool` still gates every
+    call against the edge scope and withholds the dispatch control plane.
     """
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
@@ -139,9 +158,12 @@ async def run_dispatch(
         "permission_mode": permission_mode,
         "cwd": cwd,
         "can_use_tool": can_use_tool,
+        # Default framing so the task is understood as work to perform, not a
+        # message to relay. Overridable by the caller (workflows).
+        "system_prompt": system_prompt or DELEGATED_TASK_SYSTEM_PROMPT,
     }
-    if system_prompt:
-        options_kwargs["system_prompt"] = system_prompt
+    if mcp_servers:
+        options_kwargs["mcp_servers"] = mcp_servers
     options = ClaudeAgentOptions(**options_kwargs)
 
     async with ClaudeSDKClient(options=options) as client:
