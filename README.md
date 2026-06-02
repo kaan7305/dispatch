@@ -127,7 +127,36 @@ migration step.
 
 ---
 
-## Installing the daemon
+## Two ways to run the local agent
+
+The trust layers need a local process that holds your device key, signs/verifies,
+runs the agent, and asks you for approvals. You can host that either **in your
+Claude Code session** (no separate process) or as an **always-on daemon**.
+
+### A) In-session (no daemon) — the low-friction default
+
+Install the Dispatch **plugin** for Claude Code. It bundles the `/dispatch` skill
+*and* an MCP server (`dispatch-mcp`) that Claude Code launches automatically for
+the lifetime of each session. While your session is open it connects to the
+broker, signs your outgoing dispatches, verifies + runs incoming ones, and
+exposes tools the session drives:
+
+```
+dispatch_whoami · dispatch_contacts · dispatch_send · dispatch_inbox
+dispatch_sent · dispatch_status · dispatch_accept · dispatch_decline
+dispatch_pending_approvals · dispatch_approve · dispatch_cancel
+```
+
+Accept/decline and per-tool approvals (Layer 3) resolve **locally in this
+session** — nothing is delegated to the broker. The device key still lives on
+your machine; Layers 2 and 3 are unchanged.
+
+Trade-off: this only receives/runs dispatches **while a Claude session is open**.
+Anything sent while you're away waits in the broker's offline queue (and an SMS
+nudges you) and lands when you next open Claude. For always-on reachability or
+scheduled runs, use the daemon below.
+
+### B) Always-on daemon — for background / scheduled use
 
 Everyone — sender and recipient — runs a daemon. After signing in to the
 broker, the page shows a one-line installer:
