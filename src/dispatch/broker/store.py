@@ -111,6 +111,25 @@ class Store:
             rows = await conn.fetch("SELECT user_id FROM users ORDER BY user_id")
             return [r["user_id"] for r in rows]
 
+    async def set_user_phone(self, user_id: str, phone: Optional[str]) -> None:
+        """Set (or clear, with None) the user's SMS number. Upserts the user
+        row so a phone can be saved before any other write touches it."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO users (user_id, phone) VALUES ($1, $2)
+                ON CONFLICT (user_id) DO UPDATE SET phone = EXCLUDED.phone
+                """,
+                user_id, phone,
+            )
+
+    async def get_user_phone(self, user_id: str) -> Optional[str]:
+        """Return the user's notification phone, or None if unset."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT phone FROM users WHERE user_id = $1", user_id,
+            )
+
     # ---------------- dispatches ----------------
 
     async def create_dispatch(

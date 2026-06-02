@@ -105,6 +105,27 @@ class ClerkExchangeRequest(BaseModel):
     clerk_token: str = Field(..., min_length=10)
 
 
+class PhoneUpdateRequest(BaseModel):
+    """Body for POST /me/phone. Sets the recipient's SMS notification number,
+    or clears it when `phone` is null/empty. Stored and sent in E.164 form."""
+
+    phone: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("phone")
+    @classmethod
+    def _validate_e164(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip().replace(" ", "").replace("-", "")
+        if v == "":
+            return None
+        # E.164: a leading + and 8–15 digits (country code included).
+        digits = v[1:] if v.startswith("+") else v
+        if not v.startswith("+") or not digits.isdigit() or not (8 <= len(digits) <= 15):
+            raise ValueError("phone must be E.164, e.g. +14155550123")
+        return v
+
+
 class DeviceEnrollRequest(BaseModel):
     """Daemon → broker body for POST /devices/enroll."""
 

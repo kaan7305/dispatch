@@ -5,11 +5,14 @@ CREATE TABLE IF NOT EXISTS users (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     -- Bumped on every web-UI sign-out. Tokens with iat < this are revoked,
     -- so daemons still holding a cached JWT get kicked on next request.
-    signed_out_at TIMESTAMPTZ
+    signed_out_at TIMESTAMPTZ,
+    -- E.164 phone for SMS dispatch notifications (opt-in). NULL = no texts.
+    phone       TEXT
 );
 
--- Additive for upgrades: column may not exist on older deployments.
+-- Additive for upgrades: columns may not exist on older deployments.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS signed_out_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
 
 CREATE TABLE IF NOT EXISTS dispatches (
     dispatch_id   UUID PRIMARY KEY,

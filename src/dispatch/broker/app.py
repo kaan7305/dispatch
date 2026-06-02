@@ -40,6 +40,7 @@ from fastapi.staticfiles import StaticFiles
 
 from dispatch.broker.clerk import ClerkAuthError, extract_email, verify_clerk_token
 from dispatch.broker.email import send_invitation
+from dispatch.broker.sms import dispatch_notification_body, send_sms
 from dispatch.broker.state import STATE
 from dispatch.broker.store import STORE, StoredDispatch
 from dispatch.shared import crypto
@@ -56,6 +57,7 @@ from dispatch.shared.schema import (
     DispatchStatus,
     InvitationCreateRequest,
     LoginRequest,
+    PhoneUpdateRequest,
     Scopes,
     TrustScopesUpdate,
     utcnow,
@@ -199,6 +201,32 @@ async def auth_signout(user_id: str = Depends(authed_user)) -> dict:
         except Exception:
             pass
     return {"status": "ok", "notified": delivered}
+
+
+@app.get("/me/phone")
+async def get_my_phone(user_id: str = Depends(authed_user)) -> dict:
+    """Return the caller's SMS notification number and whether texts can
+    actually be sent (Twilio configured on the broker)."""
+    from dispatch.broker.sms import is_configured
+
+    phone = await STORE.get_user_phone(user_id)
+    return {"phone": phone, "sms_enabled": phone is not None and is_configured()}
+
+
+@app.post("/me/phone")
+async def set_my_phone(
+    req: PhoneUpdateRequest, user_id: str = Depends(authed_user)
+) -> dict:
+    """Opt in to (or out of, with an empty body) SMS dispatch notifications.
+
+    The recipient gets a text whenever a dispatch is routed to them — pushed
+    live to their daemon or queued while it's offline. Number is validated to
+    E.164 by the request model and stored on the user row.
+    """
+    from dispatch.broker.sms import is_configured
+
+    await STORE.set_user_phone(user_id, req.phone)
+    return {"phone": req.phone, "sms_enabled": req.phone is not None and is_configured()}
 
 
 def _public_url() -> str:
@@ -493,7 +521,20 @@ async def _deliver_or_queue(payload: DispatchPayload) -> DispatchStatus:
             inbox_watchers,
             json.dumps({"type": "inbox_new", "data": _payload_summary(payload, final_status)}),
         )
+
+    await _notify_recipient_sms(payload, queued=final_status == DispatchStatus.pending)
     return final_status
+
+
+async def _notify_recipient_sms(payload: DispatchPayload, queued: bool) -> None:
+    """Text the recipient that a dispatch landed, if they've opted in with a
+    phone number. Best-effort: send_sms never raises, and a missing number or
+    unconfigured Twilio is a silent no-op so delivery is never affected."""
+    phone = await STORE.get_user_phone(payload.recipient_id)
+    if not phone:
+        return
+    body = dispatch_notification_body(payload.sender_id, payload.task, queued)
+    await send_sms(phone, body)
 
 
 async def _drain_signature_queue(
