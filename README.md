@@ -137,9 +137,26 @@ Claude Code session** (no separate process) or as an **always-on daemon**.
 
 Install the Dispatch **plugin** for Claude Code. It bundles the `/dispatch` skill
 *and* an MCP server (`dispatch-mcp`) that Claude Code launches automatically for
-the lifetime of each session. While your session is open it connects to the
-broker, signs your outgoing dispatches, verifies + runs incoming ones, and
-exposes tools the session drives:
+the lifetime of each session.
+
+```bash
+# 1. Install the package so the plugin's commands (dispatch-mcp, dispatch,
+#    dispatch-daemon) are on your PATH:
+pipx install git+https://github.com/kaan7305/dispatch.git
+
+# 2. Add the marketplace and install the plugin (one-time), in Claude Code:
+/plugin marketplace add kaan7305/dispatch
+/plugin install dispatch@dispatch
+
+# 3. Sign in to the broker once (writes the broker URL + token to
+#    ~/.dispatch/config.json that the plugin reads):
+curl -fsSL https://your-broker/install.sh | bash -s -- <your-token> [anthropic-api-key]
+#    (you can Ctrl-C once it prints "installed" — step 1 already has the code;
+#     this step is just to drop your credentials into ~/.dispatch/config.json)
+```
+
+Restart your Claude Code session. The `dispatch-mcp` server now starts with
+each session and exposes the tools it drives:
 
 ```
 dispatch_whoami · dispatch_contacts · dispatch_send · dispatch_inbox
