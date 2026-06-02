@@ -92,6 +92,7 @@ TOOL_APPROVAL_TIMEOUT_S = 120.0          # how long they have to allow/deny one 
 # expiry (schema.DispatchCreateRequest) <= this value to preserve that.
 OFFLINE_RETENTION_S = 30 * 24 * 3600.0   # 30 days
 FRESHNESS_WINDOW_S = OFFLINE_RETENTION_S  # reject dispatches signed > this ago
+NONCE_PRUNE_INTERVAL_S = 6 * 3600.0      # prune the replay-guard store every 6h
 
 logger = logging.getLogger("dispatch.daemon")
 
@@ -352,6 +353,16 @@ async def run_session(
         logger.exception("nonce store prune failed (continuing)")
     state.nonce_store = nonce_store
 
+    async def _prune_nonces_periodically() -> None:
+        while True:
+            await asyncio.sleep(NONCE_PRUNE_INTERVAL_S)
+            try:
+                nonce_store.prune(datetime.now(timezone.utc).timestamp())
+            except Exception:
+                logger.exception("periodic nonce prune failed")
+
+    prune_task = asyncio.create_task(_prune_nonces_periodically())
+
     # Local approval UI — the ONLY surface that resolves user-intent
     # decisions. The broker's WS no longer carries them.
     from dispatch.daemon.local_app import LocalState, issue_local_token, spawn as spawn_local_ui
@@ -470,6 +481,11 @@ async def run_session(
         local_state.watchers.clear()
         await scheduler.stop()
         await local_server.stop()
+        prune_task.cancel()
+        try:
+            await prune_task
+        except (asyncio.CancelledError, Exception):
+            pass
         nonce_store.close()
     return 0
 

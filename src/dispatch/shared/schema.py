@@ -24,6 +24,7 @@ def utcnow() -> datetime:
 
 
 class DispatchStatus(str, enum.Enum):
+    awaiting_signature = "awaiting_signature"  # sender's daemon was offline; broker holds it unsigned until it reconnects
     pending = "pending"        # broker has it, recipient daemon offline
     delivered = "delivered"    # daemon pulled it from broker
     accepted = "accepted"      # recipient pressed Accept

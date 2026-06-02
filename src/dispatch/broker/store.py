@@ -159,7 +159,7 @@ class Store:
                 """
                 SELECT dispatch_id, recipient_id FROM dispatches
                 WHERE trust_link_id = $1
-                  AND status IN ('pending', 'delivered', 'accepted', 'running')
+                  AND status IN ('awaiting_signature', 'pending', 'delivered', 'accepted', 'running')
                 """,
                 trust_link_id,
             )
@@ -292,6 +292,111 @@ class Store:
                 user_id,
             )
             return [r["dispatch_id"] for r in rows]
+
+    async def requeue_undelivered(self, recipient_id: str) -> list[UUID]:
+        """Re-queue this recipient's delivered-but-unaccepted dispatches.
+
+        Called when a recipient daemon disconnects: anything pushed to it
+        live but not yet accepted (status 'delivered') would otherwise never
+        be re-offered, since it was never in the offline queue. Reset it to
+        'pending' and enqueue so the next reconnect re-pushes it.
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    """
+                    UPDATE dispatches SET status = 'pending'
+                    WHERE recipient_id = $1 AND status = 'delivered'
+                    RETURNING dispatch_id
+                    """,
+                    recipient_id,
+                )
+                ids = [r["dispatch_id"] for r in rows]
+                for did in ids:
+                    await conn.execute(
+                        """
+                        INSERT INTO pending_for_offline (user_id, dispatch_id)
+                        VALUES ($1, $2)
+                        ON CONFLICT (user_id, dispatch_id) DO NOTHING
+                        """,
+                        recipient_id, did,
+                    )
+                return ids
+
+    # ---------------- pending-signature queue (sender offline) ----------------
+
+    async def enqueue_for_signature(self, sender_id: str, dispatch_id: UUID) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO pending_for_signature (sender_id, dispatch_id)
+                VALUES ($1, $2)
+                ON CONFLICT (sender_id, dispatch_id) DO NOTHING
+                """,
+                sender_id,
+                dispatch_id,
+            )
+
+    async def pop_signature_queue(self, sender_id: str) -> list[UUID]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                DELETE FROM pending_for_signature
+                WHERE sender_id = $1
+                RETURNING dispatch_id
+                """,
+                sender_id,
+            )
+            return [r["dispatch_id"] for r in rows]
+
+    async def attach_signature(
+        self,
+        dispatch_id: UUID,
+        sender_device: UUID,
+        signature: bytes,
+        status: DispatchStatus,
+    ) -> None:
+        """Record the signature produced once the sender's daemon reconnected,
+        binding the signing device, and promote the dispatch out of
+        'awaiting_signature'. The nonce + created_at were fixed at creation
+        and are what the signature covers."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE dispatches
+                SET sender_device = $2, signature = $3, status = $4
+                WHERE dispatch_id = $1
+                """,
+                dispatch_id, sender_device, signature, status.value,
+            )
+
+    # ---------------- expiry sweeper ----------------
+
+    async def expire_overdue(self) -> list[dict]:
+        """Mark not-yet-started dispatches past their expires_at as expired,
+        and drop them from both delivery queues. Returns the affected rows
+        ({dispatch_id, recipient_id}) so the caller can notify watchers."""
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                rows = await conn.fetch(
+                    """
+                    UPDATE dispatches SET status = 'expired'
+                    WHERE expires_at < NOW()
+                      AND status IN ('awaiting_signature', 'pending', 'delivered')
+                    RETURNING dispatch_id, recipient_id
+                    """
+                )
+                ids = [r["dispatch_id"] for r in rows]
+                if ids:
+                    await conn.execute(
+                        "DELETE FROM pending_for_offline WHERE dispatch_id = ANY($1::uuid[])",
+                        ids,
+                    )
+                    await conn.execute(
+                        "DELETE FROM pending_for_signature WHERE dispatch_id = ANY($1::uuid[])",
+                        ids,
+                    )
+                return [dict(r) for r in rows]
 
     # ---------------- devices ----------------
 
