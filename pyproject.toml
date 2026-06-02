@@ -34,6 +34,7 @@ dependencies = [
   "pynacl>=1.5",
   "keyring>=24",
   "certifi>=2024",
+  "mcp>=1.2",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,7 @@ tray = [
 dispatch        = "dispatch.cli:main"
 dispatch-daemon = "dispatch.daemon.main:main"
 dispatch-tray   = "dispatch.tray.app:main"
+dispatch-mcp    = "dispatch.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/dispatch"

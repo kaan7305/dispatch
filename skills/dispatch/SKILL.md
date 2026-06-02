@@ -24,6 +24,25 @@ approves it. The sender's verbatim task is preserved end to end.
   <id>`; "show what I've sent" → `dispatch sent`.
 - **Contacts path** — "who can I dispatch to?" → `dispatch contacts`.
 
+## Two surfaces: in-session MCP tools (preferred) vs the CLI
+
+If this plugin is installed, Claude Code runs the `dispatch-mcp` server for the
+session and exposes `dispatch_*` **MCP tools** — `dispatch_send`,
+`dispatch_inbox`, `dispatch_accept`, `dispatch_decline`,
+`dispatch_pending_approvals`, `dispatch_approve`, `dispatch_status`,
+`dispatch_contacts`, `dispatch_sent`, `dispatch_cancel`, `dispatch_whoami`.
+
+**Prefer the MCP tools when available.** They host the signer/approver *in this
+session* — accept/decline and per-tool approvals resolve locally with no
+separate daemon required. Surface waiting tool calls with
+`dispatch_pending_approvals` and resolve each with `dispatch_approve`
+(`allow`/`deny`); always ask the human first, never approve on their behalf.
+
+The `dispatch` CLI below is the alternative. Its accept/decline/approve
+commands talk to a running **`dispatch-daemon`** on `127.0.0.1` (the broker
+relays nothing for approvals, by design) — so they need the daemon running,
+whereas the MCP tools do not. Read/track/send commands work either way.
+
 ## CLI
 
 The `dispatch` CLI ships with the package (entry point `dispatch.cli:main`,
