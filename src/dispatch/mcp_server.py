@@ -56,6 +56,7 @@ from pydantic import BaseModel
 
 from dispatch.daemon.identity import dispatch_home, ensure_enrolled, get_private_key
 from dispatch.daemon.local_app import LocalState, _entry_summary
+from dispatch.shared.schema import reply_from_events
 from dispatch.daemon.main import (
     DEFAULT_WORKSPACE,
     FRESHNESS_WINDOW_S,
@@ -298,7 +299,8 @@ async def _do_status(dispatch_id: str) -> dict:
         return {"error": "bad_id", "detail": "dispatch_id must be a UUID"}
     entry = link.local_state.entries.get(did)
     if entry is not None:
-        return {**_entry_summary(entry), "events": entry.events}
+        return {**_entry_summary(entry), "reply": reply_from_events(entry.events),
+                "events": entry.events}
     return await _broker_call("GET", f"/dispatch/{dispatch_id}")
 
 

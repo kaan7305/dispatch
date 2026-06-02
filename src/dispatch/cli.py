@@ -522,6 +522,8 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
     print(f"  created: {d.get('created_at')}")
     print(f"  expires: {d.get('expires_at')}")
     print(f"  task:    {d.get('task')}")
+    if d.get("reply"):
+        print(f"  reply:   {d['reply']}")
     events = d.get("events", [])
     if events:
         print(f"  events ({len(events)}):")

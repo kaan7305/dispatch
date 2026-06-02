@@ -200,6 +200,20 @@ class DispatchEvent(TypedDict):
     data: dict[str, Any]
 
 
+def reply_from_events(events: list) -> Optional[str]:
+    """The dispatch's "reply" = the agent's final message: the text of the last
+    `agent_text` event (which, since `done` is last, is the last one before it).
+    Returns None if the run produced no text (e.g. errored before responding).
+    This is a read-time derivation — no separate reply is stored or sent."""
+    reply: Optional[str] = None
+    for e in events or []:
+        if isinstance(e, dict) and e.get("type") == "agent_text":
+            text = (e.get("data") or {}).get("text")
+            if isinstance(text, str) and text.strip():
+                reply = text
+    return reply
+
+
 # ============================================================================
 # Workflows — n8n-style graphs of local operations, fan-out via dispatch.
 # ============================================================================

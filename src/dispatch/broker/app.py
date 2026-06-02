@@ -60,6 +60,7 @@ from dispatch.shared.schema import (
     PhoneUpdateRequest,
     Scopes,
     TrustScopesUpdate,
+    reply_from_events,
     utcnow,
 )
 
@@ -812,6 +813,9 @@ async def get_dispatch(
         "status": stored.status.value,
         "created_at": stored.payload.created_at.isoformat(),
         "expires_at": stored.payload.expires_at.isoformat(),
+        # The agent's final message — the consumable answer, derived from the
+        # event trace (last agent_text before done). None until it has spoken.
+        "reply": reply_from_events(events),
         "events": events,
     }
 
