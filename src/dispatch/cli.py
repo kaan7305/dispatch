@@ -532,6 +532,38 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
+    from the latest source via pipx, so your local commands match `main`."""
+    import shutil
+    import subprocess
+
+    spec = os.environ.get(
+        "DISPATCH_INSTALL_SPEC", "git+https://github.com/kaan7305/dispatch.git"
+    )
+    pipx = shutil.which("pipx")
+    cmd = [pipx, "install", "--force", spec] if pipx else \
+        [sys.executable, "-m", "pipx", "install", "--force", spec]
+    sys.stderr.write(f"dispatch: updating from {spec} …\n")
+    try:
+        proc = subprocess.run(cmd, capture_output=not args.json, text=True)
+    except FileNotFoundError:
+        raise CliError("pipx not found. Install pipx, or reinstall dispatch manually:\n"
+                       f"    pipx install --force {spec}")
+    if proc.returncode != 0:
+        raise CliError(f"update failed (pipx exit {proc.returncode}). "
+                       + ((proc.stderr or "").strip()[-400:] if not args.json else ""))
+    _emit(
+        args,
+        {"status": "updated", "spec": spec},
+        "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
+        "reloads the new code (a running process keeps the old code until it "
+        "restarts). If the skill text changed, also run `/plugin marketplace "
+        "update dispatch` in Claude Code.",
+    )
+    return 0
+
+
 def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
     """Launch the macOS menu-bar app (always-on daemon supervisor). Replaces
     this process with `dispatch-tray`."""
@@ -683,6 +715,10 @@ def build_parser() -> argparse.ArgumentParser:
     # Launch the menu-bar app (no broker creds needed).
     add("tray", "Launch the macOS menu-bar app (always-on daemon supervisor).",
         cmd_tray).set_defaults(no_auth=True)
+
+    # Self-update the installed package (no broker creds needed).
+    add("update", "Update the dispatch CLI/daemon/MCP from the latest source (pipx).",
+        cmd_update).set_defaults(no_auth=True)
 
     # `dispatch help` → print top-level usage.
     def _cmd_help(_args: argparse.Namespace, _broker: str, _token: str) -> int:

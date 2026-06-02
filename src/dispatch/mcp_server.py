@@ -44,7 +44,7 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 import certifi
@@ -255,112 +255,42 @@ async def _broker_call(method: str, path: str, **kw: Any) -> Any:
 mcp = FastMCP("dispatch", lifespan=_lifespan)
 
 
-@mcp.tool()
-def dispatch_whoami() -> dict:
-    """Who am I, which broker, and this machine's device id."""
+class _ApproveToolCall(BaseModel):
+    allow: bool
+
+
+_TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
+_SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
+
+
+# ── Core handlers (plain functions; the grouped tools below route to these). ──
+# Collapsing ~15 tools into 4 grouped tools keeps the agent from doing a
+# ToolSearch round-trip before every distinct dispatch call.
+
+def _do_whoami() -> dict:
     link = _require_link()
     return {"user_id": link.user_id, "broker": link.broker, "device_id": link.device_id}
 
 
-@mcp.tool()
-async def dispatch_contacts() -> dict:
-    """List trust edges: who can dispatch to whom, with scopes and online state."""
-    return await _broker_call("GET", "/trust")
-
-
-@mcp.tool()
-async def dispatch_invite(to_email: str) -> dict:
-    """Invite someone (by email) to let YOU dispatch to them. Emails them an
-    invitation; once they accept — and set the scopes your agent will be
-    confined to — an *outgoing* trust edge appears in dispatch_contacts and you
-    can dispatch_send to them. Inviting grants you nothing on its own: the
-    invitee chooses whether to accept and with what tools/paths/approval.
-    Returns {status, delivered, to_email} (plus a dev_link if email delivery
-    is disabled on the broker)."""
-    return await _broker_call("POST", "/invitations", json={"to_email": to_email})
-
-
-@mcp.tool()
-async def dispatch_invitations() -> dict:
-    """List pending invitations you've sent and received. Each received invite
-    carries a `token` you can hand to dispatch_accept_invitation /
-    dispatch_decline_invitation. Accepting a received invite creates an edge
-    that lets the *inviter* dispatch to your machine, under scopes you set."""
-    return await _broker_call("GET", "/invitations")
-
-
-@mcp.tool()
-async def dispatch_accept_invitation(
-    token: str,
-    tools: Optional[list[str]] = None,
-    paths: Optional[list[str]] = None,
-    approval: str = "manual",
-    max_dispatches_per_day: int = 50,
-) -> dict:
-    """Accept an invitation, creating a trust edge that lets the inviter
-    dispatch to YOUR machine. You set the scopes their agent is confined to —
-    least privilege by default: read-only tools and manual approval of every
-    tool call. `tools` ⊆ {Read,Glob,Grep,Write,Edit,Bash} (default
-    Read/Glob/Grep); `approval` is "manual" or "auto"; `paths` is a directory
-    allowlist (empty = no path restriction); `max_dispatches_per_day` caps the
-    rate. Granting Bash grants full shell — confirm with the human first. Get
-    `token` from dispatch_invitations. You can widen/narrow scopes later as the
-    edge's trustor."""
-    scopes: dict[str, Any] = {
-        "approval": approval,
-        "max_dispatches_per_day": max_dispatches_per_day,
-    }
-    if tools is not None:
-        scopes["tools"] = tools
-    if paths is not None:
-        scopes["paths"] = paths
-    return await _broker_call("POST", f"/invitations/{token}/accept", json={"scopes": scopes})
-
-
-@mcp.tool()
-async def dispatch_decline_invitation(token: str) -> dict:
-    """Decline an invitation; no trust edge is created. Get `token` from
-    dispatch_invitations."""
-    return await _broker_call("POST", f"/invitations/{token}/decline")
-
-
-@mcp.tool()
-async def dispatch_send(
-    recipient: str, task: str, expires_in_seconds: int = 3600, cwd: Optional[str] = None
-) -> dict:
-    """Send a dispatch to a trusted contact. The verbatim `task` runs on their
-    machine across an accepted, scoped trust edge. Signing happens in THIS
-    session (your device key), so this session must be connected to the broker.
-    Returns the dispatch_id to track with dispatch_status.
-    """
-    metadata = {"cwd": cwd} if cwd else {}
-    body = {
-        "recipient_id": recipient,
-        "task": task,
-        "expires_in_seconds": expires_in_seconds,
-        "metadata": metadata,
-    }
-    return await _broker_call("POST", "/dispatch", json=body)
-
-
-@mcp.tool()
-async def dispatch_sent() -> dict:
-    """List dispatches you've sent, with status."""
-    return await _broker_call("GET", "/dispatches", params={"role": "sent"})
-
-
-@mcp.tool()
-def dispatch_inbox() -> list[dict]:
-    """Dispatches addressed to you in this session (pending accept, running,
-    or finished), each with its scopes and any tool calls awaiting approval."""
+def _do_inbox() -> list[dict]:
     link = _require_link()
     return [_entry_summary(e) for e in link.local_state.entries.values()]
 
 
-@mcp.tool()
-async def dispatch_status(dispatch_id: str) -> dict:
-    """Full detail + event trace for one dispatch. Uses the live local copy
-    when present (received this session), else the broker record."""
+def _do_pending_approvals() -> list[dict]:
+    link = _require_link()
+    out: list[dict] = []
+    for did, entry in link.local_state.entries.items():
+        for request_id, info in entry.pending_tools.items():
+            out.append({
+                "dispatch_id": str(did), "request_id": request_id,
+                "sender_id": entry.payload.sender_id,
+                "tool": info.get("tool"), "input": info.get("input"),
+            })
+    return out
+
+
+async def _do_status(dispatch_id: str) -> dict:
     link = _require_link()
     try:
         did = UUID(dispatch_id)
@@ -372,34 +302,36 @@ async def dispatch_status(dispatch_id: str) -> dict:
     return await _broker_call("GET", f"/dispatch/{dispatch_id}")
 
 
-class _ApproveToolCall(BaseModel):
-    allow: bool
+def _resolve_decision(dispatch_id: str, decision: str) -> dict:
+    link = _require_link()
+    fut = link.daemon_state.pending_decisions.get(dispatch_id)
+    if fut is None or fut.done():
+        return {"status": "error",
+                "detail": "no pending decision for that dispatch — run dispatch_read(what='inbox') "
+                          "(it may not be addressed to you, or it's already decided/expired)."}
+    fut.set_result(decision)
+    return {"status": "ok", "dispatch_id": dispatch_id, "decision": decision}
 
 
-_TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
-_SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
+def _resolve_tool(dispatch_id: str, request_id: str, decision: str) -> dict:
+    link = _require_link()
+    fut = link.daemon_state.pending_approvals.get((dispatch_id, request_id))
+    if fut is None or fut.done():
+        return {"status": "error", "detail": "no pending approval for that tool call"}
+    fut.set_result(decision)
+    return {"status": "ok", "dispatch_id": dispatch_id, "request_id": request_id, "decision": decision}
 
 
-@mcp.tool()
-async def dispatch_accept(dispatch_id: str, ctx: Context) -> dict:
-    """Accept an inbound dispatch AND supervise its sandboxed run to completion.
-
-    This blocks until the dispatch finishes: the confined dp-agent (limited to
-    the trust edge's tools/paths) does the work, and on a `manual` edge each
-    tool call is surfaced to YOU here for allow/deny before it runs. You do not
-    run the task yourself — accepting *is* running it, in the sandbox. Returns
-    the final status when done. Only valid for a dispatch currently awaiting
-    your decision in this session's inbox.
-    """
+async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
+    """Accept + supervise the sandboxed run to completion, asking the human
+    (via elicitation) for each tool call on a manual edge."""
     link = _require_link()
     ds = link.daemon_state
     fut = ds.pending_decisions.get(dispatch_id)
     if fut is None or fut.done():
-        return {
-            "status": "error",
-            "detail": "no pending decision for that dispatch — run dispatch_inbox "
-            "(it may not be addressed to you, or it's already decided/expired).",
-        }
+        return {"status": "error",
+                "detail": "no pending decision for that dispatch — run dispatch_read(what='inbox') "
+                          "(it may not be addressed to you, or it's already decided/expired)."}
     fut.set_result("accept")  # release the confined run
 
     try:
@@ -411,7 +343,6 @@ async def dispatch_accept(dispatch_id: str, ctx: Context) -> dict:
     waited = 0.0
     while waited < _SUPERVISE_TIMEOUT_S:
         entry = link.local_state.entries.get(did) if did else None
-        # Resolve any tool calls the run is blocked on, by asking the human here.
         for (d, request_id), afut in list(ds.pending_approvals.items()):
             if d != dispatch_id or request_id in handled or afut.done():
                 continue
@@ -433,7 +364,6 @@ async def dispatch_accept(dispatch_id: str, ctx: Context) -> dict:
         status = entry.status.value if entry else None
         if status in _TERMINAL:
             break
-        # Run task gone from the running map and nothing pending → it ended.
         if dispatch_id not in ds.running and status in _TERMINAL | {None} and waited > 1.0:
             break
         await asyncio.sleep(0.25)
@@ -450,62 +380,130 @@ async def dispatch_accept(dispatch_id: str, ctx: Context) -> dict:
     }
 
 
-@mcp.tool()
-def dispatch_decline(dispatch_id: str) -> dict:
-    """Decline an inbound dispatch; its agent never runs."""
-    return _resolve_decision(dispatch_id, "reject")
-
-
-def _resolve_decision(dispatch_id: str, decision: str) -> dict:
-    link = _require_link()
-    fut = link.daemon_state.pending_decisions.get(dispatch_id)
-    if fut is None or fut.done():
-        return {
-            "status": "error",
-            "detail": "no pending decision for that dispatch — run dispatch_inbox "
-            "(it may not be addressed to you, or it's already decided/expired).",
-        }
-    fut.set_result(decision)
-    return {"status": "ok", "dispatch_id": dispatch_id, "decision": decision}
-
+# ── The 4 grouped tools the agent sees. ──────────────────────────────────────
 
 @mcp.tool()
-def dispatch_pending_approvals() -> list[dict]:
-    """Tool calls from running dispatches that need your explicit approval
-    (Layer 3, for `approval: manual` edges). Resolve each with dispatch_approve."""
-    link = _require_link()
-    out: list[dict] = []
-    for did, entry in link.local_state.entries.items():
-        for request_id, info in entry.pending_tools.items():
-            out.append({
-                "dispatch_id": str(did),
-                "request_id": request_id,
-                "sender_id": entry.payload.sender_id,
-                "tool": info.get("tool"),
-                "input": info.get("input"),
-            })
-    return out
+async def dispatch_read(
+    what: Literal["inbox", "status", "sent", "contacts", "invitations", "approvals", "whoami"],
+    dispatch_id: str = "",
+) -> Any:
+    """Read dispatch state (no side effects).
+      inbox       — dispatches addressed to you this session (+ scopes, pending approvals)
+      status      — full detail + event trace for `dispatch_id`
+      sent        — dispatches you've sent, with status
+      contacts    — trust edges: who can dispatch to whom, scopes, online
+      invitations — pending invitations you've sent / received (each has a token)
+      approvals   — tool calls awaiting your allow/deny
+      whoami      — your user id, broker, device id
+    """
+    if what == "whoami":
+        return _do_whoami()
+    if what == "inbox":
+        return _do_inbox()
+    if what == "approvals":
+        return _do_pending_approvals()
+    if what == "status":
+        if not dispatch_id:
+            return {"error": "dispatch_id required for what='status'"}
+        return await _do_status(dispatch_id)
+    if what == "sent":
+        return await _broker_call("GET", "/dispatches", params={"role": "sent"})
+    if what == "contacts":
+        return await _broker_call("GET", "/trust")
+    if what == "invitations":
+        return await _broker_call("GET", "/invitations")
+    return {"error": f"unknown what: {what}"}
 
 
 @mcp.tool()
-def dispatch_approve(dispatch_id: str, request_id: str, decision: str) -> dict:
-    """Allow or deny one tool call a running dispatch is waiting on.
-    `decision` is "allow" or "deny". This is the Layer-3 human approval —
-    never decide on the user's behalf; ask them first."""
-    if decision not in ("allow", "deny"):
-        return {"status": "error", "detail": "decision must be 'allow' or 'deny'"}
-    link = _require_link()
-    fut = link.daemon_state.pending_approvals.get((dispatch_id, request_id))
-    if fut is None or fut.done():
-        return {"status": "error", "detail": "no pending approval for that tool call"}
-    fut.set_result(decision)
-    return {"status": "ok", "dispatch_id": dispatch_id, "request_id": request_id, "decision": decision}
+async def dispatch_act(
+    action: Literal["accept", "decline", "approve", "deny", "cancel"],
+    dispatch_id: str,
+    ctx: Context,
+    request_id: str = "",
+) -> dict:
+    """Act on an inbound or in-flight dispatch.
+      accept  — accept AND run it in the sandboxed dp-agent; BLOCKS until done,
+                prompting you inline for each tool call on a manual edge. You
+                MUST NOT perform the task yourself — accepting *is* running it.
+      decline — reject an inbound dispatch; it never runs.
+      cancel  — cancel an in-flight dispatch (either party).
+      approve / deny — allow/deny one pending tool call (needs `request_id`,
+                from dispatch_read(what='approvals')). Fallback; normally
+                `accept` handles approvals inline.
+    """
+    if action == "accept":
+        return await _run_accept(dispatch_id, ctx)
+    if action == "decline":
+        return _resolve_decision(dispatch_id, "reject")
+    if action == "cancel":
+        return await _broker_call("POST", f"/dispatch/{dispatch_id}/cancel")
+    if action in ("approve", "deny"):
+        if not request_id:
+            return {"status": "error", "detail": "request_id required for approve/deny"}
+        return _resolve_tool(dispatch_id, request_id, "allow" if action == "approve" else "deny")
+    return {"status": "error", "detail": f"unknown action: {action}"}
 
 
 @mcp.tool()
-async def dispatch_cancel(dispatch_id: str) -> dict:
-    """Cancel an in-flight dispatch (either party)."""
-    return await _broker_call("POST", f"/dispatch/{dispatch_id}/cancel")
+async def dispatch_send(
+    recipient: str, task: str, expires_in_seconds: int = 3600, cwd: Optional[str] = None
+) -> dict:
+    """Send a dispatch to a trusted contact. The verbatim `task` runs on their
+    machine across an accepted, scoped trust edge. Signing happens in THIS
+    session (your device key), so this session must be connected to the broker.
+    Returns the dispatch_id (track with dispatch_read(what='status')).
+    """
+    metadata = {"cwd": cwd} if cwd else {}
+    body = {
+        "recipient_id": recipient, "task": task,
+        "expires_in_seconds": expires_in_seconds, "metadata": metadata,
+    }
+    return await _broker_call("POST", "/dispatch", json=body)
+
+
+@mcp.tool()
+async def dispatch_invite(
+    action: Literal["send", "list", "accept", "decline"],
+    to_email: str = "",
+    token: str = "",
+    tools: str = "",
+    paths: str = "",
+    approval: Literal["manual", "auto"] = "manual",
+    max_dispatches_per_day: int = 50,
+) -> Any:
+    """Manage invitations (how trust edges are created).
+      send    — invite `to_email` to let YOU dispatch to them (they accept + set
+                your scopes). Grants you nothing on its own.
+      list    — list invitations you've sent / received (each has a token).
+      accept  — accept invite `token`, creating an edge that lets the INVITER
+                dispatch to your machine, confined to scopes YOU set here:
+                `tools` (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash;
+                default read-only), `paths` (comma-separated dir allowlist),
+                `approval` (manual|auto). Granting Bash grants full shell —
+                confirm with the human.
+      decline — decline invite `token`; no edge is created.
+    """
+    if action == "send":
+        if not to_email:
+            return {"error": "to_email required for action='send'"}
+        return await _broker_call("POST", "/invitations", json={"to_email": to_email})
+    if action == "list":
+        return await _broker_call("GET", "/invitations")
+    if action == "accept":
+        if not token:
+            return {"error": "token required for action='accept'"}
+        scopes: dict[str, Any] = {"approval": approval, "max_dispatches_per_day": max_dispatches_per_day}
+        if tools:
+            scopes["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
+        if paths:
+            scopes["paths"] = [p.strip() for p in paths.split(",") if p.strip()]
+        return await _broker_call("POST", f"/invitations/{token}/accept", json={"scopes": scopes})
+    if action == "decline":
+        if not token:
+            return {"error": "token required for action='decline'"}
+        return await _broker_call("POST", f"/invitations/{token}/decline")
+    return {"error": f"unknown action: {action}"}
 
 
 def main() -> None:
