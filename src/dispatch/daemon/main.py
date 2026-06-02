@@ -690,26 +690,38 @@ async def handle_broker(
     my_device: str | None = None,
 ) -> None:
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
-        await ws.send(
-            json.dumps(
-                {
-                    "type": "dispatch_status",
-                    "dispatch_id": str(dispatch_id),
-                    "status": status.value,
-                }
+        # Best-effort: the broker socket carries the sender's live /watch view,
+        # but the run itself (and the LOCAL approval gate) must not die if it
+        # drops. A closed/replaced WS here used to raise ConnectionClosed and
+        # strand the agent at its first tool call — swallow it instead. The
+        # recipient still sees status/events via local_state; only the remote
+        # watch view degrades until the WS reconnects.
+        try:
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "dispatch_status",
+                        "dispatch_id": str(dispatch_id),
+                        "status": status.value,
+                    }
+                )
             )
-        )
+        except Exception:
+            logger.debug("broker send_status dropped (ws closed?) for %s", dispatch_id)
 
     async def send_event(dispatch_id, event: DispatchEvent) -> None:
-        await ws.send(
-            json.dumps(
-                {
-                    "type": "dispatch_event",
-                    "dispatch_id": str(dispatch_id),
-                    "event": event,
-                }
+        try:
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "dispatch_event",
+                        "dispatch_id": str(dispatch_id),
+                        "event": event,
+                    }
+                )
             )
-        )
+        except Exception:
+            logger.debug("broker send_event dropped (ws closed?) for %s", dispatch_id)
 
     async for raw in ws:
         try:
