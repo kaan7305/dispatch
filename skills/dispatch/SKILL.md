@@ -1,6 +1,6 @@
 ---
 name: dispatch
-description: Peer-to-peer agentic task courier between two humans. Use when the user wants to delegate a task to a trusted contact's machine (their Claude agent runs it), check what's been dispatched to them, or accept/decline/track a dispatch. Triggers on natural-language patterns like "dispatch this to Edward", "send a task to Kaan's machine", "have Jeff's agent do X", "/dispatch", "what's in my dispatch inbox?", "accept that dispatch".
+description: Peer-to-peer agentic task courier between two humans. Use when the user wants to delegate a task to a trusted contact's machine (their Claude agent runs it), invite/connect with a new contact, check what's been dispatched to them, or accept/decline/track a dispatch or invitation. Triggers on natural-language patterns like "dispatch this to Edward", "send a task to Kaan's machine", "have Jeff's agent do X", "invite Kaan to dispatch", "accept that invitation", "/dispatch", "what's in my dispatch inbox?", "accept that dispatch".
 ---
 
 # Dispatch
@@ -13,6 +13,12 @@ approves it. The sender's verbatim task is preserved end to end.
 
 ## When to invoke
 
+- **Invite path** — "invite <email> to dispatch", "let Kaan send me tasks",
+  "connect with <name>". Run `dispatch invite <email>`. (You invite the person
+  you want to be *able to dispatch to*; they accept and set your scopes.)
+- **Invitations path** — "any invitations?", "did Kaan invite me?", "accept
+  the invite from <name>". Run `dispatch invitations`, then
+  `dispatch accept-invitation <token>` / `dispatch decline-invitation <token>`.
 - **Send path** — the user says "dispatch this to <name>", "send a task to
   <name>'s machine", "have <name>'s agent do X". Resolve the recipient + the
   verbatim task, confirm, then run `dispatch send`.
@@ -30,7 +36,9 @@ If this plugin is installed, Claude Code runs the `dispatch-mcp` server for the
 session and exposes `dispatch_*` **MCP tools** — `dispatch_send`,
 `dispatch_inbox`, `dispatch_accept`, `dispatch_decline`,
 `dispatch_pending_approvals`, `dispatch_approve`, `dispatch_status`,
-`dispatch_contacts`, `dispatch_sent`, `dispatch_cancel`, `dispatch_whoami`.
+`dispatch_contacts`, `dispatch_sent`, `dispatch_cancel`, `dispatch_whoami`,
+`dispatch_invite`, `dispatch_invitations`, `dispatch_accept_invitation`,
+`dispatch_decline_invitation`.
 
 **Prefer the MCP tools when available.** They host the signer/approver *in this
 session* — accept/decline and per-tool approvals resolve locally with no
@@ -56,6 +64,14 @@ It reads the broker URL + JWT (and local port) the daemon already saved.
 # Broker-backed (need broker creds; daemon online only where noted):
 dispatch whoami                          # who am I + which broker
 dispatch contacts                        # trust edges: who can dispatch to whom, scopes, online
+dispatch invite <email>                  # invite someone to let YOU dispatch to them
+dispatch invitations                     # pending invitations I've sent + received (tokens)
+dispatch accept-invitation <token>       # accept an invite; I set the inviter's scopes
+  [--tools Read,Glob,Grep]               #   allowed tools (default read-only)
+  [--paths <dir,dir>]                    #   directory allowlist (default: unrestricted)
+  [--approval manual|auto]               #   per-tool human gating (default manual)
+  [--max-per-day <n>]                    #   rate limit (default 50)
+dispatch decline-invitation <token>      # decline an invite (no edge created)
 dispatch send <recipient> '<task>'       # create a dispatch (your daemon must be ONLINE to sign)
   [--expires <seconds>]                  #   TTL, 60–86400 (default 3600)
   [--cwd <dir>]                          #   working-directory hint → metadata.cwd
@@ -86,11 +102,36 @@ The CLI resolves connection settings in this order:
 `recipient` is the contact's **user id** (their email/identifier) exactly as
 it appears under `peer` in `dispatch contacts`.
 
+## Connecting with a contact (invitations)
+
+Trust edges are **directional**: an edge `A → B` lets A dispatch to B, and
+**B (the recipient/trustor) owns the scopes** — what A's agent may do on B's
+machine. You establish an edge with an invitation:
+
+1. **To be able to dispatch to someone**, invite *them*: run
+   `dispatch invite <their-email>`. The broker emails them an invite (or
+   returns a `dev_link` to share if email is off). Inviting grants you nothing
+   yet.
+2. **They accept** with `dispatch accept-invitation <token>` and choose the
+   scopes *your* agent will run under (`--tools`, `--paths`, `--approval`,
+   `--max-per-day`) — least privilege by default (read-only, manual approval).
+   Only then does an **outgoing** edge to them appear in `dispatch contacts`.
+3. **Conversely, when someone invites you**: run `dispatch invitations` to see
+   it (with its `token`), show the user who's inviting them, and — only on the
+   user's say-so — `dispatch accept-invitation <token>` with the scopes they
+   want to grant, or `dispatch decline-invitation <token>`. Accepting lets the
+   inviter dispatch to *this* machine, so treat the scope choice like any trust
+   decision: default to read-only + manual, widen only when asked, and flag
+   that granting `Bash` is full shell access. **Never auto-accept an invite.**
+4. As the trustor you can change what you grant later (you'll show as
+   `can_edit_scopes: true` on that edge in `dispatch contacts`).
+
 ## Sender workflow
 
 1. Run `dispatch contacts` if you're unsure of the exact recipient id or
    whether an outgoing edge exists. You can only send across an **outgoing**
-   edge the recipient has accepted.
+   edge the recipient has accepted. No edge yet? See *Connecting with a
+   contact* above — invite them first.
 2. Confirm the recipient id and the verbatim task with the user (show both,
    ask Y/N) before sending. Do not paraphrase the task — Dispatch preserves it
    verbatim on purpose.
@@ -151,7 +192,8 @@ treat `Bash`-scoped edges with extra care.
   flow: it opens a browser tab to approve, then saves the token), or pass
   `--token`.
 - `broker error 403` on send — no accepted outgoing trust edge to that
-  recipient. Invite them (web UI) and have them accept first.
+  recipient. Run `dispatch invite <their-email>` and have them accept first
+  (see *Connecting with a contact*).
 - `broker error 503` on send — your own daemon is offline; it has to sign.
   Start `dispatch-daemon` and retry.
 - `the local daemon isn't reachable on 127.0.0.1:…` on accept/approve — your

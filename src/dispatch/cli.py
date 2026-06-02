@@ -13,6 +13,10 @@ Resolution order for broker/token (matches the daemon):
 Commands:
     dispatch whoami                         GET  /me
     dispatch contacts                       GET  /trust
+    dispatch invite <email>                 POST /invitations
+    dispatch invitations                    GET  /invitations
+    dispatch accept-invitation <token>      POST /invitations/{token}/accept
+    dispatch decline-invitation <token>     POST /invitations/{token}/decline
     dispatch send <to> '<task>' [...]       POST /dispatch
     dispatch sent                           GET  /dispatches?role=sent
     dispatch inbox                          GET  /dispatches?role=received
@@ -354,6 +358,75 @@ def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def cmd_invite(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Invite someone (by email) to let you dispatch to them. They must accept
+    and set the scopes before any outgoing edge exists."""
+    result = _request(broker, token, "POST", "/invitations", json={"to_email": args.email})
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if result.get("delivered"):
+        print(f"Invitation emailed to {result.get('to_email', args.email)}.")
+    else:
+        print(f"Invitation created for {result.get('to_email', args.email)} "
+              "(email delivery is off on this broker).")
+        if result.get("dev_link"):
+            print(f"  Share this link:  {result['dev_link']}")
+    print("They accept it (and choose the scopes your agent runs under) before "
+          "you can `dispatch send` to them.")
+    return 0
+
+
+def cmd_invitations(args: argparse.Namespace, broker: str, token: str) -> int:
+    """List pending invitations sent and received."""
+    data = _request(broker, token, "GET", "/invitations")
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+    sent = data.get("sent", [])
+    received = data.get("received", [])
+    if not sent and not received:
+        print("No pending invitations.")
+        return 0
+    if received:
+        print(f"Received ({len(received)}) — accept/decline with the token:")
+        for inv in received:
+            print(f"  from {inv['from_user']:<28} token={inv['token']}")
+    if sent:
+        print(f"Sent ({len(sent)}) — awaiting the invitee's acceptance:")
+        for inv in sent:
+            print(f"  to   {inv['to_email']:<28} [{inv.get('status', '?')}]")
+    return 0
+
+
+def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Accept an invitation, setting the scopes the inviter's agent is confined
+    to. The accepter (you) is the trustor — you control what's allowed."""
+    scopes: dict[str, Any] = {
+        "approval": args.approval,
+        "max_dispatches_per_day": args.max_per_day,
+    }
+    if args.tools is not None:
+        scopes["tools"] = [t.strip() for t in args.tools.split(",") if t.strip()]
+    if args.paths is not None:
+        scopes["paths"] = [p.strip() for p in args.paths.split(",") if p.strip()]
+    result = _request(
+        broker, token, "POST", f"/invitations/{args.token}/accept", json={"scopes": scopes}
+    )
+    _emit(
+        args, result,
+        f"Accepted. The inviter can now dispatch to you "
+        f"(trust_link_id={result.get('trust_link_id', '?')}, approval={args.approval}).",
+    )
+    return 0
+
+
+def cmd_decline_invitation(args: argparse.Namespace, broker: str, token: str) -> int:
+    result = _request(broker, token, "POST", f"/invitations/{args.token}/decline")
+    _emit(args, result, "Declined the invitation; no trust edge created.")
+    return 0
+
+
 def cmd_send(args: argparse.Namespace, broker: str, token: str) -> int:
     metadata: dict[str, Any] = {}
     if args.cwd:
@@ -576,6 +649,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("whoami", "Show the signed-in user + broker.", cmd_whoami)
     add("contacts", "List trust edges (who can dispatch to whom).", cmd_contacts)
+
+    # Invitations & trust establishment (broker-backed).
+    add("invite", "Invite someone (by email) to let you dispatch to them.",
+        cmd_invite).add_argument("email", help="Invitee's email address.")
+    add("invitations", "List pending invitations you've sent and received.", cmd_invitations)
+
+    p_acc_inv = add("accept-invitation",
+                    "Accept an invitation, setting the scopes the inviter's agent runs under.",
+                    cmd_accept_invitation)
+    p_acc_inv.add_argument("token", help="Invitation token (from `dispatch invitations`).")
+    p_acc_inv.add_argument(
+        "--tools", default=None,
+        help="Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,Bash. "
+             "Default: Read,Glob,Grep (read-only).")
+    p_acc_inv.add_argument(
+        "--paths", default=None,
+        help="Comma-separated directory allowlist. Default: no path restriction.")
+    p_acc_inv.add_argument(
+        "--approval", choices=["manual", "auto"], default="manual",
+        help="'manual' (approve every tool call, default) or 'auto'.")
+    p_acc_inv.add_argument(
+        "--max-per-day", dest="max_per_day", type=int, default=50,
+        help="Max dispatches/day on this edge (1–10000). Default 50.")
+
+    add("decline-invitation", "Decline an invitation (no trust edge created).",
+        cmd_decline_invitation).add_argument(
+        "token", help="Invitation token (from `dispatch invitations`).")
 
     p_send = add("send", "Send a dispatch (your daemon must be online to sign).", cmd_send)
     p_send.add_argument("recipient", help="Recipient user id (their email/identifier).")

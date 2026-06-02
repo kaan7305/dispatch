@@ -8,7 +8,8 @@ the session's lifetime it:
   - keeps the broker WebSocket open,
   - signs outgoing dispatches and verifies + runs incoming ones,
   - exposes tools the Claude session drives (send / inbox / accept / decline /
-    approve / status / contacts / cancel).
+    approve / status / contacts / cancel, plus invite / invitations /
+    accept-invitation / decline-invitation for establishing trust edges).
 
 It REUSES the daemon internals verbatim — identity/keys, signing, the
 durable replay guard, signature verification, the executor, and LocalState —
@@ -263,6 +264,62 @@ def dispatch_whoami() -> dict:
 async def dispatch_contacts() -> dict:
     """List trust edges: who can dispatch to whom, with scopes and online state."""
     return await _broker_call("GET", "/trust")
+
+
+@mcp.tool()
+async def dispatch_invite(to_email: str) -> dict:
+    """Invite someone (by email) to let YOU dispatch to them. Emails them an
+    invitation; once they accept — and set the scopes your agent will be
+    confined to — an *outgoing* trust edge appears in dispatch_contacts and you
+    can dispatch_send to them. Inviting grants you nothing on its own: the
+    invitee chooses whether to accept and with what tools/paths/approval.
+    Returns {status, delivered, to_email} (plus a dev_link if email delivery
+    is disabled on the broker)."""
+    return await _broker_call("POST", "/invitations", json={"to_email": to_email})
+
+
+@mcp.tool()
+async def dispatch_invitations() -> dict:
+    """List pending invitations you've sent and received. Each received invite
+    carries a `token` you can hand to dispatch_accept_invitation /
+    dispatch_decline_invitation. Accepting a received invite creates an edge
+    that lets the *inviter* dispatch to your machine, under scopes you set."""
+    return await _broker_call("GET", "/invitations")
+
+
+@mcp.tool()
+async def dispatch_accept_invitation(
+    token: str,
+    tools: Optional[list[str]] = None,
+    paths: Optional[list[str]] = None,
+    approval: str = "manual",
+    max_dispatches_per_day: int = 50,
+) -> dict:
+    """Accept an invitation, creating a trust edge that lets the inviter
+    dispatch to YOUR machine. You set the scopes their agent is confined to —
+    least privilege by default: read-only tools and manual approval of every
+    tool call. `tools` ⊆ {Read,Glob,Grep,Write,Edit,Bash} (default
+    Read/Glob/Grep); `approval` is "manual" or "auto"; `paths` is a directory
+    allowlist (empty = no path restriction); `max_dispatches_per_day` caps the
+    rate. Granting Bash grants full shell — confirm with the human first. Get
+    `token` from dispatch_invitations. You can widen/narrow scopes later as the
+    edge's trustor."""
+    scopes: dict[str, Any] = {
+        "approval": approval,
+        "max_dispatches_per_day": max_dispatches_per_day,
+    }
+    if tools is not None:
+        scopes["tools"] = tools
+    if paths is not None:
+        scopes["paths"] = paths
+    return await _broker_call("POST", f"/invitations/{token}/accept", json={"scopes": scopes})
+
+
+@mcp.tool()
+async def dispatch_decline_invitation(token: str) -> dict:
+    """Decline an invitation; no trust edge is created. Get `token` from
+    dispatch_invitations."""
+    return await _broker_call("POST", f"/invitations/{token}/decline")
 
 
 @mcp.tool()
