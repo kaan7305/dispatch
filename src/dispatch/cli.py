@@ -270,6 +270,22 @@ def cmd_login(args: argparse.Namespace, broker: str, token: str) -> int:
     sign-in), polls until approved, then saves broker + token to
     ~/.dispatch/config.json. Needs no existing token.
     """
+    # Already signed in? Don't open a browser — verify the saved token first.
+    if token and not getattr(args, "force", False):
+        try:
+            with httpx.Client(base_url=broker, timeout=HTTP_TIMEOUT_S, verify=certifi.where()) as c:
+                me = c.get("/me", headers={"Authorization": f"Bearer {token}"})
+            if me.status_code == 200:
+                user = me.json().get("user_id", "(unknown)")
+                _emit(
+                    args,
+                    {"status": "already_signed_in", "user_id": user, "broker": broker},
+                    f"Already signed in as {user} on {broker}. "
+                    f"Use `dispatch login --force` to re-authenticate.",
+                )
+                return 0
+        except httpx.HTTPError:
+            pass  # broker unreachable — fall through and try a fresh sign-in
     try:
         with httpx.Client(base_url=broker, timeout=HTTP_TIMEOUT_S, verify=certifi.where()) as c:
             resp = c.post("/auth/device")
@@ -516,6 +532,20 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Launch the macOS menu-bar app (always-on daemon supervisor). Replaces
+    this process with `dispatch-tray`."""
+    import shutil
+    exe = shutil.which("dispatch-tray")
+    if not exe:
+        raise CliError(
+            "dispatch-tray not found. Install the tray app:\n"
+            "    pipx install 'dispatch-agent[tray]'\n"
+            "(or reinstall dispatch with the [tray] extra)."
+        )
+    os.execv(exe, [exe])  # replace the CLI process with the tray app
+
+
 def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
     result = _request(broker, token, "POST", f"/dispatch/{args.dispatch_id}/cancel")
     status = result.get("status", "?")
@@ -635,7 +665,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Terminal client for the Dispatch broker (drives the /dispatch Claude skill).",
         parents=[common],
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    # No subcommand → print help instead of erroring.
+    sub = parser.add_subparsers(dest="command", required=False)
 
     def add(name: str, help: str, func) -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help, parents=[common])
@@ -645,7 +676,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_login = add("login", "Sign in from the terminal (device-authorization flow).", cmd_login)
     p_login.add_argument("--no-browser", action="store_true", default=False,
                          help="Don't auto-open the browser; just print the URL + code.")
+    p_login.add_argument("--force", action="store_true", default=False,
+                         help="Re-authenticate even if already signed in.")
     p_login.set_defaults(no_auth=True)  # login is how you GET a token
+
+    # Launch the menu-bar app (no broker creds needed).
+    add("tray", "Launch the macOS menu-bar app (always-on daemon supervisor).",
+        cmd_tray).set_defaults(no_auth=True)
+
+    # `dispatch help` → print top-level usage.
+    def _cmd_help(_args: argparse.Namespace, _broker: str, _token: str) -> int:
+        parser.print_help()
+        return 0
+    add("help", "Show this help.", _cmd_help).set_defaults(no_auth=True)
 
     add("whoami", "Show the signed-in user + broker.", cmd_whoami)
     add("contacts", "List trust edges (who can dispatch to whom).", cmd_contacts)
@@ -718,6 +761,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Bare `dispatch` (no subcommand) → show help instead of an argparse error.
+    if getattr(args, "command", None) is None:
+        parser.print_help()
+        return 0
 
     # SUPPRESS leaves these unset when not passed; normalize so every command
     # can read args.json / resolve broker+token uniformly.
