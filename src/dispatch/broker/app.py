@@ -274,6 +274,86 @@ async def auth_clerk(req: ClerkExchangeRequest) -> dict:
     return {"user_id": normalized, "token": issue_token(normalized)}
 
 
+# ----------------------------------------------------------------------------
+# Device-authorization grant (RFC 8628): terminal-native `dispatch login`.
+#
+#   1. CLI    POST /auth/device           -> { device_code, user_code, verification_uri[_complete], interval, expires_in }
+#   2. human  opens verification_uri (signed in via Clerk) and approves user_code
+#             -> the browser calls POST /auth/device/approve (Bearer JWT)
+#   3. CLI    polls POST /auth/device/token { device_code }
+#             -> { status: pending | approved (+ token, user_id) | expired | invalid }
+# ----------------------------------------------------------------------------
+
+DEVICE_CODE_TTL_S = 600          # 10 minutes for the human to approve
+DEVICE_POLL_INTERVAL_S = 5       # how often the CLI should poll
+# Unambiguous alphabet (no 0/O/1/I) for the short, human-typed code.
+_USER_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+class DeviceApproveRequest(BaseModel):
+    user_code: str
+
+
+class DeviceTokenRequest(BaseModel):
+    device_code: str
+
+
+def _new_user_code() -> str:
+    raw = "".join(secrets.choice(_USER_CODE_ALPHABET) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+@app.post("/auth/device")
+async def auth_device_start() -> dict:
+    """Begin a device-auth flow. No auth — anyone may start one; it's useless
+    until a signed-in human approves the user_code in the browser."""
+    device_code = secrets.token_urlsafe(32)
+    user_code = _new_user_code()
+    expires_at = utcnow() + timedelta(seconds=DEVICE_CODE_TTL_S)
+    await STORE.create_device_auth(device_code, user_code, expires_at)
+    base = _public_url()
+    return {
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": f"{base}/?device=1",
+        "verification_uri_complete": f"{base}/?device={user_code}",
+        "expires_in": DEVICE_CODE_TTL_S,
+        "interval": DEVICE_POLL_INTERVAL_S,
+    }
+
+
+@app.post("/auth/device/approve")
+async def auth_device_approve(
+    req: DeviceApproveRequest, user_id: str = Depends(authed_user)
+) -> dict:
+    """Called by the browser approval page once the human is signed in.
+    Binds the pending user_code to that authenticated user."""
+    result = await STORE.approve_device_auth(req.user_code.strip().upper(), user_id)
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Unknown or already-used code")
+    if result == "expired":
+        raise HTTPException(status_code=410, detail="Code expired — start a new `dispatch login`")
+    return {"status": "approved", "user_code": req.user_code}
+
+
+@app.post("/auth/device/token")
+async def auth_device_token(req: DeviceTokenRequest) -> dict:
+    """Polled by the CLI. Returns the Dispatch JWT once the human has approved,
+    then consumes the code (one-time)."""
+    row = await STORE.get_device_auth(req.device_code)
+    if row is None:
+        return {"status": "invalid"}
+    if row["expires_at"] <= utcnow() and row["status"] != "approved":
+        return {"status": "expired"}
+    if row["status"] == "consumed":
+        return {"status": "invalid"}
+    if row["status"] != "approved":
+        return {"status": "pending", "interval": DEVICE_POLL_INTERVAL_S}
+    user_id = row["user_id"]
+    await STORE.consume_device_auth(req.device_code)
+    return {"status": "approved", "user_id": user_id, "token": issue_token(user_id)}
+
+
 @app.get("/config.js")
 async def config_js() -> PlainTextResponse:
     """Tiny script the SPA loads before app.js so it knows which Clerk

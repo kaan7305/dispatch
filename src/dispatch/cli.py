@@ -30,6 +30,8 @@ import argparse
 import json
 import os
 import sys
+import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Optional
 
@@ -63,6 +65,20 @@ def _load_config() -> dict:
         return json.loads(_config_path().read_text())
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
+
+
+def _save_config(**fields: object) -> None:
+    """Merge fields into ~/.dispatch/config.json (0600). Used by `login` to
+    persist the broker URL + token the daemon/MCP read on the next run."""
+    config = _load_config()
+    config.update({k: v for k, v in fields.items() if v is not None})
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2))
+    try:
+        path.chmod(0o600)  # bearer token lives here
+    except OSError:
+        pass
 
 
 def _resolve_broker(arg: Optional[str], config: dict) -> str:
@@ -241,6 +257,68 @@ def _fmt_dispatch_line(d: dict, who_key: str) -> str:
 # ----------------------------------------------------------------------------
 # Commands
 # ----------------------------------------------------------------------------
+
+
+def cmd_login(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Terminal-native sign-in via the device-authorization grant (RFC 8628).
+
+    Starts a flow with the broker, opens the browser to approve (Clerk/Google
+    sign-in), polls until approved, then saves broker + token to
+    ~/.dispatch/config.json. Needs no existing token.
+    """
+    try:
+        with httpx.Client(base_url=broker, timeout=HTTP_TIMEOUT_S, verify=certifi.where()) as c:
+            resp = c.post("/auth/device")
+    except httpx.HTTPError as e:
+        raise CliError(f"can't reach broker at {broker} ({e}). Is the URL right?")
+    if resp.status_code >= 400:
+        raise CliError(f"broker error {resp.status_code}: {_detail(resp)}")
+    start = resp.json()
+    device_code = start["device_code"]
+    user_code = start["user_code"]
+    vuri = start.get("verification_uri_complete") or start.get("verification_uri")
+    interval = max(1, int(start.get("interval", 5)))
+    expires_in = int(start.get("expires_in", 600))
+
+    # Instructions go to stderr so --json keeps stdout to the final result only.
+    sys.stderr.write(
+        f"\nSign in to Dispatch:\n"
+        f"  1. Open:           {vuri}\n"
+        f"  2. Confirm code:   {user_code}\n\n"
+    )
+    if not getattr(args, "no_browser", False):
+        try:
+            webbrowser.open(vuri)
+        except Exception:
+            pass
+    sys.stderr.write("Waiting for browser approval… (Ctrl-C to cancel)\n")
+
+    deadline = time.monotonic() + expires_in
+    with httpx.Client(base_url=broker, timeout=HTTP_TIMEOUT_S, verify=certifi.where()) as c:
+        while time.monotonic() < deadline:
+            time.sleep(interval)
+            try:
+                r = c.post("/auth/device/token", json={"device_code": device_code})
+            except httpx.HTTPError:
+                continue
+            if r.status_code >= 400:
+                continue
+            body = r.json()
+            st = body.get("status")
+            if st == "approved":
+                _save_config(broker=broker, token=body["token"])
+                _emit(
+                    args,
+                    {"status": "ok", "user_id": body.get("user_id"), "broker": broker},
+                    f"Signed in as {body.get('user_id')}. Saved to {_config_path()}.",
+                )
+                return 0
+            if st == "expired":
+                raise CliError("the code expired before you approved it. Run `dispatch login` again.")
+            if st == "invalid":
+                raise CliError("the broker rejected the device code. Run `dispatch login` again.")
+            interval = max(interval, int(body.get("interval", interval)))
+    raise CliError("timed out waiting for approval. Run `dispatch login` again.")
 
 
 def cmd_whoami(args: argparse.Namespace, broker: str, token: str) -> int:
@@ -491,6 +569,11 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=func)
         return p
 
+    p_login = add("login", "Sign in from the terminal (device-authorization flow).", cmd_login)
+    p_login.add_argument("--no-browser", action="store_true", default=False,
+                         help="Don't auto-open the browser; just print the URL + code.")
+    p_login.set_defaults(no_auth=True)  # login is how you GET a token
+
     add("whoami", "Show the signed-in user + broker.", cmd_whoami)
     add("contacts", "List trust edges (who can dispatch to whom).", cmd_contacts)
 
@@ -546,11 +629,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Local-only commands (accept/decline/approve/deny/approvals) talk to the
     # loopback daemon and don't need broker creds.
     local_only = getattr(args, "local_only", False)
-    if not token and not local_only:
+    no_auth = getattr(args, "no_auth", False)  # `login` — it's how you get a token
+    if not token and not local_only and not no_auth:
         sys.stderr.write(
-            "error: no token. Sign in to the broker, run the daemon installer "
-            "(which writes ~/.dispatch/config.json), or pass --token / set "
-            "$DISPATCH_TOKEN.\n"
+            "error: no token. Run `dispatch login` to sign in from the terminal, "
+            "or pass --token / set $DISPATCH_TOKEN.\n"
         )
         return 1
 
