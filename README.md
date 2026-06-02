@@ -186,10 +186,13 @@ the `dispatch-mcp` server starts with each session and exposes the tools it
 drives:
 
 ```
-dispatch_whoami · dispatch_contacts · dispatch_send · dispatch_inbox
-dispatch_sent · dispatch_status · dispatch_accept · dispatch_decline
-dispatch_pending_approvals · dispatch_approve · dispatch_cancel
+dispatch_read(what)    — inbox | status | sent | contacts | invitations | approvals | whoami
+dispatch_act(action,…) — accept | decline | cancel | approve | deny
+dispatch_send(…)       — send a dispatch
+dispatch_invite(action)— send | list | accept | decline (invitations)
 ```
+(`dispatch_act(action="accept", …)` runs the accepted task in the sandboxed
+dp-agent and prompts you inline for each tool call.)
 
 Accept/decline and per-tool approvals (Layer 3) resolve **locally in this
 session** — nothing is delegated to the broker. The device key still lives on
