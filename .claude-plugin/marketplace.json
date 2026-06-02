@@ -8,7 +8,7 @@
     {
       "name": "dispatch",
       "source": "./",
-      "description": "Peer-to-peer agentic task courier driven from Claude Code. Delegate, receive, approve, and track dispatches in natural language; wraps the `dispatch` CLI."
+      "description": "Peer-to-peer agentic task courier driven from Claude Code. Terminal sign-in, in-session (no daemon), scoped + signed + approved; a dispatch can use the recipient's own MCP tools. Delegate, invite, receive, approve, and track dispatches in natural language."
     }
   ]
 }
