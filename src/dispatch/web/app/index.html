@@ -54,6 +54,18 @@
           Open the Dispatch app and go to <strong>People</strong> to accept it.
         </div>
 
+        <div id="device-panel" class="install-panel" hidden style="border:1px solid var(--border,#ccc);padding:14px;border-radius:8px;margin-bottom:18px">
+          <h2>Approve terminal sign-in</h2>
+          <p>Your terminal (<code>dispatch login</code>) is asking to sign in as you.
+             Confirm the code matches the one shown in your terminal, then approve.</p>
+          <div class="row" style="align-items:center;gap:8px">
+            <input id="device-code-input" placeholder="ABCD-EFGH"
+                   style="font-family:monospace;font-size:1.1em;text-transform:uppercase;padding:6px 10px" />
+            <button id="device-approve-btn" type="button">Approve</button>
+          </div>
+          <div id="device-status" class="status idle"></div>
+        </div>
+
         <h2>Open your dashboard</h2>
         <p>View your inbox, contacts, devices, and history right here in the browser.</p>
         <a id="open-dashboard-link" class="primary-link" href="/app">Open web dashboard →</a>

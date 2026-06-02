@@ -13,6 +13,10 @@ let token  = localStorage.getItem(STORAGE_TOKEN);
 let userId = localStorage.getItem(STORAGE_USER);
 
 const inviteToken = new URLSearchParams(location.search).get("invite");
+// Device-authorization grant: `?device=<user_code>` means a terminal is
+// asking us (once signed in) to approve its sign-in. "1" = no code yet.
+const deviceParam = new URLSearchParams(location.search).get("device");
+const deviceCode  = deviceParam && deviceParam !== "1" ? deviceParam : "";
 
 const authStatus   = document.getElementById("auth-status");
 const installPanel = document.getElementById("install-panel");
@@ -21,6 +25,10 @@ const tokenDisplay = document.getElementById("token-display");
 const loginBtn     = document.getElementById("login-btn");
 const logoutBtn    = document.getElementById("logout");
 const openAppLink  = document.getElementById("open-app-link");
+const devicePanel  = document.getElementById("device-panel");
+const deviceInput  = document.getElementById("device-code-input");
+const deviceBtn    = document.getElementById("device-approve-btn");
+const deviceStatus = document.getElementById("device-status");
 
 function refreshAuth() {
   if (token && userId) {
@@ -40,6 +48,12 @@ function refreshAuth() {
 
     const inviteBanner = document.getElementById("invite-banner");
     if (inviteBanner) inviteBanner.hidden = !inviteToken;
+
+    // Surface the terminal-approval panel whenever we arrived via ?device=.
+    if (devicePanel && (deviceParam)) {
+      devicePanel.hidden = false;
+      if (deviceCode && deviceInput && !deviceInput.value) deviceInput.value = deviceCode;
+    }
   } else {
     if (!authStatus.classList.contains("error")) {
       authStatus.textContent = "not signed in";
@@ -50,9 +64,37 @@ function refreshAuth() {
     installCmd.textContent = "";
     logoutBtn.hidden = true;
     loginBtn.hidden = false;
+    if (devicePanel) devicePanel.hidden = true;
   }
 }
 refreshAuth();
+
+// ─── Device-authorization approval ───────────────────────────────────
+if (deviceBtn) {
+  deviceBtn.addEventListener("click", async () => {
+    const code = (deviceInput.value || "").trim().toUpperCase();
+    if (!code) { deviceStatus.textContent = "Enter the code from your terminal."; deviceStatus.className = "status error"; return; }
+    if (!token) { deviceStatus.textContent = "Sign in first."; deviceStatus.className = "status error"; return; }
+    deviceStatus.textContent = "Approving…"; deviceStatus.className = "status running";
+    try {
+      const res = await fetch("/auth/device/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ user_code: code }),
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`;
+        throw new Error(detail);
+      }
+      deviceStatus.textContent = "Approved ✓ — return to your terminal; it'll finish signing in.";
+      deviceStatus.className = "status done";
+      deviceBtn.disabled = true;
+    } catch (err) {
+      deviceStatus.textContent = `Approval failed: ${err.message}`;
+      deviceStatus.className = "status error";
+    }
+  });
+}
 
 // ─── Clerk auth flow ─────────────────────────────────────────────────
 

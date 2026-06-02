@@ -144,19 +144,21 @@ the lifetime of each session.
 #    dispatch-daemon) are on your PATH:
 pipx install git+https://github.com/kaan7305/dispatch.git
 
-# 2. Add the marketplace and install the plugin (one-time), in Claude Code:
+# 2. Sign in — entirely from the terminal (opens one browser tab to approve):
+dispatch login --broker https://your-broker
+#    Opens the broker sign-in, you confirm the shown code, and the JWT +
+#    broker URL are saved to ~/.dispatch/config.json. No token to copy/paste.
+#    (after the first run, plain `dispatch login` reuses the saved broker.)
+
+# 3. Add the marketplace and install the plugin (one-time), in Claude Code:
 /plugin marketplace add kaan7305/dispatch
 /plugin install dispatch@dispatch
-
-# 3. Sign in to the broker once (writes the broker URL + token to
-#    ~/.dispatch/config.json that the plugin reads):
-curl -fsSL https://your-broker/install.sh | bash -s -- <your-token> [anthropic-api-key]
-#    (you can Ctrl-C once it prints "installed" — step 1 already has the code;
-#     this step is just to drop your credentials into ~/.dispatch/config.json)
 ```
 
-Restart your Claude Code session. The `dispatch-mcp` server now starts with
-each session and exposes the tools it drives:
+You don't need a separate Anthropic API key for in-session mode — the agent
+runs on your existing Claude Code login. Restart your Claude Code session;
+the `dispatch-mcp` server starts with each session and exposes the tools it
+drives:
 
 ```
 dispatch_whoami · dispatch_contacts · dispatch_send · dispatch_inbox

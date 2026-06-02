@@ -146,8 +146,10 @@ treat `Bash`-scoped edges with extra care.
 
 ## Failure modes
 
-- `error: no token` — no `~/.dispatch/config.json` and no `--token`/env. Sign
-  in to the broker and run the daemon installer, or pass `--token`.
+- `error: no token` — no `~/.dispatch/config.json` and no `--token`/env. Run
+  `dispatch login --broker <url>` to sign in from the terminal (device-auth
+  flow: it opens a browser tab to approve, then saves the token), or pass
+  `--token`.
 - `broker error 403` on send — no accepted outgoing trust edge to that
   recipient. Invite them (web UI) and have them accept first.
 - `broker error 503` on send — your own daemon is offline; it has to sign.

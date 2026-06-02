@@ -172,3 +172,21 @@ CREATE TABLE IF NOT EXISTS contexts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contexts_owner ON contexts(owner_id);
+
+-- ============================================================================
+-- Device-authorization grant (RFC 8628): terminal-native sign-in.
+-- The CLI starts a flow (gets a high-entropy device_code + a short user_code),
+-- the human approves the user_code in the browser (signed in via Clerk), and
+-- the CLI polls until the broker mints a Dispatch JWT. Rows are short-lived
+-- and one-time (status pending -> approved -> consumed).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS device_auth (
+    device_code  TEXT PRIMARY KEY,                 -- secret; only the CLI holds it
+    user_code    TEXT UNIQUE NOT NULL,             -- short; the human types/confirms it
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | consumed
+    user_id      TEXT,                             -- set on approval (the authenticated human)
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at   TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_auth_user_code ON device_auth(user_code);

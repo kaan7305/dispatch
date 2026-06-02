@@ -86,6 +86,52 @@ class Store:
                 user_id,
             )
 
+    # ---------------- device-authorization grant ----------------
+
+    async def create_device_auth(self, device_code: str, user_code: str, expires_at) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO device_auth (device_code, user_code, expires_at)
+                VALUES ($1, $2, $3)
+                """,
+                device_code, user_code, expires_at,
+            )
+
+    async def get_device_auth(self, device_code: str) -> Optional[dict]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM device_auth WHERE device_code = $1", device_code
+            )
+            return dict(row) if row else None
+
+    async def approve_device_auth(self, user_code: str, user_id: str) -> str:
+        """Bind a pending user_code to the authenticated human. Returns
+        'approved' on success, 'not_found' if no such pending code, or
+        'expired' if it lapsed. Idempotent: re-approving an approved code is ok."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT status, expires_at FROM device_auth WHERE user_code = $1", user_code
+            )
+            if row is None:
+                return "not_found"
+            if row["expires_at"] <= utcnow():
+                return "expired"
+            if row["status"] == "consumed":
+                return "not_found"
+            await conn.execute(
+                "UPDATE device_auth SET status = 'approved', user_id = $2 WHERE user_code = $1",
+                user_code, user_id,
+            )
+            return "approved"
+
+    async def consume_device_auth(self, device_code: str) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE device_auth SET status = 'consumed' WHERE device_code = $1",
+                device_code,
+            )
+
     async def mark_signed_out(self, user_id: str) -> None:
         """Bump the user's `signed_out_at` to now. Subsequent JWT checks
         with iat earlier than this timestamp will be rejected."""
