@@ -8,6 +8,7 @@ import {
   BookText,
   History as HistoryIcon,
   Monitor,
+  Settings as SettingsIcon,
   Search,
   Plus,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const NAV = [
   { to: "/contexts",  label: "Context",   Icon: BookText   },
   { to: "/history",   label: "History",   Icon: HistoryIcon },
   { to: "/devices",   label: "Devices",   Icon: Monitor    },
+  { to: "/settings",  label: "Settings",  Icon: SettingsIcon },
 ];
 
 export function Shell() {

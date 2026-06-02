@@ -171,7 +171,23 @@ export const api = {
     }),
   revokeDevice: (id: string) =>
     request<{ status: string }>(`/api/devices/${id}`, { method: "DELETE" }),
+
+  // ── SMS notifications ───────────────────────────────────────────────
+  // The recipient's phone for dispatch-arrival texts. `sms_enabled` reflects
+  // whether the broker actually has Twilio configured — a saved number with
+  // sms_enabled=false means texts won't send until the broker is wired up.
+  phone: () => request<PhoneSettings>("/api/me/phone"),
+  setPhone: (phone: string | null) =>
+    request<PhoneSettings>("/api/me/phone", {
+      method: "POST",
+      body: JSON.stringify({ phone }),
+    }),
 };
+
+export interface PhoneSettings {
+  phone: string | null;
+  sms_enabled: boolean;
+}
 
 // ─── Broker-side wire types (proxied through the daemon) ─────────────────
 

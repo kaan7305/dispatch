@@ -270,6 +270,10 @@ class _DeviceRename(BaseModel):
     label: str
 
 
+class _PhoneUpdate(BaseModel):
+    phone: Optional[str] = None
+
+
 def make_app(
     local_state: LocalState,
     daemon_state,
@@ -531,6 +535,14 @@ def make_app(
     @app.delete("/api/devices/{device_id}", dependencies=[Depends(require_local_token)])
     async def revoke_device(device_id: str) -> Response:
         return await _broker_request("DELETE", f"/devices/{device_id}")
+
+    @app.get("/api/me/phone", dependencies=[Depends(require_local_token)])
+    async def get_phone() -> Response:
+        return await _broker_request("GET", "/me/phone")
+
+    @app.post("/api/me/phone", dependencies=[Depends(require_local_token)])
+    async def set_phone(body: _PhoneUpdate) -> Response:
+        return await _broker_request("POST", "/me/phone", json_body=body.model_dump())
 
     # ── WebSocket proxy for the sender's live "watch" view ──────────────
     # Browser opens ws://127.0.0.1:8001/ws/dispatch/{id}?t=<local-token>

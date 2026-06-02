@@ -12,6 +12,7 @@ import WorkflowEditor from "./pages/WorkflowEditor";
 import WorkflowRun from "./pages/WorkflowRun";
 import Contexts from "./pages/Contexts";
 import ContextEditor from "./pages/ContextEditor";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/contexts/:id/edit" element={<ContextEditor />} />
             <Route path="/history" element={<History />} />
             <Route path="/devices" element={<Devices />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/inbox" replace />} />
           </Route>
         </Routes>
