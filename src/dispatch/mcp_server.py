@@ -50,7 +50,9 @@ from uuid import UUID
 import certifi
 import httpx
 import websockets
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.elicitation import AcceptedElicitation
+from pydantic import BaseModel
 
 from dispatch.daemon.identity import dispatch_home, ensure_enrolled, get_private_key
 from dispatch.daemon.local_app import LocalState, _entry_summary
@@ -370,12 +372,82 @@ async def dispatch_status(dispatch_id: str) -> dict:
     return await _broker_call("GET", f"/dispatch/{dispatch_id}")
 
 
+class _ApproveToolCall(BaseModel):
+    allow: bool
+
+
+_TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
+_SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
+
+
 @mcp.tool()
-def dispatch_accept(dispatch_id: str) -> dict:
-    """Accept an inbound dispatch so its agent runs (confined to the trust
-    edge's tools + paths). Only valid for a dispatch currently awaiting your
-    decision in this session's inbox."""
-    return _resolve_decision(dispatch_id, "accept")
+async def dispatch_accept(dispatch_id: str, ctx: Context) -> dict:
+    """Accept an inbound dispatch AND supervise its sandboxed run to completion.
+
+    This blocks until the dispatch finishes: the confined dp-agent (limited to
+    the trust edge's tools/paths) does the work, and on a `manual` edge each
+    tool call is surfaced to YOU here for allow/deny before it runs. You do not
+    run the task yourself — accepting *is* running it, in the sandbox. Returns
+    the final status when done. Only valid for a dispatch currently awaiting
+    your decision in this session's inbox.
+    """
+    link = _require_link()
+    ds = link.daemon_state
+    fut = ds.pending_decisions.get(dispatch_id)
+    if fut is None or fut.done():
+        return {
+            "status": "error",
+            "detail": "no pending decision for that dispatch — run dispatch_inbox "
+            "(it may not be addressed to you, or it's already decided/expired).",
+        }
+    fut.set_result("accept")  # release the confined run
+
+    try:
+        did = UUID(dispatch_id)
+    except ValueError:
+        did = None
+
+    handled: set[str] = set()
+    waited = 0.0
+    while waited < _SUPERVISE_TIMEOUT_S:
+        entry = link.local_state.entries.get(did) if did else None
+        # Resolve any tool calls the run is blocked on, by asking the human here.
+        for (d, request_id), afut in list(ds.pending_approvals.items()):
+            if d != dispatch_id or request_id in handled or afut.done():
+                continue
+            handled.add(request_id)
+            info = (entry.pending_tools.get(request_id) if entry else {}) or {}
+            msg = (
+                f"Dispatch {dispatch_id[:8]}… from "
+                f"{entry.payload.sender_id if entry else '?'} wants to run:\n"
+                f"  {info.get('tool')}: {info.get('input')}\n\nAllow this tool call?"
+            )
+            try:
+                res = await ctx.elicit(message=msg, schema=_ApproveToolCall)
+                decision = "allow" if (isinstance(res, AcceptedElicitation) and res.data.allow) else "deny"
+            except Exception:
+                decision = "deny"  # fail safe if elicitation is unavailable
+            if not afut.done():
+                afut.set_result(decision)
+
+        status = entry.status.value if entry else None
+        if status in _TERMINAL:
+            break
+        # Run task gone from the running map and nothing pending → it ended.
+        if dispatch_id not in ds.running and status in _TERMINAL | {None} and waited > 1.0:
+            break
+        await asyncio.sleep(0.25)
+        waited += 0.25
+
+    entry = link.local_state.entries.get(did) if did else None
+    return {
+        "status": entry.status.value if entry else "unknown",
+        "dispatch_id": dispatch_id,
+        "events": len(entry.events) if entry else 0,
+        "note": "Ran in the sandboxed dp-agent (confined to the edge scope) and "
+                "you approved each tool call above. Do NOT perform the task "
+                "yourself or run any tools toward it — it is already done.",
+    }
 
 
 @mcp.tool()
