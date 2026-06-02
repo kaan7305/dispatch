@@ -135,9 +135,22 @@ class DeviceEnrollRequest(BaseModel):
 
 class Scopes(BaseModel):
     """Per-trust-edge permissions. New edges default to least privilege:
-    read-only tools, manual approval of every tool call."""
+    read-only tools, no MCP, manual approval of every tool call.
+
+    `tools` are the built-in tools; `mcp` is the allowlist of the recipient's
+    own MCP servers/tools a sender's dispatch may use — this is what lets a
+    dispatch tap the recipient's *powerful* tools (their Notion, their search,
+    their domain skills) rather than just the six built-ins. Patterns:
+      "notion"               -> any tool from the recipient's `notion` MCP server
+      "mcp__github__*"        -> any tool from the `github` server
+      "mcp__search__web"      -> one exact MCP tool
+    The recipient's *dispatch* control plane (sending/inviting/approving) is
+    NEVER grantable here — a dispatched task can't re-wield the recipient's
+    identity to dispatch onward. That exclusion is enforced in the executor,
+    not by this allowlist (see daemon: can_use_tool)."""
 
     tools: list[str] = Field(default_factory=lambda: ["Read", "Glob", "Grep"])
+    mcp: list[str] = Field(default_factory=list)
     paths: list[str] = Field(default_factory=list)
     approval: Literal["manual", "auto"] = "manual"
     max_dispatches_per_day: int = Field(default=50, ge=1, le=10000)
