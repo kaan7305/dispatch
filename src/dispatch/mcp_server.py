@@ -1,265 +1,250 @@
-"""dispatch-mcp — the in-session Dispatch helper.
+"""dispatch-mcp — the in-session Dispatch helper (thin client of the daemon).
 
-Instead of a separate always-on daemon, this is a stdio MCP server that
-Claude Code launches per session (declared in the plugin's plugin.json). For
-the session's lifetime it:
+Claude Code launches this stdio MCP server per session (declared in the
+plugin's plugin.json). It is **not** a second daemon: it holds no broker
+connection, no device key, and runs no executor. Instead it is a thin client
+of the local daemon's 127.0.0.1 API.
 
-  - holds this machine's Ed25519 device key (never leaves the machine),
-  - keeps the broker WebSocket open,
-  - signs outgoing dispatches and verifies + runs incoming ones,
-  - exposes tools the Claude session drives (send / inbox / accept / decline /
-    approve / status / contacts / cancel, plus invite / invitations /
-    accept-invitation / decline-invitation for establishing trust edges).
+Lifecycle:
+  1. Read ~/.dispatch/config.json. No broker token → **dormant**: the tools
+     stay loaded but each one tells the user to run `dispatch login`. Nothing
+     is spawned, no browser opens (Layer-0 courtesy: pre-login we do nothing).
+  2. Otherwise **ensure a daemon is running** — if the local API isn't
+     answering, spawn one detached (the tray on macOS, which hosts the daemon
+     and gives the menu-bar indicator; bare `dispatch-daemon` elsewhere) and
+     wait for it to bind. The daemon persists across sessions.
+  3. Talk to that daemon over its local API for everything: inbox, status,
+     send, accept/decline, per-tool approvals, trust, invitations.
 
-It REUSES the daemon internals verbatim — identity/keys, signing, the
-durable replay guard, signature verification, the executor, and LocalState —
-so the security layers are unchanged:
+Why this shape (vs. the old per-session daemon):
+  - **One broker connection per machine.** The daemon owns it (guarded by the
+    connection lock); sessions never compete for it, so the eviction/churn war
+    is gone. See dispatch.daemon.connlock.
+  - **Cross-session visibility for free.** Every session reads the same daemon
+    inbox, so what one terminal accepts is visible in another.
+  - **Security layers unchanged.** Layer 2 (signature + TOFU pin) and the
+    executor run in the daemon. Layer 3 (human approval) is surfaced here via
+    `ctx.elicit` and resolved against the daemon — the daemon, not the broker,
+    holds the approval futures, so the broker still can't fabricate consent.
 
-  - Layer 2 (signature + TOFU pin) runs locally in this process, against keys
-    the broker can't substitute.
-  - Layer 3 (human approval) stays local: incoming dispatches and per-tool
-    permission requests are surfaced via `dispatch_inbox` /
-    `dispatch_pending_approvals` and resolved by `dispatch_accept` /
-    `dispatch_approve` — the same future-resolution the daemon's 127.0.0.1
-    web UI used, just exposed as MCP tools instead of HTTP endpoints.
-
-Only the *surface* (MCP tools, not a local web server) and the *lifecycle*
-(per-session, not always-on) differ from `dispatch-daemon`. The trade-off:
-this can only receive/run dispatches while a Claude session is open;
-dispatches sent while you're away wait in the broker's offline queue and
-land when you next open Claude. For always-on reachability or scheduled
-runs, use `dispatch-daemon` (same code, run as a service).
-
-A future enhancement can drive the per-tool approval as a live MCP
-elicitation inside the `dispatch_accept` tool (which has a request Context);
-today approvals are tool-resolved, which works regardless of elicitation
-support and keeps the human in control.
+The dispatched task itself runs in the daemon's confined executor (a fresh
+ClaudeSDKClient with `setting_sources=[]`); it never inherits this session's
+skills/MCP. So which process *hosts* a dispatch makes no difference to how it
+runs — only where the broker socket and approval futures live.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
+import shutil
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-import certifi
 import httpx
-import websockets
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.elicitation import AcceptedElicitation
 from pydantic import BaseModel
 
-from dispatch.daemon.identity import dispatch_home, ensure_enrolled, get_private_key
-from dispatch.daemon.local_app import LocalState, _entry_summary
+from dispatch.daemon.identity import dispatch_home
+from dispatch.daemon.local_app import read_local_token
+from dispatch.daemon.connlock import ConnectionLock
+from dispatch.daemon.main import _load_config
 from dispatch.shared.schema import reply_from_events
-from dispatch.daemon.main import (
-    DEFAULT_WORKSPACE,
-    FRESHNESS_WINDOW_S,
-    DaemonState,
-    SignedOutByBroker,
-    _broker_ws_url,
-    _load_config,
-    _ssl_context_for,
-    handle_broker,
-    verify_token_user,
-)
-from dispatch.daemon.nonces import NonceStore
-from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S
 
 logger = logging.getLogger("dispatch.mcp")
 
-ENROLL_TIMEOUT_S = 15.0
+# How long to wait for a freshly-spawned daemon's local API to come up.
+DAEMON_BOOT_TIMEOUT_S = 30.0
+DAEMON_POLL_S = 0.5
+_TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
+_SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
+_LOGIN_HINT = "not signed in — run `dispatch login` in a terminal, then restart this session."
 
 
 # ----------------------------------------------------------------------------
-# Session link: the per-session "daemon" state, set up in the MCP lifespan.
+# Session link: a thin handle to the local daemon's API (set in the lifespan).
 # ----------------------------------------------------------------------------
 
 
 @dataclass
 class _Link:
-    broker: str
-    token: str
+    base: str           # http://127.0.0.1:<port>
+    local_token: str    # bearer for the daemon's local API
     user_id: str
     device_id: str
-    workspace: Path
-    private_key: bytes
-    daemon_state: DaemonState
-    local_state: LocalState
-    nonce_store: NonceStore
-    conn_lock: ConnectionLock
-    ws_task: asyncio.Task
-    stop: asyncio.Event
+    broker: str
 
 
 # Set during the MCP lifespan; read by the tools. One MCP process per session.
 LINK: Optional[_Link] = None
+LOGGED_OUT = False      # True when there's no broker token → dormant mode
 
 
 def _resolve_conn() -> tuple[str, Optional[str]]:
     config = _load_config()
-    broker = (os.environ.get("DISPATCH_BROKER") or config.get("broker") or "http://localhost:8000").rstrip("/")
+    broker = (
+        os.environ.get("DISPATCH_BROKER") or config.get("broker") or "http://localhost:8000"
+    ).rstrip("/")
     token = os.environ.get("DISPATCH_TOKEN") or config.get("token")
     return broker, token
 
 
-async def _ws_loop(link_box: dict[str, _Link], stop: asyncio.Event) -> None:
-    """Hold the broker WebSocket open for the session, reconnecting with
-    backoff. `handle_broker` does the real work — signing outgoing dispatches
-    (sign_request) and verifying + running incoming ones (new_dispatch),
-    surfacing both into LocalState and parking approval futures the tools
-    resolve."""
-    link = link_box["link"]
-    lock = link.conn_lock
-    ws_url = _broker_ws_url(link.broker, link.token)
-    ssl_ctx = _ssl_context_for(ws_url)
-    backoff = 1.0
-    while not stop.is_set():
-        # Single connection-owner: only one process per machine holds the broker
-        # WS. If another (e.g. the daemon or another session) owns it, stand by
-        # and poll — we take over only if it exits (the lock auto-releases on
-        # death). Once we own it, we keep ownership across broker reconnects.
-        if not lock.held:
-            if not lock.acquire():
-                logger.info("another process owns the broker connection; standing by")
-                try:
-                    await asyncio.wait_for(stop.wait(), timeout=STANDBY_POLL_S)
-                    return  # stop was set while standing by
-                except asyncio.TimeoutError:
-                    continue
-            lock.write_owner(role="session")
-            logger.info("dispatch-mcp acquired broker-connection ownership")
-        try:
-            async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
-                await ws.send(json.dumps({"type": "hello", "device_id": link.device_id}))
-                logger.info("dispatch-mcp connected to broker %s", link.broker)
-                backoff = 1.0
-                await handle_broker(
-                    ws,
-                    link.daemon_state,
-                    link.workspace,
-                    link.private_key,
-                    local_state=link.local_state,
-                    my_user=link.user_id,
-                    my_device=link.device_id,
-                )
-        except SignedOutByBroker:
-            logger.info("broker signaled sign-out; stopping link")
-            return
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — keep the session alive across blips
-            if stop.is_set():
-                return
-            logger.warning("broker link dropped (%s); reconnecting in %.0fs", exc, backoff)
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=backoff)
-                return  # stop was set during the wait
-            except asyncio.TimeoutError:
-                pass
-            backoff = min(backoff * 2, 30.0)
+def _local_port() -> int:
+    """The port the daemon's local API listens on. Prefer the running owner's
+    recorded port; fall back to the configured / default port."""
+    owner = ConnectionLock(dispatch_home() / "connection.lock").read_owner()
+    if isinstance(owner.get("local_port"), int):
+        return owner["local_port"]
+    config = _load_config()
+    return int(os.environ.get("DISPATCH_LOCAL_PORT") or config.get("local_port") or 8001)
 
 
-async def _start_link() -> _Link:
+async def _ping(base: str, token: str) -> Optional[dict]:
+    """Is a daemon answering the local API here? Returns its /api/session or None."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{base}/api/session", headers={"Authorization": f"Bearer {token}"})
+        return r.json() if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def _tray_available() -> bool:
+    """Is the macOS [tray] extra (pyobjc/rumps) importable in this venv?"""
+    import importlib.util
+    return all(importlib.util.find_spec(m) is not None for m in ("objc", "rumps"))
+
+
+def _spawn_daemon(*, prefer_tray: bool) -> None:
+    """Launch a daemon detached so it outlives this session. On macOS we prefer
+    the tray (it hosts the daemon AND gives the menu-bar indicator); elsewhere,
+    or if the tray extra is missing, the bare daemon. Both read broker/token/
+    port from ~/.dispatch/config.json, so no args are needed."""
+    exe = None
+    if prefer_tray and sys.platform == "darwin" and _tray_available():
+        exe = shutil.which("dispatch-tray")
+    if not exe:
+        exe = shutil.which("dispatch-daemon")
+    if not exe:
+        raise RuntimeError("neither dispatch-tray nor dispatch-daemon found on PATH")
+    try:
+        log = open(dispatch_home() / "daemon-spawn.log", "ab")
+    except OSError:
+        log = subprocess.DEVNULL
+    subprocess.Popen(
+        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
+    )
+    logger.info("dispatch-mcp spawned a daemon via %s", exe)
+
+
+async def _ensure_daemon() -> _Link:
+    """Guarantee a daemon is serving the local API; spawn one if not. Returns a
+    thin link to it. Raises if no token (caller handles dormant mode) or if the
+    daemon never comes up."""
     broker, token = _resolve_conn()
     if not token:
-        raise RuntimeError(
-            "no broker token. Sign in to the broker and run the installer "
-            "(writes ~/.dispatch/config.json), or set $DISPATCH_TOKEN."
-        )
+        raise RuntimeError(_LOGIN_HINT)
+
+    port = _local_port()
+    base = f"http://127.0.0.1:{port}"
+    local_token = read_local_token()
+    session = await _ping(base, local_token) if local_token else None
+
+    if session is None:
+        # No daemon answering — spawn one and wait for it to bind.
+        _spawn_daemon(prefer_tray=True)
+        spawned_bare = False
+        waited = 0.0
+        while waited < DAEMON_BOOT_TIMEOUT_S:
+            await asyncio.sleep(DAEMON_POLL_S)
+            waited += DAEMON_POLL_S
+            local_token = read_local_token()
+            if local_token:
+                base = f"http://127.0.0.1:{_local_port()}"
+                session = await _ping(base, local_token)
+                if session is not None:
+                    break
+            # Halfway in with nothing yet (e.g. tray couldn't launch on a
+            # headless box): fall back to a bare daemon.
+            if not spawned_bare and waited >= DAEMON_BOOT_TIMEOUT_S / 2:
+                _spawn_daemon(prefer_tray=False)
+                spawned_bare = True
+        if session is None:
+            raise RuntimeError(
+                f"daemon did not come up within {DAEMON_BOOT_TIMEOUT_S:.0f}s "
+                f"(see {dispatch_home() / 'daemon-spawn.log'})"
+            )
 
     config = _load_config()
-    if config.get("anthropic_api_key") and not os.environ.get("ANTHROPIC_API_KEY"):
-        os.environ["ANTHROPIC_API_KEY"] = config["anthropic_api_key"]
-
-    device_id = await asyncio.wait_for(
-        ensure_enrolled(broker, token, config.get("device_id")), timeout=ENROLL_TIMEOUT_S
+    return _Link(
+        base=base,
+        local_token=local_token,
+        user_id=session.get("user_id", ""),
+        device_id=str(config.get("device_id", "")),
+        broker=broker,
     )
-    private_key = get_private_key()
-    if private_key is None:
-        raise RuntimeError("no device private key after enrollment")
-
-    user_id = verify_token_user(token)
-    workspace = Path(os.environ.get("DISPATCH_WORKSPACE", str(DEFAULT_WORKSPACE))).expanduser().resolve()
-    workspace.mkdir(parents=True, exist_ok=True)
-
-    nonce_store = NonceStore(dispatch_home() / "nonces.db", FRESHNESS_WINDOW_S)
-    try:
-        from datetime import datetime, timezone
-
-        nonce_store.prune(datetime.now(timezone.utc).timestamp())
-    except Exception:
-        logger.exception("nonce prune failed (continuing)")
-
-    daemon_state = DaemonState()
-    daemon_state.nonce_store = nonce_store
-    local_state = LocalState(user_id=user_id, broker_url=broker, broker_token=token)
-    await local_state.seed_from_broker()
-
-    conn_lock = ConnectionLock(dispatch_home() / "connection.lock")
-
-    stop = asyncio.Event()
-    link_box: dict[str, _Link] = {}
-    ws_task = asyncio.create_task(_ws_loop(link_box, stop))
-    link = _Link(
-        broker=broker, token=token, user_id=user_id, device_id=device_id,
-        workspace=workspace, private_key=private_key, daemon_state=daemon_state,
-        local_state=local_state, nonce_store=nonce_store, conn_lock=conn_lock,
-        ws_task=ws_task, stop=stop,
-    )
-    link_box["link"] = link
-    return link
-
-
-async def _stop_link(link: _Link) -> None:
-    link.stop.set()
-    link.ws_task.cancel()
-    try:
-        await link.ws_task
-    except (asyncio.CancelledError, Exception):
-        pass
-    link.nonce_store.close()
-    link.conn_lock.release()  # hand off connection ownership to any standby
 
 
 @asynccontextmanager
 async def _lifespan(_server: FastMCP):
-    global LINK
-    LINK = await _start_link()
+    global LINK, LOGGED_OUT
+    _, token = _resolve_conn()
+    if not token:
+        LOGGED_OUT = True   # dormant: load tools, spawn nothing, prompt to log in
+        logger.info("dispatch-mcp dormant: no broker token (run `dispatch login`)")
+        yield None
+        return
+    try:
+        LINK = await _ensure_daemon()
+    except Exception as exc:  # noqa: BLE001 — stay loaded so tools can report the error
+        logger.warning("dispatch-mcp could not reach/start a daemon: %s", exc)
     try:
         yield LINK
     finally:
-        if LINK is not None:
-            await _stop_link(LINK)
         LINK = None
 
 
 # ----------------------------------------------------------------------------
-# Broker HTTP (control-plane ops the in-session signer doesn't handle locally)
+# Local API client (every tool routes through the daemon, never the broker).
 # ----------------------------------------------------------------------------
+
+mcp = FastMCP("dispatch", lifespan=_lifespan)
+
+
+class _ApproveToolCall(BaseModel):
+    allow: bool
 
 
 def _require_link() -> _Link:
+    if LOGGED_OUT:
+        raise _Dormant()
     if LINK is None:
-        raise RuntimeError("dispatch link not ready yet — the broker connection is starting.")
+        raise RuntimeError(
+            "the local dispatch daemon isn't reachable yet — it may still be "
+            "starting. Retry in a moment, or check ~/.dispatch/daemon-spawn.log."
+        )
     return LINK
 
 
-async def _broker_call(method: str, path: str, **kw: Any) -> Any:
+class _Dormant(Exception):
+    """Raised when there's no broker token; tools convert it to a login hint."""
+
+
+async def _local_call(method: str, path: str, **kw: Any) -> Any:
     link = _require_link()
     try:
-        async with httpx.AsyncClient(timeout=30.0, verify=certifi.where()) as c:
+        async with httpx.AsyncClient(timeout=30.0) as c:
             r = await c.request(
-                method, f"{link.broker}{path}",
-                headers={"Authorization": f"Bearer {link.token}"}, **kw,
+                method, f"{link.base}{path}",
+                headers={"Authorization": f"Bearer {link.local_token}"}, **kw,
             )
     except httpx.HTTPError as exc:
-        return {"error": "broker_unreachable", "detail": str(exc)}
+        return {"error": "daemon_unreachable", "detail": str(exc)}
     if r.status_code >= 400:
         detail = r.text
         try:
@@ -270,136 +255,100 @@ async def _broker_call(method: str, path: str, **kw: Any) -> Any:
     return r.json() if r.content else {}
 
 
-# ----------------------------------------------------------------------------
-# MCP server + tools
-# ----------------------------------------------------------------------------
-
-mcp = FastMCP("dispatch", lifespan=_lifespan)
-
-
-class _ApproveToolCall(BaseModel):
-    allow: bool
-
-
-_TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
-_SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
-
-
 # ── Core handlers (plain functions; the grouped tools below route to these). ──
-# Collapsing ~15 tools into 4 grouped tools keeps the agent from doing a
-# ToolSearch round-trip before every distinct dispatch call.
+
 
 def _do_whoami() -> dict:
     link = _require_link()
     return {"user_id": link.user_id, "broker": link.broker, "device_id": link.device_id}
 
 
-def _do_inbox() -> list[dict]:
-    link = _require_link()
-    return [_entry_summary(e) for e in link.local_state.entries.values()]
+async def _do_inbox() -> Any:
+    return await _local_call("GET", "/api/inbox")
 
 
-def _do_pending_approvals() -> list[dict]:
-    link = _require_link()
+async def _do_pending_approvals() -> Any:
+    inbox = await _local_call("GET", "/api/inbox")
+    if not isinstance(inbox, list):
+        return inbox
     out: list[dict] = []
-    for did, entry in link.local_state.entries.items():
-        for request_id, info in entry.pending_tools.items():
+    for entry in inbox:
+        for request_id, info in (entry.get("pending_tools") or {}).items():
             out.append({
-                "dispatch_id": str(did), "request_id": request_id,
-                "sender_id": entry.payload.sender_id,
+                "dispatch_id": entry.get("dispatch_id"), "request_id": request_id,
+                "sender_id": entry.get("sender_id"),
                 "tool": info.get("tool"), "input": info.get("input"),
             })
     return out
 
 
 async def _do_status(dispatch_id: str) -> dict:
-    link = _require_link()
     try:
-        did = UUID(dispatch_id)
+        UUID(dispatch_id)
     except ValueError:
         return {"error": "bad_id", "detail": "dispatch_id must be a UUID"}
-    entry = link.local_state.entries.get(did)
-    if entry is not None:
-        return {**_entry_summary(entry), "reply": reply_from_events(entry.events),
-                "events": entry.events}
-    return await _broker_call("GET", f"/dispatch/{dispatch_id}")
-
-
-def _resolve_decision(dispatch_id: str, decision: str) -> dict:
-    link = _require_link()
-    fut = link.daemon_state.pending_decisions.get(dispatch_id)
-    if fut is None or fut.done():
-        return {"status": "error",
-                "detail": "no pending decision for that dispatch — run dispatch_read(what='inbox') "
-                          "(it may not be addressed to you, or it's already decided/expired)."}
-    fut.set_result(decision)
-    return {"status": "ok", "dispatch_id": dispatch_id, "decision": decision}
-
-
-def _resolve_tool(dispatch_id: str, request_id: str, decision: str) -> dict:
-    link = _require_link()
-    fut = link.daemon_state.pending_approvals.get((dispatch_id, request_id))
-    if fut is None or fut.done():
-        return {"status": "error", "detail": "no pending approval for that tool call"}
-    fut.set_result(decision)
-    return {"status": "ok", "dispatch_id": dispatch_id, "request_id": request_id, "decision": decision}
+    result = await _local_call("GET", f"/api/dispatch/{dispatch_id}")
+    # Local entries carry events but no derived reply; add it client-side. (The
+    # broker-fallback path already includes `reply`.)
+    if isinstance(result, dict) and "events" in result and "reply" not in result:
+        result["reply"] = reply_from_events(result.get("events") or [])
+    return result
 
 
 async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
-    """Accept + supervise the sandboxed run to completion, asking the human
-    (via elicitation) for each tool call on a manual edge."""
-    link = _require_link()
-    ds = link.daemon_state
-    fut = ds.pending_decisions.get(dispatch_id)
-    if fut is None or fut.done():
-        return {"status": "error",
-                "detail": "no pending decision for that dispatch — run dispatch_read(what='inbox') "
-                          "(it may not be addressed to you, or it's already decided/expired)."}
-    fut.set_result("accept")  # release the confined run
-
-    try:
-        did = UUID(dispatch_id)
-    except ValueError:
-        did = None
+    """Accept + supervise the daemon's confined run to completion, asking the
+    human (via elicitation) for each tool call on a manual edge. The run
+    executes in the DAEMON's executor; we relay its pending approvals here."""
+    accept = await _local_call(
+        "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "accept"},
+    )
+    if isinstance(accept, dict) and accept.get("error"):
+        if accept.get("error") == 409:
+            return {"status": "error",
+                    "detail": "no pending decision for that dispatch — run "
+                              "dispatch_read(what='inbox') (it may not be addressed "
+                              "to you, or it's already decided/expired)."}
+        return {"status": "error", "detail": accept.get("detail", "accept failed")}
 
     handled: set[str] = set()
     waited = 0.0
+    status: Optional[str] = None
+    events = 0
     while waited < _SUPERVISE_TIMEOUT_S:
-        entry = link.local_state.entries.get(did) if did else None
-        for (d, request_id), afut in list(ds.pending_approvals.items()):
-            if d != dispatch_id or request_id in handled or afut.done():
-                continue
-            handled.add(request_id)
-            info = (entry.pending_tools.get(request_id) if entry else {}) or {}
-            msg = (
-                f"Dispatch {dispatch_id[:8]}… from "
-                f"{entry.payload.sender_id if entry else '?'} wants to run:\n"
-                f"  {info.get('tool')}: {info.get('input')}\n\nAllow this tool call?"
-            )
-            try:
-                res = await ctx.elicit(message=msg, schema=_ApproveToolCall)
-                decision = "allow" if (isinstance(res, AcceptedElicitation) and res.data.allow) else "deny"
-            except Exception:
-                decision = "deny"  # fail safe if elicitation is unavailable
-            if not afut.done():
-                afut.set_result(decision)
-
-        status = entry.status.value if entry else None
-        if status in _TERMINAL:
-            break
-        if dispatch_id not in ds.running and status in _TERMINAL | {None} and waited > 1.0:
-            break
+        detail = await _local_call("GET", f"/api/dispatch/{dispatch_id}")
+        if isinstance(detail, dict) and not detail.get("error"):
+            status = detail.get("status")
+            events = len(detail.get("events") or [])
+            sender = detail.get("sender_id", "?")
+            for request_id, info in (detail.get("pending_tools") or {}).items():
+                if request_id in handled:
+                    continue
+                handled.add(request_id)
+                msg = (
+                    f"Dispatch {dispatch_id[:8]}… from {sender} wants to run:\n"
+                    f"  {info.get('tool')}: {info.get('input')}\n\nAllow this tool call?"
+                )
+                try:
+                    res = await ctx.elicit(message=msg, schema=_ApproveToolCall)
+                    decision = "allow" if (isinstance(res, AcceptedElicitation) and res.data.allow) else "deny"
+                except Exception:
+                    decision = "deny"  # fail safe if elicitation is unavailable
+                await _local_call(
+                    "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
+                    json={"decision": decision},
+                )
+            if status in _TERMINAL:
+                break
         await asyncio.sleep(0.25)
         waited += 0.25
 
-    entry = link.local_state.entries.get(did) if did else None
     return {
-        "status": entry.status.value if entry else "unknown",
+        "status": status or "unknown",
         "dispatch_id": dispatch_id,
-        "events": len(entry.events) if entry else 0,
-        "note": "Ran in the sandboxed dp-agent (confined to the edge scope) and "
-                "you approved each tool call above. Do NOT perform the task "
-                "yourself or run any tools toward it — it is already done.",
+        "events": events,
+        "note": "Ran in the daemon's sandboxed dp-agent (confined to the edge "
+                "scope) and you approved each tool call above. Do NOT perform the "
+                "task yourself or run any tools toward it — it is already done.",
     }
 
 
@@ -411,31 +360,34 @@ async def dispatch_read(
     dispatch_id: str = "",
 ) -> Any:
     """Read dispatch state (no side effects).
-      inbox       — dispatches addressed to you this session (+ scopes, pending approvals)
-      status      — full detail + event trace for `dispatch_id`
+      inbox       — dispatches addressed to you (+ scopes, pending approvals)
+      status      — full detail + event trace (+ reply) for `dispatch_id`
       sent        — dispatches you've sent, with status
       contacts    — trust edges: who can dispatch to whom, scopes, online
       invitations — pending invitations you've sent / received (each has a token)
       approvals   — tool calls awaiting your allow/deny
       whoami      — your user id, broker, device id
     """
-    if what == "whoami":
-        return _do_whoami()
-    if what == "inbox":
-        return _do_inbox()
-    if what == "approvals":
-        return _do_pending_approvals()
-    if what == "status":
-        if not dispatch_id:
-            return {"error": "dispatch_id required for what='status'"}
-        return await _do_status(dispatch_id)
-    if what == "sent":
-        return await _broker_call("GET", "/dispatches", params={"role": "sent"})
-    if what == "contacts":
-        return await _broker_call("GET", "/trust")
-    if what == "invitations":
-        return await _broker_call("GET", "/invitations")
-    return {"error": f"unknown what: {what}"}
+    try:
+        if what == "whoami":
+            return _do_whoami()
+        if what == "inbox":
+            return await _do_inbox()
+        if what == "approvals":
+            return await _do_pending_approvals()
+        if what == "status":
+            if not dispatch_id:
+                return {"error": "dispatch_id required for what='status'"}
+            return await _do_status(dispatch_id)
+        if what == "sent":
+            return await _local_call("GET", "/api/dispatches", params={"role": "sent"})
+        if what == "contacts":
+            return await _local_call("GET", "/api/trust")
+        if what == "invitations":
+            return await _local_call("GET", "/api/invitations")
+        return {"error": f"unknown what: {what}"}
+    except _Dormant:
+        return {"error": "logged_out", "detail": _LOGIN_HINT}
 
 
 @mcp.tool()
@@ -455,17 +407,29 @@ async def dispatch_act(
                 from dispatch_read(what='approvals')). Fallback; normally
                 `accept` handles approvals inline.
     """
-    if action == "accept":
-        return await _run_accept(dispatch_id, ctx)
-    if action == "decline":
-        return _resolve_decision(dispatch_id, "reject")
-    if action == "cancel":
-        return await _broker_call("POST", f"/dispatch/{dispatch_id}/cancel")
-    if action in ("approve", "deny"):
-        if not request_id:
-            return {"status": "error", "detail": "request_id required for approve/deny"}
-        return _resolve_tool(dispatch_id, request_id, "allow" if action == "approve" else "deny")
-    return {"status": "error", "detail": f"unknown action: {action}"}
+    try:
+        if action == "accept":
+            return await _run_accept(dispatch_id, ctx)
+        if action == "decline":
+            r = await _local_call(
+                "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "reject"},
+            )
+            return {"status": "ok", "dispatch_id": dispatch_id} if not (
+                isinstance(r, dict) and r.get("error")) else {"status": "error", "detail": r.get("detail")}
+        if action == "cancel":
+            return await _local_call("POST", f"/api/dispatch/{dispatch_id}/cancel")
+        if action in ("approve", "deny"):
+            if not request_id:
+                return {"status": "error", "detail": "request_id required for approve/deny"}
+            r = await _local_call(
+                "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
+                json={"decision": "allow" if action == "approve" else "deny"},
+            )
+            return {"status": "ok", "dispatch_id": dispatch_id, "request_id": request_id} if not (
+                isinstance(r, dict) and r.get("error")) else {"status": "error", "detail": r.get("detail")}
+        return {"status": "error", "detail": f"unknown action: {action}"}
+    except _Dormant:
+        return {"status": "error", "detail": _LOGIN_HINT}
 
 
 @mcp.tool()
@@ -473,16 +437,18 @@ async def dispatch_send(
     recipient: str, task: str, expires_in_seconds: int = 3600, cwd: Optional[str] = None
 ) -> dict:
     """Send a dispatch to a trusted contact. The verbatim `task` runs on their
-    machine across an accepted, scoped trust edge. Signing happens in THIS
-    session (your device key), so this session must be connected to the broker.
-    Returns the dispatch_id (track with dispatch_read(what='status')).
+    machine across an accepted, scoped trust edge. Returns the dispatch_id
+    (track with dispatch_read(what='status')).
     """
-    metadata = {"cwd": cwd} if cwd else {}
-    body = {
-        "recipient_id": recipient, "task": task,
-        "expires_in_seconds": expires_in_seconds, "metadata": metadata,
-    }
-    return await _broker_call("POST", "/dispatch", json=body)
+    try:
+        metadata = {"cwd": cwd} if cwd else {}
+        body = {
+            "recipient_id": recipient, "task": task,
+            "expires_in_seconds": expires_in_seconds, "metadata": metadata,
+        }
+        return await _local_call("POST", "/api/compose", json=body)
+    except _Dormant:
+        return {"error": "logged_out", "detail": _LOGIN_HINT}
 
 
 @mcp.tool()
@@ -507,26 +473,29 @@ async def dispatch_invite(
                 confirm with the human.
       decline — decline invite `token`; no edge is created.
     """
-    if action == "send":
-        if not to_email:
-            return {"error": "to_email required for action='send'"}
-        return await _broker_call("POST", "/invitations", json={"to_email": to_email})
-    if action == "list":
-        return await _broker_call("GET", "/invitations")
-    if action == "accept":
-        if not token:
-            return {"error": "token required for action='accept'"}
-        scopes: dict[str, Any] = {"approval": approval, "max_dispatches_per_day": max_dispatches_per_day}
-        if tools:
-            scopes["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
-        if paths:
-            scopes["paths"] = [p.strip() for p in paths.split(",") if p.strip()]
-        return await _broker_call("POST", f"/invitations/{token}/accept", json={"scopes": scopes})
-    if action == "decline":
-        if not token:
-            return {"error": "token required for action='decline'"}
-        return await _broker_call("POST", f"/invitations/{token}/decline")
-    return {"error": f"unknown action: {action}"}
+    try:
+        if action == "send":
+            if not to_email:
+                return {"error": "to_email required for action='send'"}
+            return await _local_call("POST", "/api/invitations", json={"to_email": to_email})
+        if action == "list":
+            return await _local_call("GET", "/api/invitations")
+        if action == "accept":
+            if not token:
+                return {"error": "token required for action='accept'"}
+            scopes: dict[str, Any] = {"approval": approval, "max_dispatches_per_day": max_dispatches_per_day}
+            if tools:
+                scopes["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
+            if paths:
+                scopes["paths"] = [p.strip() for p in paths.split(",") if p.strip()]
+            return await _local_call("POST", f"/api/invitations/{token}/accept", json={"scopes": scopes})
+        if action == "decline":
+            if not token:
+                return {"error": "token required for action='decline'"}
+            return await _local_call("POST", f"/api/invitations/{token}/decline")
+        return {"error": f"unknown action: {action}"}
+    except _Dormant:
+        return {"error": "logged_out", "detail": _LOGIN_HINT}
 
 
 def main() -> None:
