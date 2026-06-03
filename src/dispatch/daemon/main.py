@@ -572,13 +572,12 @@ def _shareable_mcp_path() -> Path:
 
 
 def load_shareable_mcp() -> dict:
-    """The recipient's pool of MCP servers exposable to incoming dispatches.
+    """Optional hand-curated overrides in ~/.dispatch/shareable-mcp.json.
 
-    Curated once in ~/.dispatch/shareable-mcp.json — either a {name: config}
-    map or {"mcpServers": {...}} (same shape as a Claude .mcp.json). This is
-    the *only* set a dispatch can ever reach; the dispatch control plane is
-    never shareable, so any 'dispatch' entry is dropped. Empty by default
-    (no MCP exposed until the recipient opts in)."""
+    Either a {name: config} map or {"mcpServers": {...}} (same shape as a
+    Claude .mcp.json). Normally empty — discovery (below) fills the pool with
+    zero setup; this file just lets a power user add/override a server the
+    auto-scan can't see. The 'dispatch' control plane is never shareable."""
     try:
         raw = json.loads(_shareable_mcp_path().read_text())
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -589,6 +588,83 @@ def load_shareable_mcp() -> dict:
     if not isinstance(servers, dict):
         return {}
     return {k: v for k, v in servers.items() if k.lower() != "dispatch"}
+
+
+def _claude_config_path() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_PATH", str(Path.home() / ".claude.json")))
+
+
+def discover_installed_mcp() -> dict:
+    """Auto-discover the recipient's installed MCP servers — no hand setup.
+
+    There's no single place Claude lists every server, so we walk all three
+    scopes and merge by name (first sighting wins, so user > local > project
+    .mcp.json on conflict):
+      - user scope:    ~/.claude.json top-level `mcpServers`
+      - local scope:   ~/.claude.json `projects[<path>].mcpServers`
+      - project scope: <path>/.mcp.json `mcpServers` for each known project
+
+    Best-effort: any parse/IO error on any source is swallowed so a malformed
+    config can never crash dispatch — worst case the picker shows fewer
+    servers. The 'dispatch' control plane is never discoverable."""
+    found: dict[str, Any] = {}
+
+    def _absorb(servers: Any) -> None:
+        if not isinstance(servers, dict):
+            return
+        for name, cfg in servers.items():
+            if name.lower() == "dispatch" or not isinstance(cfg, dict):
+                continue
+            found.setdefault(name, cfg)
+
+    try:
+        root = json.loads(_claude_config_path().read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        root = {}
+    if isinstance(root, dict):
+        _absorb(root.get("mcpServers"))                       # user scope
+        projects = root.get("projects")
+        if isinstance(projects, dict):
+            for path, pcfg in projects.items():
+                if isinstance(pcfg, dict):
+                    _absorb(pcfg.get("mcpServers"))           # local scope
+                try:                                          # project scope
+                    _absorb(
+                        json.loads((Path(path) / ".mcp.json").read_text()).get("mcpServers")
+                    )
+                except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
+                    pass
+    return found
+
+
+def shareable_mcp_pool() -> dict:
+    """The full set of MCP servers a dispatch could reach: every installed
+    server (auto-discovered) plus any hand-curated overrides. The file wins on
+    a name clash so a power user can override a discovered server's config.
+
+    This is only the *candidate* pool — which servers a given sender may
+    actually use is narrowed per trust edge by `scope.mcp` (filter_pool_to_scope
+    decides what's even handed to that dispatch's agent)."""
+    return {**discover_installed_mcp(), **load_shareable_mcp()}
+
+
+def filter_pool_to_scope(pool: dict, scope_mcp: list[str]) -> dict:
+    """Least-privilege: hand a dispatch's agent ONLY the servers its edge
+    scoped, so unscoped servers are never even launched. A '*' pattern (the
+    'Allow all' grant) exposes the whole pool; otherwise a bare server name or
+    an `mcp__<server>__*` pattern in the scope admits that server."""
+    if any((p or "").strip() == "*" for p in scope_mcp):
+        return dict(pool)
+    names: set[str] = set()
+    for pat in scope_mcp:
+        p = (pat or "").strip()
+        if not p:
+            continue
+        if "__" not in p:
+            names.add(p)                                      # bare server name
+        elif p.startswith("mcp__"):
+            names.add(p.split("__")[1])                       # mcp__<server>__tool
+    return {k: v for k, v in pool.items() if k in names}
 
 
 def _mcp_tool_allowed(tool_name: str, patterns: list[str]) -> bool:
@@ -927,12 +1003,14 @@ async def process_dispatch(
     allowed_dirs = [workspace.resolve()] + [
         Path(p).expanduser().resolve() for p in scope.paths
     ]
-    # The recipient's pool of MCP servers exposable to dispatches. A delegated
-    # task can only ever reach servers in this pool (it's what we hand the
-    # executor); within it a server becomes usable for this sender once granted
-    # — pre-granted in the edge's `mcp` scope, or approved on first use (then
-    # remembered for the session). No up-front curation required.
-    mcp_pool = load_shareable_mcp()
+    # The full candidate pool of MCP servers (auto-discovered from the
+    # recipient's install + any hand overrides), then narrowed to just the
+    # servers THIS edge scoped. Filtering here means an unscoped server is never
+    # handed to the agent at all — it can't be launched, attempted, or
+    # first-use-prompted. The invite-time picker is the grant; '*' (Allow all)
+    # exposes the whole pool. Re-read per dispatch so a newly installed server
+    # shows up on the next one with no daemon restart (~0.3ms, negligible).
+    mcp_pool = filter_pool_to_scope(shareable_mcp_pool(), scope_mcp)
 
     async def _request_approval(tool_name: str, tool_input: dict[str, Any]) -> str:
         """Surface one tool call to the recipient (Layer 3); await allow/deny
@@ -984,29 +1062,21 @@ async def process_dispatch(
             )
 
         # (b) Capability check. Built-ins via the edge's `tools`. MCP tools via
-        # the edge's `mcp` allowlist OR a session grant — and if neither, a
-        # first use of a shareable-pool server prompts the recipient to grant
-        # it once for this sender (then it's remembered).
+        # the edge's `mcp` allowlist (chosen at invite time). The agent is only
+        # ever handed servers this edge scoped (filter_pool_to_scope), so an
+        # unscoped server's tools can't appear here at all — the deny below is
+        # defensive. A leftover session grant (legacy first-use path) still
+        # honored if present.
         if tool_name.startswith("mcp__"):
             server = _mcp_server_of(tool_name)
             granted = _mcp_tool_allowed(tool_name, scope_mcp) or (
                 server in state.session_mcp_grants.get(payload.sender_id, set())
             )
             if not granted:
-                if not server or server not in mcp_pool:
-                    return PermissionResultDeny(
-                        message=f"MCP server '{server}' is not in your shareable pool",
-                        interrupt=False,
-                    )
-                # First use → ask the recipient to grant this server (once).
-                decision = await _request_approval(tool_name, tool_input)
-                if decision != "allow":
-                    return PermissionResultDeny(
-                        message=f"recipient did not grant MCP server '{server}'",
-                        interrupt=False,
-                    )
-                state.session_mcp_grants.setdefault(payload.sender_id, set()).add(server)
-                return PermissionResultAllow(updated_input=tool_input)
+                return PermissionResultDeny(
+                    message=f"MCP server '{server}' is not granted to this sender",
+                    interrupt=False,
+                )
             # granted → fall through to path + approval-mode handling
         elif tool_name not in scope_tools:
             return PermissionResultDeny(

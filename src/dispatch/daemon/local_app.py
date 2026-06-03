@@ -516,6 +516,15 @@ def make_app(
     async def decline_invitation(token: str) -> Response:
         return await _broker_request("POST", f"/invitations/{token}/decline", json_body={})
 
+    @app.get("/api/mcp/servers", dependencies=[Depends(require_local_token)])
+    def list_mcp_servers() -> list[dict]:
+        """Names of MCP servers exposable to a sender — fed to the invite-time
+        picker so the human can choose which ones a new edge may use. Names
+        only: server configs (commands, env, secrets) never cross the local
+        API boundary."""
+        from dispatch.daemon.main import shareable_mcp_pool
+        return [{"name": n} for n in sorted(shareable_mcp_pool())]
+
     @app.get("/api/dispatches", dependencies=[Depends(require_local_token)])
     async def list_dispatches(role: str = Query(default="received")) -> Response:
         return await _broker_request("GET", "/dispatches", params={"role": role})

@@ -48,7 +48,7 @@ from uuid import UUID
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.elicitation import AcceptedElicitation
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon.local_app import read_local_token
@@ -228,12 +228,43 @@ _READONLY_TOOLS = ["Read", "Glob", "Grep"]
 
 class _ToolGrant(BaseModel):
     # "Allow all" first, per the design. Single-select → arrow-key prompt.
+    # Built-in file tools only; MCP servers are a separate question below so the
+    # two are orthogonal (e.g. read-only files yet allowed to use one MCP).
     grant: Literal[
         "Allow all — every tool + all my MCP servers",
         "Read-only — Read, Glob, Grep",
-        "Read + Write/Edit (no Bash, no MCP)",
+        "Read + Write/Edit (no Bash)",
         "Custom — use the tools/paths I passed",
     ]
+
+
+async def _pick_mcp_servers(ctx: Context, names: list[str]) -> list[str]:
+    """Second invite question: which installed MCP servers this sender may use.
+
+    Multi-select (one bool per server) → the client renders a checkable form.
+    Server names aren't always valid field identifiers (hyphens, dots), so each
+    maps to a positional field `s<i>` whose human label is the real name.
+    Returns the chosen server names; [] if declined or elicitation unavailable."""
+    if not names:
+        return []
+    fields = {
+        f"s{i}": (bool, Field(default=False, title=name, description=f"Allow '{name}'"))
+        for i, name in enumerate(names)
+    }
+    Model = create_model("McpServerPick", **fields)
+    try:
+        res = await ctx.elicit(
+            message=(
+                "Which of your MCP servers may this sender's tasks use? "
+                "(leave all unchecked for no MCP access)"
+            ),
+            schema=Model,
+        )
+    except Exception:
+        return []
+    if not isinstance(res, AcceptedElicitation):
+        return []
+    return [name for i, name in enumerate(names) if getattr(res.data, f"s{i}", False)]
 
 
 def _require_link() -> _Link:
@@ -514,12 +545,13 @@ async def dispatch_invite(
             scope_tools = [t.strip() for t in tools.split(",") if t.strip()]
             scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
             scope_mcp: list[str] = []
-            # Ask the human what this sender may use — "Allow all" first.
+            # Q1 — built-in file tools. "Allow all" first; single-select → the
+            # arrow-key prompt.
             try:
                 res = await ctx.elicit(
                     message=(
                         f"Accept invite and let this sender dispatch to your machine.\n"
-                        f"What may their tasks use?"
+                        f"What built-in tools may their tasks use?"
                     ),
                     schema=_ToolGrant,
                 )
@@ -527,14 +559,22 @@ async def dispatch_invite(
             except Exception:
                 grant = None  # elicitation unavailable → fall back to passed/default scope
             if grant and grant.startswith("Allow all"):
+                # Allow all is the only choice that auto-grants every MCP server,
+                # so it skips the per-server question below.
                 scope_tools, scope_mcp = list(_ALL_TOOLS), ["*"]
-            elif grant and grant.startswith("Read-only"):
-                scope_tools, scope_mcp = list(_READONLY_TOOLS), []
-            elif grant and grant.startswith("Read + Write"):
-                scope_tools, scope_mcp = ["Read", "Glob", "Grep", "Write", "Edit"], []
-            elif not scope_tools:
-                # "Custom" with nothing passed, or no elicitation → least privilege.
-                scope_tools = list(_READONLY_TOOLS)
+            else:
+                if grant and grant.startswith("Read-only"):
+                    scope_tools = list(_READONLY_TOOLS)
+                elif grant and grant.startswith("Read + Write"):
+                    scope_tools = ["Read", "Glob", "Grep", "Write", "Edit"]
+                elif not scope_tools:
+                    # "Custom" with nothing passed, or no elicitation → least priv.
+                    scope_tools = list(_READONLY_TOOLS)
+                # Q2 — which installed MCP servers (orthogonal to the tool tier).
+                servers = await _local_call("GET", "/api/mcp/servers")
+                names = [s["name"] for s in servers if isinstance(s, dict) and s.get("name")] \
+                    if isinstance(servers, list) else []
+                scope_mcp = await _pick_mcp_servers(ctx, names)
             scopes: dict[str, Any] = {
                 "tools": scope_tools, "mcp": scope_mcp, "paths": scope_paths,
                 "approval": approval, "max_dispatches_per_day": max_dispatches_per_day,
