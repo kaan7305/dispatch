@@ -27,7 +27,6 @@ import rumps
 from AppKit import NSAppleEventManager, NSObject
 from Foundation import NSURL  # type: ignore  # noqa: F401
 
-from dispatch.tray import autostart
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window
 
@@ -89,10 +88,6 @@ class DispatchTrayApp(rumps.App):
         rumps.Timer(self._drain_main_queue, 0.1).start()
 
         self._status_item = rumps.MenuItem("Starting…")
-        self._autostart_item = rumps.MenuItem(
-            "Start at login", callback=self.toggle_autostart,
-        )
-        self._autostart_item.state = 1 if autostart.is_enabled() else 0
 
         self.menu = [
             self._status_item,
@@ -100,7 +95,6 @@ class DispatchTrayApp(rumps.App):
             rumps.MenuItem("Open Inbox",   callback=self.open_inbox),
             rumps.MenuItem("Open Broker",  callback=self.open_broker_ui),
             None,
-            self._autostart_item,
             rumps.MenuItem("Account…",     callback=self.show_account),
             rumps.MenuItem("View Log",     callback=self.view_log),
             rumps.MenuItem("Quit",         callback=self.quit_app),
@@ -422,14 +416,6 @@ class DispatchTrayApp(rumps.App):
             subtitle="Signed in. Daemon starting…",
             message=invite_msg,
         )
-
-    def toggle_autostart(self, item: rumps.MenuItem) -> None:
-        if autostart.is_enabled():
-            autostart.disable()
-            item.state = 0
-        else:
-            autostart.enable()
-            item.state = 1
 
     def show_account(self, _: rumps.MenuItem) -> None:
         from dispatch.daemon.main import verify_token_user

@@ -71,17 +71,23 @@
         <a id="open-dashboard-link" class="primary-link" href="/app">Open web dashboard →</a>
 
         <h2>Already have Dispatch installed?</h2>
-        <p>One click sends your sign-in to the desktop app.</p>
+        <p>Open the local app's inbox (the daemon must be running on this machine).</p>
+        <div id="daemon-status" class="status idle" style="margin-bottom:8px"></div>
         <a id="open-app-link" class="primary-link">Open in Dispatch app →</a>
 
         <h2>First time — install</h2>
-        <p>Run this once in your terminal:</p>
+        <p>
+          Run this once in your terminal. It installs the daemon, saves your
+          sign-in, generates this machine's device key, and starts it:
+        </p>
         <pre id="install-cmd"></pre>
         <button id="copy-install" type="button">Copy install command</button>
 
         <p style="margin-top:14px">
-          After install a menu bar icon appears. Click it →
-          <strong>Open Inbox</strong> and you're in.
+          A menu-bar icon appears. Or, if you use Claude Code, just install the
+          plugin (<code>/plugin install dispatch@dispatch</code>) and it starts
+          the daemon for you. Either way, come back here and click
+          <strong>Open in Dispatch app</strong>.
         </p>
 
         <details>

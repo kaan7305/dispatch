@@ -478,7 +478,13 @@ async def health() -> dict:
 
 @app.get("/me")
 async def me(user_id: str = Depends(authed_user)) -> dict:
-    return {"user_id": user_id}
+    # `daemon_online` = does this user have at least one device WS connected to
+    # the broker right now? The broker authoritatively knows this (it holds the
+    # sockets), so the web page can show it without reaching the loopback API.
+    return {
+        "user_id": user_id,
+        "daemon_online": bool(STATE.agents.get(user_id)),
+    }
 
 
 @app.get("/users")

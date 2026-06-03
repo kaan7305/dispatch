@@ -32,7 +32,10 @@ export const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg rounded-lg",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
+        // Fade only. A zoom/scale animation writes `transform`, which clobbers
+        // the -translate-x/y-1/2 centering mid-animation and makes the dialog
+        // appear to fly in from a corner. Fading leaves the transform intact.
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
         className,
       )}
       {...props}

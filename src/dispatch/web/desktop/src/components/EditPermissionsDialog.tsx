@@ -154,8 +154,14 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 {knownServers.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     {knownServers.map((name) => {
+                      // Only flag "not installed" when we actually enumerated a
+                      // non-empty list — otherwise an empty/failed fetch (broker
+                      // mode, daemon still starting) would falsely label every
+                      // granted server.
+                      const enumerated =
+                        installed.isSuccess && (installed.data ?? []).length > 0;
                       const uninstalled =
-                        !(installed.data ?? []).some((s) => s.name === name);
+                        enumerated && !(installed.data ?? []).some((s) => s.name === name);
                       return (
                         <label
                           key={name}

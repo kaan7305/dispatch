@@ -449,6 +449,7 @@ async def run_session(
 
     print(f"[daemon] connecting to broker: {args.broker}")
     _emit("connecting")
+    local_state.broker_connected = False
     try:
         async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
             # First frame identifies this device to the broker.
@@ -457,6 +458,7 @@ async def run_session(
                 f"[daemon] connected. Open http://127.0.0.1:{local_port} to approve dispatches."
             )
             _emit("connected")
+            local_state.broker_connected = True
             await handle_broker(
                 ws, state, workspace, private_key,
                 local_state=local_state,

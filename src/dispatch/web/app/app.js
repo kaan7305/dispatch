@@ -38,11 +38,16 @@ function refreshAuth() {
     tokenDisplay.textContent = token;
     installCmd.textContent =
       `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
-    let deepLink = `dispatch://configure?broker=${encodeURIComponent(location.origin)}` +
-                   `&token=${encodeURIComponent(token)}` +
-                   `&user_id=${encodeURIComponent(userId)}`;
-    if (inviteToken) deepLink += `&invite=${encodeURIComponent(inviteToken)}`;
-    openAppLink.setAttribute("href", deepLink);
+    // Open the running local app's inbox. The daemon serves the same SPA on
+    // its loopback port (browsers allow http://127.0.0.1 from an https page),
+    // and it already has its own credentials from `dispatch login` / the
+    // installer — so this just surfaces the local inbox, no deep-link scheme
+    // to register. If no daemon is running the tab won't load; that's the cue
+    // to run the install command below.
+    openAppLink.setAttribute("href", "http://127.0.0.1:8001/");
+    openAppLink.setAttribute("target", "_blank");
+    openAppLink.setAttribute("rel", "noopener");
+    checkDaemon();
     logoutBtn.hidden = false;
     loginBtn.hidden = true;
 
@@ -70,6 +75,26 @@ function refreshAuth() {
   }
 }
 refreshAuth();
+
+// Show whether this user's daemon is connected to the broker right now. The
+// broker holds the device sockets, so /me reports it authoritatively — no need
+// (or ability) to reach the loopback API from this https page.
+async function checkDaemon() {
+  const el = document.getElementById("daemon-status");
+  if (!el || !token) return;
+  el.textContent = "Checking daemon…";
+  el.className = "status running";
+  try {
+    const res = await fetch("/me", { headers: { "Authorization": "Bearer " + token } });
+    const online = res.ok && (await res.json()).daemon_online;
+    el.textContent = online
+      ? "● Your daemon is online — ready to receive dispatches."
+      : "○ No daemon connected. Run the install command below, or open Claude with the plugin.";
+    el.className = online ? "status done" : "status idle";
+  } catch {
+    el.textContent = "";
+  }
+}
 
 // ─── Device-authorization approval ───────────────────────────────────
 if (deviceBtn) {

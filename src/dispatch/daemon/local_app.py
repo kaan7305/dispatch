@@ -104,6 +104,7 @@ class LocalState:
     user_id: str = ""
     broker_url: str = ""
     broker_token: str = ""   # Dispatch JWT — used by the proxy handlers, never returned to the SPA
+    broker_connected: bool = False   # is the daemon's broker WS up right now?
     entries: dict[UUID, InboxEntry] = field(default_factory=dict)
     watchers: list[WebSocket] = field(default_factory=list)
     notify: Optional[Callable[[str, str, str], None]] = None
@@ -313,6 +314,7 @@ def make_app(
         return {
             "user_id": local_state.user_id,
             "broker_url": local_state.broker_url,
+            "broker_connected": local_state.broker_connected,
         }
 
     @app.post("/api/open-broker", dependencies=[Depends(require_local_token)])

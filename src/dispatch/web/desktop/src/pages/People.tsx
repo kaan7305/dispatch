@@ -80,6 +80,9 @@ export default function People() {
   const pendingReceived = (invitations.data?.received ?? []).filter(
     (inv) => inv.status === "pending",
   );
+  const pendingSent = (invitations.data?.sent ?? []).filter(
+    (inv) => inv.status === "pending",
+  );
 
   return (
     <div className="px-6 py-6 max-w-5xl">
@@ -108,7 +111,7 @@ export default function People() {
       {pendingReceived.length > 0 && (
         <div className="mb-5">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">
-            Pending invitations
+            Invitations to you
           </p>
           <div className="rounded-lg border divide-y">
             {pendingReceived.map((inv) => (
@@ -119,6 +122,33 @@ export default function People() {
                 onDecline={() => declineInvite.mutate(inv.token)}
                 loading={acceptInvite.isPending || declineInvite.isPending}
               />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pendingSent.length > 0 && (
+        <div className="mb-5">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">
+            Invitations you sent
+          </p>
+          <div className="rounded-lg border divide-y">
+            {pendingSent.map((inv) => (
+              <div
+                key={inv.invitation_id}
+                className="flex items-center gap-4 px-5 py-3"
+              >
+                <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">
+                  {initials(inv.to_email)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{inv.to_email}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Awaiting their acceptance
+                  </div>
+                </div>
+                <Badge variant="outline" className="whitespace-nowrap">Pending</Badge>
+              </div>
             ))}
           </div>
         </div>
@@ -191,7 +221,7 @@ function PersonRow({
   const online = row.outgoing?.peer_online ?? row.incoming?.peer_online ?? false;
 
   return (
-    <div className="flex items-center gap-4 px-5 py-4 border-b last:border-b-0">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 border-b last:border-b-0">
       <div className="relative shrink-0">
         <div className="grid place-items-center size-10 rounded-full bg-muted text-sm font-semibold">
           {initials(row.peer)}
@@ -203,8 +233,8 @@ function PersonRow({
           }
         />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-semibold">{nameFromEmail(row.peer)}</div>
+      <div className="flex-1 min-w-[8rem]">
+        <div className="font-semibold truncate">{nameFromEmail(row.peer)}</div>
         <div className="text-sm text-muted-foreground truncate">{row.peer}</div>
         {row.incoming && (tab === "all" || tab === "receive") && (
           <div className="text-xs text-muted-foreground truncate mt-0.5">
@@ -212,38 +242,40 @@ function PersonRow({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Badges + actions: a single shrink-0 group that wraps to its own line
+          on narrow widths instead of overlapping the name. */}
+      <div className="flex items-center gap-2 shrink-0 ml-auto flex-wrap justify-end">
         {row.outgoing && (tab === "all" || tab === "send") && (
-          <Badge variant="outline">You can dispatch to them</Badge>
+          <Badge variant="outline" className="whitespace-nowrap">Can send</Badge>
         )}
         {row.incoming && (tab === "all" || tab === "receive") && (
-          <Badge variant="outline">They can dispatch to you</Badge>
+          <Badge variant="outline" className="whitespace-nowrap">Can receive</Badge>
         )}
+        {row.incoming && (tab === "all" || tab === "receive") && (
+          <EditPermissionsDialog edge={row.incoming}>
+            <Button variant="ghost" size="sm" className="whitespace-nowrap">
+              <Settings className="size-4" /> Edit permissions
+            </Button>
+          </EditPermissionsDialog>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive whitespace-nowrap"
+          onClick={() => {
+            if (tab === "send" && row.outgoing) {
+              onRevoke(row.outgoing.trust_link_id);
+            } else if (tab === "receive" && row.incoming) {
+              onRevoke(row.incoming.trust_link_id);
+            } else {
+              if (row.outgoing) onRevoke(row.outgoing.trust_link_id);
+              if (row.incoming) onRevoke(row.incoming.trust_link_id);
+            }
+          }}
+        >
+          <Trash2 className="size-4" /> Revoke
+        </Button>
       </div>
-      {row.incoming && (tab === "all" || tab === "receive") && (
-        <EditPermissionsDialog edge={row.incoming}>
-          <Button variant="ghost" size="sm">
-            <Settings className="size-4" /> Edit permissions
-          </Button>
-        </EditPermissionsDialog>
-      )}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="text-destructive"
-        onClick={() => {
-          if (tab === "send" && row.outgoing) {
-            onRevoke(row.outgoing.trust_link_id);
-          } else if (tab === "receive" && row.incoming) {
-            onRevoke(row.incoming.trust_link_id);
-          } else {
-            if (row.outgoing) onRevoke(row.outgoing.trust_link_id);
-            if (row.incoming) onRevoke(row.incoming.trust_link_id);
-          }
-        }}
-      >
-        <Trash2 className="size-4" /> Revoke
-      </Button>
     </div>
   );
 }

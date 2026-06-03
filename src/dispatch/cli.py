@@ -347,6 +347,66 @@ def cmd_whoami(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Connectivity check: is the local daemon up, and is it connected to the
+    broker? (Receiving dispatches needs the daemon's broker WS to be up.)"""
+    config = _load_config()
+    report: dict[str, Any] = {}
+
+    # 1. Local daemon on the loopback API.
+    port = _local_port(config)
+    base = f"http://127.0.0.1:{port}"
+    daemon_up = False
+    session: dict = {}
+    try:
+        with httpx.Client(
+            base_url=base, headers={"Authorization": f"Bearer {_local_token()}"},
+            timeout=3.0,
+        ) as c:
+            r = c.get("/api/session")
+        if r.status_code == 200:
+            daemon_up = True
+            session = r.json()
+    except (httpx.HTTPError, OSError):
+        pass
+    report["daemon_running"] = daemon_up
+    report["daemon_url"] = base
+    report["broker_connected"] = bool(session.get("broker_connected"))
+    report["user_id"] = session.get("user_id")
+    report["broker_url"] = session.get("broker_url") or broker
+
+    # 2. Broker reachability (independent of our daemon).
+    broker_ok = False
+    try:
+        with httpx.Client(timeout=4.0) as c:
+            broker_ok = c.get(f"{broker.rstrip('/')}/health").status_code == 200
+    except (httpx.HTTPError, OSError):
+        pass
+    report["broker_reachable"] = broker_ok
+    report["signed_in"] = bool(config.get("token"))
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+
+    def mark(ok: bool) -> str:
+        return "✓" if ok else "✗"
+
+    print("Dispatch connectivity:")
+    print(f"  {mark(daemon_up)} local daemon       {base}"
+          + ("" if daemon_up else "  — not running (open Claude with the plugin, or `dispatch tray`)"))
+    if daemon_up:
+        print(f"  {mark(report['broker_connected'])} daemon ↔ broker    "
+              + ("online — ready to receive dispatches" if report["broker_connected"]
+                 else "NOT connected — dispatches won't arrive until it reconnects"))
+        print(f"      signed in as   {report['user_id'] or '(unknown)'}")
+    print(f"  {mark(broker_ok)} broker reachable   {report['broker_url']}")
+    if not config.get("token"):
+        print("  ✗ not signed in     — run `dispatch login`")
+    # Exit non-zero if the daemon isn't fully online, so scripts can gate on it.
+    return 0 if (daemon_up and report["broker_connected"]) else 1
+
+
 def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
     data = _request(broker, token, "GET", "/trust")
     trust = data.get("trust", [])
@@ -963,6 +1023,7 @@ def build_parser() -> argparse.ArgumentParser:
     add("help", "Show this help.", _cmd_help).set_defaults(no_auth=True)
 
     add("whoami", "Show the signed-in user + broker.", cmd_whoami)
+    add("doctor", "Check the daemon + broker connectivity.", cmd_doctor).set_defaults(no_auth=True)
     add("contacts", "List trust edges (who can dispatch to whom).", cmd_contacts)
 
     # Invitations & trust establishment (broker-backed).

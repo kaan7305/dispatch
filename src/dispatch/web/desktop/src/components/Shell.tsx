@@ -89,9 +89,6 @@ function Topbar({ email, online }: { email?: string; online: boolean }) {
     <header className="flex items-center gap-4 border-b px-6 h-14">
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-xl font-semibold tracking-tight">Dispatch</span>
-        <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
-          Free
-        </span>
       </div>
       <div className="flex-1 max-w-xl">
         <div className="relative">
@@ -176,10 +173,6 @@ function Sidebar() {
           {label}
         </NavLink>
       ))}
-      <div className="mt-auto pt-4 text-xs text-muted-foreground border-t">
-        <div>Free Plan</div>
-        <div>5 / 10 dispatches</div>
-      </div>
     </aside>
   );
 }
