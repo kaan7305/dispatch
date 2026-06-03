@@ -48,7 +48,7 @@ from uuid import UUID
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.elicitation import AcceptedElicitation
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel
 
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon.local_app import read_local_token
@@ -261,20 +261,30 @@ def _tier_of(scope_tools: list[str], scope_mcp: list[str]) -> str:
     return _TIER_CUSTOM
 
 
+# Per-server Allow/Don't, as STATIC enum models. Single-select Literals are the
+# only elicitation shape Claude Code reliably renders (same as _Approve) — a
+# dynamically-built create_model() schema silently fails to render, and a
+# boolean checkbox conflates "accept the prompt" with "check the box" so an
+# accepted-but-untoggled box reads as False. Two classes only differ in which
+# option is listed first, i.e. which the client highlights as the default — we
+# pick the one matching the current grant so editing is effectively pre-filled.
+class _ServerGrantDenyFirst(BaseModel):
+    allow: Literal["Don't allow", "Allow"]
+
+
+class _ServerGrantAllowFirst(BaseModel):
+    allow: Literal["Allow", "Don't allow"]
+
+
 async def _elicit_tier(ctx: Context, message: str, default: str | None = None) -> str | None:
-    """Single-select tier prompt. With `default`, the tiers are reordered so the
-    current one is first (highlighted) — the closest thing to a pre-filled
-    single-select. Returns the chosen tier string, or None if unavailable."""
-    if default and default in _TIERS:
-        ordered = [default] + [t for t in _TIERS if t != default]
-    else:
-        ordered = list(_TIERS)
-    Model = create_model(
-        "ToolGrant",
-        grant=(Literal[ordered[0], ordered[1], ordered[2], ordered[3]], ...),
-    )
+    """Single-select tier prompt using the STATIC _ToolGrant enum (a dynamic
+    create_model Literal does not render in Claude Code). `default` can't reorder
+    a static Literal, so when editing we surface the current tier in the message
+    text instead. Returns the chosen tier string, or None if unavailable."""
+    if default:
+        message = f"{message}\n(Currently: {default})"
     try:
-        res = await ctx.elicit(message=message, schema=Model)
+        res = await ctx.elicit(message=message, schema=_ToolGrant)
     except Exception:
         return None
     return res.data.grant if isinstance(res, AcceptedElicitation) else None
@@ -283,42 +293,47 @@ async def _elicit_tier(ctx: Context, message: str, default: str | None = None) -
 async def _pick_mcp_servers(
     ctx: Context, names: list[str], granted: list[str] | None = None
 ) -> list[str]:
-    """The MCP-server question: which installed servers this sender may use.
+    """The MCP-server question: which servers this sender may use. Asks ONE
+    single-select Allow/Don't per server (static enum — renders reliably, and
+    the choice IS the value so there's no accept-vs-toggle ambiguity).
 
-    Multi-select (one bool per server) → the client renders a checkable form.
-    Server names aren't always valid field identifiers (hyphens, dots), so each
-    maps to a positional field `s<i>` whose human label is the real name.
-
-    `granted` pre-checks the servers this edge already has (editing pre-fills,
-    rather than starting blank). Any granted server that's no longer installed
-    isn't shown — but it is UNION-preserved into the result, so editing one
-    grant never silently drops another for a server you've since uninstalled.
-    Returns the chosen server names; on decline/unavailable it preserves the
-    existing grants unchanged."""
+    Candidates = installed servers UNION already-granted names, so a grant for a
+    server you've since uninstalled is still re-confirmed (and preserved), never
+    silently dropped. On decline/unavailable for any server we keep its current
+    grant state. Returns the chosen server names."""
     granted_set = set(granted or [])
-    if not names:
-        return sorted(granted_set)
-    fields = {
-        f"s{i}": (bool, Field(default=(name in granted_set), title=name,
-                              description=f"Allow '{name}'"))
-        for i, name in enumerate(names)
-    }
-    Model = create_model("McpServerPick", **fields)
-    missing = [g for g in granted_set if g not in names]  # granted but uninstalled
-    try:
-        res = await ctx.elicit(
-            message=(
-                "Which of your MCP servers may this sender's tasks use? "
-                "(leave all unchecked for no MCP access)"
-            ),
-            schema=Model,
-        )
-    except Exception:
-        return sorted(granted_set)  # can't ask → don't change what they had
-    if not isinstance(res, AcceptedElicitation):
-        return sorted(granted_set)  # declined → keep existing grants
-    chosen = [name for i, name in enumerate(names) if getattr(res.data, f"s{i}", False)]
-    return chosen + missing  # union-preserve grants for uninstalled servers
+    candidates = sorted(set(names) | granted_set)
+    chosen: list[str] = []
+    for name in candidates:
+        currently = name in granted_set
+        installed = name in names
+        msg = f"Allow {_server_label(name)} for this sender?"
+        if not installed:
+            msg += "\n(not currently installed on this machine)"
+        schema = _ServerGrantAllowFirst if currently else _ServerGrantDenyFirst
+        try:
+            res = await ctx.elicit(message=msg, schema=schema)
+        except Exception:
+            if currently:
+                chosen.append(name)  # can't ask → keep what they had
+            continue
+        if isinstance(res, AcceptedElicitation):
+            if res.data.allow == "Allow":
+                chosen.append(name)
+        elif currently:
+            chosen.append(name)  # declined the prompt → keep existing grant
+    return chosen
+
+
+def _server_label(server: str) -> str:
+    return f"MCP server '{server}'"
+
+
+async def _installed_server_names() -> list[str]:
+    servers = await _local_call("GET", "/api/mcp/servers")
+    if not isinstance(servers, list):
+        return []
+    return [s["name"] for s in servers if isinstance(s, dict) and s.get("name")]
 
 
 async def _installed_server_names() -> list[str]:
