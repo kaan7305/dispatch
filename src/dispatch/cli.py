@@ -534,30 +534,104 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
-def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
-    """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
-    from the latest source via pipx, so your local commands match `main`."""
+DEFAULT_INSTALL_REPO = "git+https://github.com/kaan7305/dispatch.git"
+_UPDATE_MARKER = Path.home() / ".dispatch" / "installed_commit"
+
+
+def _install_spec(*, tray: bool) -> str:
+    """The pip/pipx requirement to (re)install. With `tray`, carry the [tray]
+    extra so the menu-bar app's pyobjc/rumps deps come along."""
+    spec = os.environ.get("DISPATCH_INSTALL_SPEC", DEFAULT_INSTALL_REPO)
+    if tray and "[" not in spec:
+        # PEP 508 "name[extra] @ url" form — pipx/pip resolve the extra from the url.
+        return f"dispatch-agent[tray] @ {spec}"
+    return spec
+
+
+def _tray_installed() -> bool:
+    """Is the [tray] extra present in this (the installed) venv?"""
+    import importlib.util
+    return all(importlib.util.find_spec(m) is not None for m in ("objc", "rumps"))
+
+
+def _git_url_of(spec: str) -> Optional[str]:
+    """Pull the bare git URL out of a spec like 'name[tray] @ git+https://…git'."""
+    s = spec.split(" @ ", 1)[1].strip() if " @ " in spec else spec
+    if not s.startswith("git+"):
+        return None
+    return s[len("git+"):]
+
+
+def _remote_head_sha(spec: str) -> Optional[str]:
+    """SHA that `pipx install` would resolve `spec` to right now, via ls-remote.
+    Honours an explicit '…git@branch' ref; otherwise asks for HEAD."""
+    import subprocess
+    url = _git_url_of(spec)
+    if not url:
+        return None
+    ref = "HEAD"
+    if "@" in url.split("://", 1)[-1]:
+        url, ref = url.rsplit("@", 1)
+    try:
+        out = subprocess.run(["git", "ls-remote", url, ref],
+                             capture_output=True, text=True, timeout=20)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return out.stdout.split()[0]
+
+
+def _pipx_install(spec: str, *, capture: bool):
+    """`pipx install --force <spec>` (falls back to `python -m pipx`)."""
     import shutil
     import subprocess
-
-    spec = os.environ.get(
-        "DISPATCH_INSTALL_SPEC", "git+https://github.com/kaan7305/dispatch.git"
-    )
     pipx = shutil.which("pipx")
     cmd = [pipx, "install", "--force", spec] if pipx else \
         [sys.executable, "-m", "pipx", "install", "--force", spec]
-    sys.stderr.write(f"dispatch: updating from {spec} …\n")
     try:
-        proc = subprocess.run(cmd, capture_output=not args.json, text=True)
+        return subprocess.run(cmd, capture_output=capture, text=True)
     except FileNotFoundError:
         raise CliError("pipx not found. Install pipx, or reinstall dispatch manually:\n"
-                       f"    pipx install --force {spec}")
+                       f"    pipx install --force '{spec}'")
+
+
+def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
+    from the latest source via pipx, so your local commands match `main`.
+    No-ops when already at the latest commit unless --force is given."""
+    want_tray = bool(getattr(args, "tray", False)) or _tray_installed()
+    spec = _install_spec(tray=want_tray)
+    remote = _remote_head_sha(spec)
+
+    if not args.force and remote is not None:
+        try:
+            local = _UPDATE_MARKER.read_text().strip()
+        except OSError:
+            local = ""
+        if local and local == remote:
+            _emit(
+                args,
+                {"status": "current", "commit": remote, "spec": spec},
+                f"Already up to date ({remote[:10]}). Use `dispatch update --force` "
+                "to reinstall anyway.",
+            )
+            return 0
+
+    sys.stderr.write(f"dispatch: updating from {spec} …\n")
+    proc = _pipx_install(spec, capture=not args.json)
     if proc.returncode != 0:
         raise CliError(f"update failed (pipx exit {proc.returncode}). "
                        + ((proc.stderr or "").strip()[-400:] if not args.json else ""))
+    if remote:
+        try:
+            _UPDATE_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            _UPDATE_MARKER.write_text(remote)
+        except OSError:
+            pass
     _emit(
         args,
-        {"status": "updated", "spec": spec},
+        {"status": "updated", "spec": spec, "commit": remote},
         "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
         "reloads the new code (a running process keeps the old code until it "
         "restarts). If the skill text changed, also run `/plugin marketplace "
@@ -568,15 +642,25 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
 
 def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
     """Launch the macOS menu-bar app (always-on daemon supervisor). Replaces
-    this process with `dispatch-tray`."""
+    this process with `dispatch-tray`. Self-heals the [tray] extra (pyobjc/rumps)
+    if it's missing — the bare install doesn't include those."""
     import shutil
     exe = shutil.which("dispatch-tray")
-    if not exe:
-        raise CliError(
-            "dispatch-tray not found. Install the tray app:\n"
-            "    pipx install 'dispatch-agent[tray]'\n"
-            "(or reinstall dispatch with the [tray] extra)."
+    if not exe or not _tray_installed():
+        sys.stderr.write(
+            "dispatch: tray dependencies (pyobjc/rumps) missing — installing the "
+            "[tray] extra …\n"
         )
+        proc = _pipx_install(_install_spec(tray=True), capture=not args.json)
+        if proc.returncode != 0:
+            raise CliError(
+                f"could not install the tray extra (pipx exit {proc.returncode}). "
+                "Install it manually:\n"
+                f"    pipx install --force '{_install_spec(tray=True)}'"
+            )
+        exe = shutil.which("dispatch-tray") or exe
+        if not exe:
+            raise CliError("dispatch-tray still not found after installing the extra.")
     os.execv(exe, [exe])  # replace the CLI process with the tray app
 
 
@@ -719,8 +803,14 @@ def build_parser() -> argparse.ArgumentParser:
         cmd_tray).set_defaults(no_auth=True)
 
     # Self-update the installed package (no broker creds needed).
-    add("update", "Update the dispatch CLI/daemon/MCP from the latest source (pipx).",
-        cmd_update).set_defaults(no_auth=True)
+    p_update = add("update",
+                   "Update the dispatch CLI/daemon/MCP from the latest source (pipx).",
+                   cmd_update)
+    p_update.set_defaults(no_auth=True)
+    p_update.add_argument("--force", action="store_true", default=False,
+                          help="Reinstall even if already at the latest commit.")
+    p_update.add_argument("--tray", action="store_true", default=False,
+                          help="Also (re)install the macOS [tray] extra (pyobjc/rumps).")
 
     # `dispatch help` → print top-level usage.
     def _cmd_help(_args: argparse.Namespace, _broker: str, _token: str) -> int:
