@@ -57,6 +57,7 @@ from dispatch.daemon.identity import (
     save_pins,
 )
 from dispatch.daemon.nonces import NonceStore
+from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S as CONN_STANDBY_POLL_S
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
 from dispatch.shared.schema import (
@@ -433,6 +434,19 @@ async def run_session(
 
     ws_url = _broker_ws_url(args.broker, args.token)
     ssl_ctx = _ssl_context_for(ws_url)
+
+    # Single connection-owner: only one process per machine may hold the broker
+    # WS. Stand by (don't connect, don't evict) while another process owns it;
+    # take over when it exits. The lock auto-releases on death, so this is a
+    # poll for a freed lock, not a busy-wait on a live owner.
+    conn_lock = ConnectionLock(dispatch_home() / "connection.lock")
+    while not conn_lock.acquire():
+        print("[daemon] another process owns the broker connection; standing by…", flush=True)
+        _emit("standby")
+        await asyncio.sleep(CONN_STANDBY_POLL_S)
+    conn_lock.write_owner(role="daemon", local_port=local_port)
+    print("[daemon] holding broker-connection ownership", flush=True)
+
     print(f"[daemon] connecting to broker: {args.broker}")
     _emit("connecting")
     try:
@@ -492,6 +506,7 @@ async def run_session(
         except (asyncio.CancelledError, Exception):
             pass
         nonce_store.close()
+        conn_lock.release()  # hand off connection ownership to any standby
     return 0
 
 
