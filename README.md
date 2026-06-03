@@ -21,8 +21,9 @@ A dispatch never runs on a machine unless all three hold:
 |---|---|
 | **Broker** | Multi-tenant FastAPI service, Postgres-backed. Issues identity, routes dispatches, enforces trust policy, relays events. Never holds a signing key; never touches a recipient's filesystem. |
 | **Daemon** (`dispatch-daemon`) | A small background process each user runs on their own machine. Holds that machine's Ed25519 device key, signs the user's outgoing dispatches, verifies incoming ones, and runs the agent. |
-| **Web UI** | Served by the broker. One page: sign in, manage contacts, compose, watch sent dispatches, act on your inbox. |
-| **Agent** | A Claude Agent SDK session the daemon opens per accepted dispatch. Transient — created on accept, gone when the task ends. |
+| **Web UI** | A React app (`web/desktop`) served both by the broker (`/app`) and by each daemon on `127.0.0.1`: sign in, manage contacts + per-edge permissions, compose, watch sent dispatches, act on your inbox, run workflows. |
+| **MCP server** (`dispatch-mcp`) | A thin in-session client Claude Code launches per session. Holds no broker connection, key, or executor — it ensures a daemon is running and drives it over the daemon's loopback API so Dispatch works from inside Claude. |
+| **Agent** | A Claude Agent SDK session the daemon opens per accepted dispatch, on a clean base (`setting_sources=[]`). Transient — created on accept, gone when the task ends. |
 
 Every user is both a sender and a recipient; everyone runs a daemon.
 
@@ -64,7 +65,8 @@ machine against a key the broker can't substitute.
   ```json
   {
     "tools": ["Read", "Glob", "Grep"],     // subset of Read/Write/Edit/Bash/Glob/Grep
-    "mcp": [],                             // recipient's MCP servers a dispatch may use
+    "mcp": [],                             // MCP servers a dispatch may use: bare
+                                           //   names (["gog"]) or ["*"] for all
     "paths": ["~/work"],                   // file-path allowlist ([] = no path limit)
     "approval": "manual",                  // "manual" = approve every tool call | "auto"
     "max_dispatches_per_day": 50,
@@ -79,25 +81,26 @@ machine against a key the broker can't substitute.
 
 A dispatch can use the recipient's **own MCP servers** (their Notion, search,
 domain tools) — that's what makes it powerful — without exposing the rest of
-your machine. Two layers, **no per-invite curation**:
+your machine. **No manual setup:**
 
-1. **Shareable pool (once).** List the servers you're willing to expose in
-   `~/.dispatch/shareable-mcp.json` — same shape as a Claude `.mcp.json`:
-   ```json
-   { "mcpServers": { "notion": { "type": "stdio", "command": "notion-mcp" } } }
-   ```
-   A dispatched task can *only* reach servers in this pool, and never the
-   `dispatch` control plane (sending/inviting/approving is always withheld).
-   Empty by default — nothing exposed until you opt in.
-2. **Ask-on-first-use (per sender).** The first time a sender's dispatch tries
-   to use a pooled server, you get a one-tap allow/deny (like an app
-   permission). Allow once and it's remembered for that sender for the
-   session — you don't pre-grant anything per contact. (Pre-granting via the
-   edge's `mcp` scope, and durable cross-session grants, are optional.)
+1. **Auto-discovery.** Your installed MCP servers are discovered automatically
+   from your Claude config (`~/.claude.json` — user, per-project, and each
+   project's `.mcp.json`). Nothing to curate. (An optional
+   `~/.dispatch/shareable-mcp.json`, same shape as a Claude `.mcp.json`, can add
+   or override a server the scan can't see; it wins on a name clash.) The
+   `dispatch` control plane is never exposable.
+2. **Pick at invite time (per sender).** When someone accepts your invite — or
+   when you edit an edge — you choose which of your servers that sender may use:
+   "Allow all", or a per-server Allow/Don't pick. The choice lands in the edge's
+   `mcp` scope (bare server names, or `*` for all). Edit or revoke any time with
+   `dispatch set-scope` / `dispatch revoke`, or in the web UI's **Edit
+   permissions** dialog.
 
-The task itself runs on a **clean base** — it does *not* inherit your plugins,
-skills, or other MCP config — so only the servers you pooled (and explicitly
-granted) are ever reachable.
+A dispatch is handed **only** the servers its edge scoped — unscoped servers are
+never launched, attempted, or even visible to the task. And the task runs on a
+**clean base** (it does *not* inherit your plugins, skills, or other MCP
+config), so the edge's `mcp` grant is the entire reachable surface, gated
+per-call by `can_use_tool`.
 
 ---
 
@@ -128,7 +131,7 @@ Open <http://localhost:8000>. For a teammate on another machine:
 2. Add the **PostgreSQL** plugin. Wire it: on the broker service, add a
    variable `DATABASE_URL = ${{Postgres.DATABASE_URL}}`.
 3. Set `DISPATCH_JWT_SECRET` (`openssl rand -hex 32`). `RAILWAY_PUBLIC_DOMAIN`
-   is auto-injected — the broker uses it as its public URL, so magic links
+   is auto-injected — the broker uses it as its public URL, so invitation links
    and the install one-liner are correct without extra config.
 4. Settings → Networking → Generate Domain. `/health` is the healthcheck.
 
@@ -143,7 +146,8 @@ migration step.
 | `DISPATCH_JWT_SECRET` | Broker | 32+ random chars. Rotating it invalidates all tokens. |
 | `DATABASE_URL` | Broker | Postgres URL. Auto-set by Railway's plugin. |
 | `DISPATCH_PUBLIC_URL` | Broker (optional) | Public base URL; falls back to `RAILWAY_PUBLIC_DOMAIN`, then localhost. |
-| `RESEND_API_KEY`, `RESEND_FROM` | Broker (optional) | Real email for magic links + invitations. Without it, links are returned in the API response (dev mode). |
+| `CLERK_*` | Broker (optional) | `CLERK_PUBLISHABLE_KEY`, `CLERK_FRONTEND_API`, `CLERK_JWT_AUDIENCE`, `CLERK_JWT_TEMPLATE` — enable Clerk (Google) sign-in for the web UI. Without them, use dev `/auth/login`. |
+| `RESEND_API_KEY`, `RESEND_FROM` | Broker (optional) | Real email for invitation links. Without it, links are returned in the API response (dev mode). |
 | `DISPATCH_DAEMON_INSTALL` | Broker (optional) | What `/install.sh` points `pipx install` at. Default: a GitHub repo URL. |
 | `ANTHROPIC_API_KEY` | Daemon | The recipient runs the agent on their own key. |
 | `DISPATCH_WORKSPACE` | Daemon (optional) | Agent working directory. Default `./workspace`. |
@@ -152,17 +156,23 @@ migration step.
 
 ---
 
-## Two ways to run the local agent
+## Two ways to set up the local agent
 
-The trust layers need a local process that holds your device key, signs/verifies,
-runs the agent, and asks you for approvals. You can host that either **in your
-Claude Code session** (no separate process) or as an **always-on daemon**.
+The trust layers need a local **daemon** that holds your device key,
+signs/verifies, runs the agent, and holds the approval prompts. There's always
+exactly **one daemon per machine** (it owns the single broker connection, guarded
+by an advisory lock in `~/.dispatch/connection.lock`). The two setups differ only
+in *how the daemon gets started*: have your **Claude Code session auto-spawn it**,
+or run the **installer** so it's always on.
 
-### A) In-session (no daemon) — the low-friction default
+### A) Via Claude Code (auto-spawn) — the low-friction default
 
 Install the Dispatch **plugin** for Claude Code. It bundles the `/dispatch` skill
-*and* an MCP server (`dispatch-mcp`) that Claude Code launches automatically for
-the lifetime of each session.
+*and* an MCP server (`dispatch-mcp`) that Claude Code launches each session. The
+MCP server is a **thin client**: on startup it checks for a running daemon and,
+if there isn't one, spawns it detached (the menu-bar **tray** on macOS, which
+hosts the daemon; a bare `dispatch-daemon` elsewhere). It then drives that daemon
+over its loopback API — it never opens its own broker connection.
 
 ```bash
 # 1. Install the package so the plugin's commands (dispatch-mcp, dispatch,
@@ -190,18 +200,23 @@ dispatch_read(what)    — inbox | status | sent | contacts | invitations | appr
 dispatch_act(action,…) — accept | decline | cancel | approve | deny
 dispatch_send(…)       — send a dispatch
 dispatch_invite(action)— send | list | accept | decline (invitations)
+dispatch_trust(action) — revoke | edit an existing trust edge's scopes
 ```
 (`dispatch_act(action="accept", …)` runs the accepted task in the sandboxed
 dp-agent and prompts you inline for each tool call.)
 
-Accept/decline and per-tool approvals (Layer 3) resolve **locally in this
-session** — nothing is delegated to the broker. The device key still lives on
-your machine; Layers 2 and 3 are unchanged.
+Accept/decline and per-tool approvals (Layer 3) are surfaced here via inline
+prompts but **resolved against your daemon** — the daemon (not the broker) holds
+the approval futures, and it *ignores* any decision relayed over the broker WS,
+so a compromised broker still can't fabricate your consent. The device key and
+executor live in the daemon; Layers 2 and 3 are unchanged.
 
-Trade-off: this only receives/runs dispatches **while a Claude session is open**.
-Anything sent while you're away waits in the broker's offline queue (and an SMS
-nudges you) and lands when you next open Claude. For always-on reachability or
-scheduled runs, use the daemon below.
+Because the daemon persists across sessions, dispatches are received even when no
+Claude session is open, and what one session accepts is visible in another.
+Anything sent while *no* daemon is running waits in the broker's offline queue
+(an SMS nudges you) and lands when a daemon next comes up. For guaranteed
+always-on reachability or scheduled runs without relying on a session to spawn
+it, install the daemon directly (below).
 
 ### B) Always-on daemon — for background / scheduled use
 
@@ -249,15 +264,24 @@ Two pieces ship with the package:
    else to configure.
 
    ```
+   # Setup / lifecycle:
+   dispatch login [--broker URL]            # device-code sign-in; saves config
+   dispatch update                          # update the package (+ plugin if changed)
+   dispatch tray                            # launch the menu-bar tray (hosts the daemon)
+
    # Broker-backed:
    dispatch whoami                          # who am I + which broker
-   dispatch contacts                        # trust edges: who can dispatch to whom
+   dispatch contacts                        # trust edges + scopes (tools, MCP, approval)
    dispatch send <recipient> '<task>'       # create a dispatch (your daemon signs it)
      [--expires <s>] [--cwd <dir>] [--meta k=v]
    dispatch sent                            # dispatches I've sent
    dispatch inbox                           # dispatches addressed to me
    dispatch status <id>                     # one dispatch: status + event trace
    dispatch cancel <id>                     # cancel an in-flight dispatch (either party)
+   dispatch invite <email>                  # invite someone to dispatch to you
+   dispatch set-scope <edge> [--tools …]    # edit an edge's permissions
+     [--mcp gog,notion | '*'] [--paths …] [--approval manual|auto]
+   dispatch revoke <edge>                   # revoke an edge (cancels in-flight)
 
    # Resolved by THIS machine's daemon (loopback API, not the broker):
    dispatch accept <id> | decline <id>      # decide on an inbound dispatch
@@ -294,11 +318,17 @@ Two pieces ship with the package:
 
 ## Using it
 
-1. **Sign in** — enter your email, click the magic link.
-2. **Run your daemon** — the install one-liner, once.
-3. **Invite** — in Contacts, invite a teammate by email. They get a link.
-4. **They accept** — opening the link, they choose the scopes they grant you
-   (tools, approval mode) and accept. Now a trust edge `you → them` exists.
+1. **Sign in** — the web UI signs you in via Clerk (Google); the CLI/daemon use
+   `dispatch login` (a device-code flow: it opens the browser, you confirm a
+   code, and the JWT is saved to `~/.dispatch/config.json`).
+2. **Run your daemon** — the install one-liner once, or just open Claude Code
+   with the plugin and let it auto-spawn the daemon.
+3. **Invite** — in Contacts (or `dispatch invite <email>`), invite a teammate.
+   They get an emailed link.
+4. **They accept** — opening the link (or via `dispatch_invite`), they choose the
+   scopes they grant you: built-in tools, which of their MCP servers, and
+   approval mode. Now a trust edge `you → them` exists. They can change it later
+   with `set-scope` / Edit permissions, or `revoke` it.
 5. **Compose** — pick them as recipient, describe the task, send.
    - Layer 1: the broker checks the edge, scope, and rate limit.
    - The broker asks *your* daemon to sign the dispatch.
@@ -320,29 +350,36 @@ in flight on that edge and refuses new dispatches immediately.
 
 | Verb | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/auth/request` | – | email a magic link |
-| GET | `/auth/magic?token=` | – | exchange link for a JWT |
+| POST | `/auth/clerk` | – | exchange a Clerk token for a Dispatch JWT (web UI) |
+| POST | `/auth/device` → `/approve` → `/token` | – / Bearer | device-code flow for the CLI (`dispatch login`) |
 | POST | `/auth/login` | – | dev/CLI login (username → JWT) |
+| POST | `/auth/signout` | Bearer | sign out |
 | GET | `/install.sh` | – | the daemon installer script |
 | GET | `/health` | – | liveness + DB check |
+| GET | `/me`, `/me/phone` · POST `/me/phone` | Bearer | identity / SMS-notify number |
 | POST | `/devices/enroll` | Bearer | register a device public key |
-| GET / DELETE | `/devices`, `/devices/{id}` | Bearer | list / revoke devices |
+| GET / PATCH / DELETE | `/devices`, `/devices/{id}` | Bearer | list / rename / revoke devices |
 | POST / GET | `/invitations` | Bearer | send / list invitations |
 | GET | `/invitations/{token}` | – | invitation detail |
 | POST | `/invitations/{token}/accept` \| `/decline` | Bearer | resolve an invitation |
-| GET | `/trust` | Bearer | my contacts (accepted edges) |
+| GET | `/trust` | Bearer | my contacts (accepted edges + scopes) |
 | PATCH / DELETE | `/trust/{id}` | Bearer | edit scopes (trustor only) / revoke |
-| POST | `/dispatch` | Bearer | create a dispatch (Layers 1 + signing) |
+| POST | `/dispatch` · `/dispatch/{id}/cancel` | Bearer | create / cancel a dispatch |
 | GET | `/dispatch/{id}`, `/dispatches` | Bearer | record / history |
+| GET | `/app`, `/app/{path}` | – | the React web UI (SPA) |
 
 ### WebSocket
 
 - `/agent/connect?token=` — the daemon. First frame: `{type:"hello",device_id}`.
-  Broker → daemon: `new_dispatch`, `sign_request`, `cancel_dispatch`,
-  `dispatch_decision`, `tool_approval`. Daemon → broker: `signed`,
-  `dispatch_status`, `dispatch_event`.
+  Broker → daemon: `new_dispatch`, `sign_request`, `cancel_dispatch`. Daemon →
+  broker: `signed`, `dispatch_status`, `dispatch_event`. **Approval/decision
+  frames are deliberately *not* on this socket** — Layer 3 resolves on the
+  daemon's own loopback API, and the daemon ignores any decision relayed by the
+  broker, so the broker can't fabricate consent.
 - `/inbox?token=` — the recipient's browser. Streams inbox + per-dispatch
-  events; sends `dispatch_decision` and `tool_approval`.
+  events; still accepts `dispatch_decision` / `tool_approval` for the
+  browser-driven path, but the recipient's daemon only honors decisions made
+  against its own local API, not these.
 - `/dispatch/{id}/watch?token=` — the sender's browser; streams events.
 
 ### Signing
@@ -352,8 +389,10 @@ JSON) covers: `instruction`, `sender_device`, `recipient_user`,
 `target_device`, `nonce`, `created_at`. The sender's daemon signs it
 (Ed25519); the recipient's daemon rebuilds the identical bytes and verifies
 against the sender device's public key — **pinned on first sight (TOFU)** in
-`~/.dispatch/pins.json`, so the broker can't swap a key later. Replay is
-caught by a per-`(device,nonce)` guard; staleness by a 5-minute window.
+`~/.dispatch/pins.json`, so the broker can't swap a key later. Replay is caught
+by a **durable** per-`(device,nonce)` guard (`~/.dispatch/nonces.db`, persisted
+across restarts); a wide 30-day freshness window then bounds staleness while
+still letting a dispatch wait in the offline queue for a recipient who's away.
 
 ---
 
@@ -361,24 +400,31 @@ caught by a per-`(device,nonce)` guard; staleness by a 5-minute window.
 
 ```
 src/dispatch/
-  cli.py          dispatch — terminal client for the broker (drives the /dispatch skill)
+  cli.py          dispatch — terminal client (broker + loopback daemon API)
+  mcp_server.py   dispatch-mcp — in-session thin client; ensures + drives the daemon
   shared/
     schema.py     DispatchPayload, DispatchEvent, DispatchStatus, Scopes, …
     identity.py   JWT issue/verify (HS256)
     crypto.py     Ed25519 keypair / sign / verify (PyNaCl)
     signing.py    canonical dispatch payload — what a signature covers
   executor/
-    executor.py   run_dispatch() — opens the agent session, scoped tools
+    executor.py   run_dispatch() — opens the agent session, scoped tools/MCP
   broker/
     schema.sql    Postgres tables (idempotent)
     store.py      all SQL (asyncpg): users, devices, trust, dispatches, …
     state.py      runtime-only WS connections
-    email.py      magic-link + invitation email (Resend, or dev console)
-    app.py        FastAPI broker — auth, devices, trust, dispatch, WS
+    email.py      invitation email (Resend, or dev console)
+    clerk.py      Clerk token verification (web sign-in)
+    app.py        FastAPI broker — auth, devices, trust, dispatch, WS, SPA
   daemon/
-    main.py       dispatch-daemon — WS client, signer, verifier, runner
+    main.py       dispatch-daemon — broker WS client, signer, verifier, runner
+    local_app.py  the daemon's 127.0.0.1 API + served web UI (inbox, approvals, trust)
+    connlock.py   advisory lock: one broker connection per machine
+    nonces.py     durable replay-nonce store
     identity.py   device keypair, keychain, enrollment, key pins
-  web/app/        the unified web UI
+  tray/
+    app.py        dispatch-tray — macOS menu-bar indicator that hosts the daemon
+  web/desktop/    the React web UI (served by the broker and each daemon)
 ```
 
 ---
@@ -409,8 +455,10 @@ What it **does not** — known limitations, not papered over:
   `Read/Write/Edit/Glob/Grep`; granting `Bash` grants shell, full stop.
 - **No end-to-end encryption.** The broker relays plaintext instructions.
   E2E (libsodium sealed boxes) is deferred (Phase 7).
-- In-memory replay-nonce set on the daemon resets on restart; the 5-minute
-  freshness window bounds the exposure.
+- The replay-nonce guard is durable (sqlite, survives restarts), so the 30-day
+  freshness window doesn't widen replay exposure — but that window does mean a
+  signed dispatch stays valid for delivery up to 30 days, by design (offline
+  queue).
 
 ---
 
