@@ -751,6 +751,159 @@ def _plugin_files_changed(spec: str, base_sha: str, head_sha: Optional[str]) -> 
     )
 
 
+def _daemon_session(config: dict) -> Optional[dict]:
+    """GET the local daemon's /api/session, tolerantly — return the parsed
+    body if a daemon is up on the loopback, else None. Never raises."""
+    port = _local_port(config)
+    try:
+        token = _local_token()
+    except CliError:
+        token = ""
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}",
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=3.0) as c:
+            r = c.get("/api/session")
+        if r.status_code == 200:
+            return r.json()
+    except (httpx.HTTPError, OSError, ValueError):
+        pass
+    return None
+
+
+def _daemon_inflight(config: dict) -> list:
+    """Dispatches the running daemon is actively working: accepted/running, or
+    with tool calls awaiting human approval. Restarting mid-flight would drop
+    these, so --restart refuses when this is non-empty."""
+    port = _local_port(config)
+    try:
+        token = _local_token()
+    except CliError:
+        return []
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}",
+                          headers={"Authorization": f"Bearer {token}"},
+                          timeout=3.0) as c:
+            r = c.get("/api/inbox")
+        entries = r.json() if r.status_code == 200 else []
+    except (httpx.HTTPError, OSError, ValueError):
+        return []
+    active = []
+    for e in entries:
+        pending = e.get("pending_tools") or {}
+        if e.get("status") in ("accepted", "running") or pending:
+            active.append({"dispatch_id": e.get("dispatch_id"),
+                           "status": e.get("status"),
+                           "pending_tools": len(pending)})
+    return active
+
+
+def _standalone_daemon_pids() -> list:
+    """PIDs of standalone `dispatch-daemon` OS processes. Distinguishes a
+    daemon we can safely restart from one hosted in-process by the tray
+    (`dispatch-tray`) or an in-session MCP host — those we must not evict."""
+    import shutil
+    import subprocess
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return []
+    try:
+        r = subprocess.run([pgrep, "-f", "dispatch-daemon"],
+                           capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    pids = []
+    for tok in r.stdout.split():
+        try:
+            pids.append(int(tok))
+        except ValueError:
+            pass
+    return pids
+
+
+def _spawn_daemon() -> Optional[int]:
+    """Launch a detached `dispatch-daemon` that outlives this CLI. On startup
+    it evicts whatever holds the local port and rebinds — that's how the
+    daemon already self-heals a restart. Returns the new pid, or None if the
+    executable isn't on PATH."""
+    import shutil
+    import subprocess
+    exe = shutil.which("dispatch-daemon")
+    if not exe:
+        return None
+    try:
+        log = open(_dispatch_home() / "daemon.log", "a")
+    except OSError:
+        log = subprocess.DEVNULL
+    proc = subprocess.Popen([exe], stdout=log, stderr=log, start_new_session=True)
+    return proc.pid
+
+
+def _runtime_restart(args: argparse.Namespace, config: dict,
+                     installed_commit: Optional[str]) -> dict:
+    """After pipx rewrites files on disk, any already-running daemon/tray keeps
+    executing the OLD code (and serving the OLD desktop UI) until it restarts.
+    Detect that; with --restart, restart the one case we can do safely: a
+    standalone daemon with no in-flight work. Never hard-kills a tray or an
+    in-session host (that would take down the user's menu bar or Claude
+    session)."""
+    session = _daemon_session(config)
+    tray = _tray_running()
+    daemon_up = session is not None
+    info: dict = {"daemon_running": daemon_up, "tray_running": tray, "action": "none"}
+    info["stale"] = (session.get("running_commit") != installed_commit
+                     if (daemon_up and installed_commit) else None)
+
+    if not daemon_up and not tray:
+        return info  # only the in-session MCP note (base message) applies
+
+    if tray:
+        info["action"] = "deferred"
+        info["note"] = ("A menu-bar tray (⬡ Dispatch) is supervising the daemon on the old "
+                        "code — quit it from the menu bar and run `dispatch tray` to reload.")
+        return info
+
+    if not args.restart:
+        info["action"] = "deferred"
+        info["note"] = ("A running daemon is still on the old code — restart it, or re-run "
+                        "with `dispatch update --restart` to do it for you.")
+        return info
+
+    if not _standalone_daemon_pids():
+        info["action"] = "deferred"
+        info["note"] = ("The running daemon is hosted by another process (likely an in-session "
+                        "Claude/MCP host), not a standalone `dispatch-daemon` — restart that "
+                        "session to load the new code.")
+        return info
+
+    inflight = _daemon_inflight(config)
+    if inflight:
+        ids = ", ".join(
+            f"{d['dispatch_id']} ({d['status']}"
+            + (f", {d['pending_tools']} pending approvals" if d['pending_tools'] else "") + ")"
+            for d in inflight
+        )
+        info["action"] = "blocked"
+        info["inflight"] = inflight
+        info["note"] = (f"Skipped auto-restart: the daemon is mid-flight — {len(inflight)} active "
+                        f"dispatch(es): {ids}. Finish/await those, then `dispatch update --restart`.")
+        return info
+
+    pid = _spawn_daemon()
+    if pid is None:
+        info["action"] = "blocked"
+        info["note"] = ("Wanted to restart the daemon but `dispatch-daemon` isn't on PATH — "
+                        "restart it manually.")
+        return info
+    info["action"] = "restarted"
+    info["new_pid"] = pid
+    info["note"] = (f"Restarted the daemon on the new code (fresh process pid {pid}; it evicts "
+                    "the old one and rebinds the local port).")
+    return info
+
+
 def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
     from the latest source via pipx, so your local commands match `main`.
@@ -793,6 +946,14 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
         "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
         "reloads the new code (a running process keeps the old code until it restarts)."
     )
+
+    # The MCP isn't the only long-running process: a daemon/tray launched
+    # before this update is still on the old code (and serving the old desktop
+    # UI) until restarted. Surface that, and restart it when safe.
+    runtime = _runtime_restart(args, _load_config(), remote)
+    if runtime.get("note"):
+        message += " " + runtime["note"]
+
     if plugin_changed is True:
         message += (" The plugin's skill/manifest changed — also run `/plugin "
                     "marketplace update dispatch` in Claude Code.")
@@ -802,7 +963,7 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     _emit(
         args,
         {"status": "updated", "spec": spec, "commit": remote,
-         "plugin_changed": plugin_changed},
+         "plugin_changed": plugin_changed, "runtime": runtime},
         message,
     )
     return 0
@@ -1015,6 +1176,9 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Reinstall even if already at the latest commit.")
     p_update.add_argument("--tray", action="store_true", default=False,
                           help="Also (re)install the macOS [tray] extra (pyobjc/rumps).")
+    p_update.add_argument("--restart", action="store_true", default=False,
+                          help="After updating, restart a standalone daemon on the new code "
+                               "(skipped if it's mid-flight, tray-supervised, or in-session).")
 
     # `dispatch help` → print top-level usage.
     def _cmd_help(_args: argparse.Namespace, _broker: str, _token: str) -> int:

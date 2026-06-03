@@ -372,12 +372,17 @@ async def run_session(
     # Local approval UI — the ONLY surface that resolves user-intent
     # decisions. The broker's WS no longer carries them.
     from dispatch.daemon.local_app import LocalState, issue_local_token, spawn as spawn_local_ui
+    try:
+        running_commit = (dispatch_home() / "installed_commit").read_text().strip()
+    except OSError:
+        running_commit = ""
     local_state = LocalState(
         user_id=my_user,
         broker_url=args.broker,
         broker_token=args.token,
         notify=on_notification,
         on_signout=on_signout,
+        running_commit=running_commit,
     )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)
     print(f"[daemon] evicting any process on port {local_port}", flush=True)

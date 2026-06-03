@@ -105,6 +105,10 @@ class LocalState:
     broker_url: str = ""
     broker_token: str = ""   # Dispatch JWT — used by the proxy handlers, never returned to the SPA
     broker_connected: bool = False   # is the daemon's broker WS up right now?
+    # Commit this daemon process is running (read from ~/.dispatch/installed_commit
+    # at startup). `dispatch update` compares it against the commit it just
+    # installed to tell whether this still-running process is on stale code.
+    running_commit: str = ""
     entries: dict[UUID, InboxEntry] = field(default_factory=dict)
     watchers: list[WebSocket] = field(default_factory=list)
     notify: Optional[Callable[[str, str, str], None]] = None
@@ -315,6 +319,7 @@ def make_app(
             "user_id": local_state.user_id,
             "broker_url": local_state.broker_url,
             "broker_connected": local_state.broker_connected,
+            "running_commit": local_state.running_commit,
         }
 
     @app.post("/api/open-broker", dependencies=[Depends(require_local_token)])

@@ -29,3 +29,10 @@ Thumbs.db
 workspace/
 dist/
 build/
+
+# …except the desktop UI bundle the daemon serves. It ships via git → pipx
+# (there's no node build step at install time), so the built SPA MUST be
+# committed or the local daemon serves a stale/empty UI. Rebuild with
+# `pnpm --dir src/dispatch/web/desktop build` and commit the result.
+!/src/dispatch/web/desktop/dist/
+!/src/dispatch/web/desktop/dist/**
