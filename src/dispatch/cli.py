@@ -689,11 +689,27 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
-def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
-    """Launch the macOS menu-bar app (always-on daemon supervisor). Replaces
-    this process with `dispatch-tray`. Self-heals the [tray] extra (pyobjc/rumps)
-    if it's missing — the bare install doesn't include those."""
+def _tray_running() -> bool:
+    """Is a dispatch-tray already running? (avoids a duplicate menu-bar icon)."""
     import shutil
+    import subprocess
+    pgrep = shutil.which("pgrep")
+    if not pgrep:
+        return False
+    try:
+        r = subprocess.run([pgrep, "-f", "dispatch-tray"],
+                           capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Launch the macOS menu-bar app (always-on daemon supervisor) in the
+    background and return, so your terminal stays free. Self-heals the [tray]
+    extra (pyobjc/rumps) if missing — the bare install doesn't include those."""
+    import shutil
+    import subprocess
     exe = shutil.which("dispatch-tray")
     if not exe or not _tray_installed():
         sys.stderr.write(
@@ -710,7 +726,27 @@ def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
         exe = shutil.which("dispatch-tray") or exe
         if not exe:
             raise CliError("dispatch-tray still not found after installing the extra.")
-    os.execv(exe, [exe])  # replace the CLI process with the tray app
+
+    if _tray_running():
+        _emit(args, {"status": "already_running"},
+              "dispatch tray is already running — look for ⬡ Dispatch in your menu bar.")
+        return 0
+
+    # Detach so the terminal is free. start_new_session=True puts it in its own
+    # session/process group, so closing the terminal won't kill it.
+    log_path = Path.home() / ".dispatch" / "tray.log"
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log = open(log_path, "ab")
+    except OSError:
+        log = subprocess.DEVNULL
+    subprocess.Popen(
+        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
+    )
+    _emit(args, {"status": "launched"},
+          "Launched dispatch tray in the background — look for ⬡ Dispatch in your "
+          f"menu bar. Logs: {log_path}")
+    return 0
 
 
 def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
