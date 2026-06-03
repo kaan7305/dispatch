@@ -596,6 +596,42 @@ def _pipx_install(spec: str, *, capture: bool):
                        f"    pipx install --force '{spec}'")
 
 
+# Files that ship in the Claude Code plugin bundle (served by the marketplace,
+# NOT by pipx). A change to any of these is what makes `/plugin marketplace
+# update` necessary; everything else is just code that pipx already refreshed.
+_PLUGIN_PATH_PREFIXES = (".claude-plugin/", "skills/")
+
+
+def _plugin_files_changed(spec: str, base_sha: str, head_sha: Optional[str]) -> Optional[bool]:
+    """Did any plugin-bundled file change between `base_sha` and `head_sha`?
+    Uses GitHub's compare API (public repo, no auth). Returns True/False, or
+    None when it can't be determined (no prior marker, private repo, network
+    error) — the caller then shows a hedged reminder."""
+    import re
+    url = _git_url_of(spec)
+    if not url or not base_sha or not head_sha or base_sha == head_sha:
+        return None
+    m = re.search(r"github\.com[:/]+([^/]+)/([^/.]+)", url)
+    if not m:
+        return None
+    owner, repo = m.group(1), m.group(2)
+    api = f"https://api.github.com/repos/{owner}/{repo}/compare/{base_sha}...{head_sha}"
+    try:
+        with httpx.Client(timeout=15.0, verify=certifi.where()) as c:
+            r = c.get(api, headers={"Accept": "application/vnd.github+json"})
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        files = r.json().get("files") or []
+    except ValueError:
+        return None
+    return any(
+        str(f.get("filename", "")).startswith(_PLUGIN_PATH_PREFIXES) for f in files
+    )
+
+
 def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
     from the latest source via pipx, so your local commands match `main`.
@@ -603,39 +639,52 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     want_tray = bool(getattr(args, "tray", False)) or _tray_installed()
     spec = _install_spec(tray=want_tray)
     remote = _remote_head_sha(spec)
+    try:
+        local = _UPDATE_MARKER.read_text().strip()
+    except OSError:
+        local = ""
 
-    if not args.force and remote is not None:
-        try:
-            local = _UPDATE_MARKER.read_text().strip()
-        except OSError:
-            local = ""
-        if local and local == remote:
-            _emit(
-                args,
-                {"status": "current", "commit": remote, "spec": spec},
-                f"Already up to date ({remote[:10]}). Use `dispatch update --force` "
-                "to reinstall anyway.",
-            )
-            return 0
+    if not args.force and remote is not None and local and local == remote:
+        _emit(
+            args,
+            {"status": "current", "commit": remote, "spec": spec},
+            f"Already up to date ({remote[:10]}). Use `dispatch update --force` "
+            "to reinstall anyway.",
+        )
+        return 0
 
     sys.stderr.write(f"dispatch: updating from {spec} …\n")
     proc = _pipx_install(spec, capture=not args.json)
     if proc.returncode != 0:
         raise CliError(f"update failed (pipx exit {proc.returncode}). "
                        + ((proc.stderr or "").strip()[-400:] if not args.json else ""))
+
+    # Did the plugin bundle (skill text / manifest) change? Only then does the
+    # user need `/plugin marketplace update` — pipx already refreshed the code.
+    plugin_changed = _plugin_files_changed(spec, local, remote)
+
     if remote:
         try:
             _UPDATE_MARKER.parent.mkdir(parents=True, exist_ok=True)
             _UPDATE_MARKER.write_text(remote)
         except OSError:
             pass
+
+    message = (
+        "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
+        "reloads the new code (a running process keeps the old code until it restarts)."
+    )
+    if plugin_changed is True:
+        message += (" The plugin's skill/manifest changed — also run `/plugin "
+                    "marketplace update dispatch` in Claude Code.")
+    elif plugin_changed is None:
+        message += (" If the skill text or manifest changed, also run `/plugin "
+                    "marketplace update dispatch` in Claude Code.")
     _emit(
         args,
-        {"status": "updated", "spec": spec, "commit": remote},
-        "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
-        "reloads the new code (a running process keeps the old code until it "
-        "restarts). If the skill text changed, also run `/plugin marketplace "
-        "update dispatch` in Claude Code.",
+        {"status": "updated", "spec": spec, "commit": remote,
+         "plugin_changed": plugin_changed},
+        message,
     )
     return 0
 
