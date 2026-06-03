@@ -11,6 +11,7 @@ tool execution. The executor just wires it through to the SDK.
 """
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,38 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload
 # cannot use it at all.
 ALL_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 TOOL_RESULT_TRUNCATE_BYTES = 8 * 1024
+
+# Model the delegated-task agent runs on. Defaults to Sonnet — a delegated
+# chore ("send this email", "create a folder") doesn't need Opus, and the SDK
+# would otherwise inherit the caller's top-tier default, making every dispatch
+# 5–15× more expensive than it needs to be. Override per-deployment with
+# $DISPATCH_EXECUTOR_MODEL (e.g. a full id, or "haiku" for the cheapest tier).
+DEFAULT_EXECUTOR_MODEL = os.environ.get("DISPATCH_EXECUTOR_MODEL") or "claude-sonnet-4-6"
+
+# MCP connection statuses (from the CLI init event) that mean the server will
+# NOT provide tools this run. "pending" is excluded — it may still finish
+# connecting; "connected" is the only healthy state.
+_DEAD_MCP_STATUSES = {"failed", "needs-auth", "disabled"}
+
+
+def _dead_scoped_mcp(init_data: dict, expected: set[str]) -> list[tuple[str, str]]:
+    """Given an init SystemMessage's data and the MCP servers the task was
+    scoped to use, return the (name, status) of those that won't come up —
+    failed/needs-auth/disabled, or absent from the report entirely. A server
+    still "pending" gets the benefit of the doubt and is not reported dead."""
+    reported: dict[str, str] = {}
+    for srv in (init_data.get("mcp_servers") or []):
+        if isinstance(srv, dict) and srv.get("name"):
+            reported[srv["name"]] = str(srv.get("status", "")).lower()
+    dead: list[tuple[str, str]] = []
+    for name in sorted(expected):
+        status = reported.get(name)
+        if status is None:
+            dead.append((name, "missing"))
+        elif status in _DEAD_MCP_STATUSES:
+            dead.append((name, status))
+    return dead
+
 
 # Framing prepended to every delegated task so the agent understands the
 # message is a task someone else handed it to *run*, not an instruction to
@@ -125,6 +158,7 @@ async def run_dispatch(
     system_prompt: str | None = None,
     mcp_servers: dict[str, Any] | None = None,
     skills: list[str] | str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[DispatchEvent]:
     """Run one dispatch.
 
@@ -164,6 +198,7 @@ async def run_dispatch(
         permission_mode = "acceptEdits"
 
     options_kwargs: dict[str, Any] = {
+        "model": model or DEFAULT_EXECUTOR_MODEL,
         "allowed_tools": sdk_allowed_tools,
         "disallowed_tools": disallowed,
         "permission_mode": permission_mode,
@@ -191,10 +226,39 @@ async def run_dispatch(
         options_kwargs["skills"] = skills
     options = ClaudeAgentOptions(**options_kwargs)
 
+    expected_mcp = set((mcp_servers or {}).keys())
+
     async with ClaudeSDKClient(options=options) as client:
         try:
             await client.query(payload.task)
+            mcp_checked = not expected_mcp  # nothing scoped → nothing to check
             async for message in client.receive_response():
+                # Fast-fail: the CLI's init event reports each MCP server's
+                # connection status. If a server the edge scoped didn't come
+                # up, the task was granted a capability it can't use — surface
+                # it to the sender and abort, instead of letting the agent burn
+                # turns (and tokens) retrying tools that will never appear.
+                if (not mcp_checked and isinstance(message, SystemMessage)
+                        and message.subtype == "init"):
+                    mcp_checked = True
+                    dead = _dead_scoped_mcp(message.data, expected_mcp)
+                    if dead:
+                        listed = ", ".join(f"{name} ({status})" for name, status in dead)
+                        yield {
+                            "type": "error",
+                            "data": {
+                                "message": (
+                                    "MCP server(s) the task was scoped to use are "
+                                    f"unavailable: {listed}. Aborting before the agent "
+                                    "spends turns retrying tools that will never appear — "
+                                    "check the server's command/auth on the recipient "
+                                    "machine."
+                                ),
+                                "exception": "McpServerUnavailable",
+                                "servers": [name for name, _ in dead],
+                            },
+                        }
+                        return  # exits the `async with` → terminates the SDK session
                 async for event in _normalize(message):
                     yield event
         except Exception as exc:
