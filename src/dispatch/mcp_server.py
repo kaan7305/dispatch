@@ -69,6 +69,7 @@ from dispatch.daemon.main import (
     verify_token_user,
 )
 from dispatch.daemon.nonces import NonceStore
+from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S
 
 logger = logging.getLogger("dispatch.mcp")
 
@@ -91,6 +92,7 @@ class _Link:
     daemon_state: DaemonState
     local_state: LocalState
     nonce_store: NonceStore
+    conn_lock: ConnectionLock
     ws_task: asyncio.Task
     stop: asyncio.Event
 
@@ -113,10 +115,25 @@ async def _ws_loop(link_box: dict[str, _Link], stop: asyncio.Event) -> None:
     surfacing both into LocalState and parking approval futures the tools
     resolve."""
     link = link_box["link"]
+    lock = link.conn_lock
     ws_url = _broker_ws_url(link.broker, link.token)
     ssl_ctx = _ssl_context_for(ws_url)
     backoff = 1.0
     while not stop.is_set():
+        # Single connection-owner: only one process per machine holds the broker
+        # WS. If another (e.g. the daemon or another session) owns it, stand by
+        # and poll — we take over only if it exits (the lock auto-releases on
+        # death). Once we own it, we keep ownership across broker reconnects.
+        if not lock.held:
+            if not lock.acquire():
+                logger.info("another process owns the broker connection; standing by")
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=STANDBY_POLL_S)
+                    return  # stop was set while standing by
+                except asyncio.TimeoutError:
+                    continue
+            lock.write_owner(role="session")
+            logger.info("dispatch-mcp acquired broker-connection ownership")
         try:
             async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
                 await ws.send(json.dumps({"type": "hello", "device_id": link.device_id}))
@@ -184,13 +201,16 @@ async def _start_link() -> _Link:
     local_state = LocalState(user_id=user_id, broker_url=broker, broker_token=token)
     await local_state.seed_from_broker()
 
+    conn_lock = ConnectionLock(dispatch_home() / "connection.lock")
+
     stop = asyncio.Event()
     link_box: dict[str, _Link] = {}
     ws_task = asyncio.create_task(_ws_loop(link_box, stop))
     link = _Link(
         broker=broker, token=token, user_id=user_id, device_id=device_id,
         workspace=workspace, private_key=private_key, daemon_state=daemon_state,
-        local_state=local_state, nonce_store=nonce_store, ws_task=ws_task, stop=stop,
+        local_state=local_state, nonce_store=nonce_store, conn_lock=conn_lock,
+        ws_task=ws_task, stop=stop,
     )
     link_box["link"] = link
     return link
@@ -204,6 +224,7 @@ async def _stop_link(link: _Link) -> None:
     except (asyncio.CancelledError, Exception):
         pass
     link.nonce_store.close()
+    link.conn_lock.release()  # hand off connection ownership to any standby
 
 
 @asynccontextmanager
