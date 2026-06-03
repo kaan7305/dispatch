@@ -139,6 +139,15 @@ export const api = {
     }),
   revokeTrust: (id: string) =>
     request<{ status: string }>(`/api/trust/${id}`, { method: "DELETE" }),
+  // Installed MCP servers exposable to senders — feeds the edit-permissions
+  // picker. This is a daemon-local capability: the broker neither has the route
+  // nor should know your full install inventory, so in broker mode (or if the
+  // daemon is unreachable) we degrade to an empty list and the dialog shows
+  // grants read-only instead of a browse-and-add checklist.
+  mcpServers: (): Promise<McpServer[]> =>
+    isBroker
+      ? Promise.resolve([])
+      : request<McpServer[]>("/api/mcp/servers").catch(() => []),
   invite: (to_email: string) =>
     request<InviteResult>("/api/invitations", {
       method: "POST",
@@ -273,10 +282,17 @@ export type DispatchStatus =
 
 export interface Scopes {
   tools?: string[];
+  // MCP-server grants for this edge. Bare server names (e.g. "gog") allow any
+  // tool from that server; "*" allows every installed server.
+  mcp?: string[];
   paths?: string[];
   approval?: "manual" | "auto";
   max_dispatches_per_day?: number;
   expires_at?: string | null;
+}
+
+export interface McpServer {
+  name: string;
 }
 
 export interface InboxEntry {

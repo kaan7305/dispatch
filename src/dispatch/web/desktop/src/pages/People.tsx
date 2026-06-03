@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Settings, Trash2, UserPlus, X } from "lucide-react";
 
-import { api, type Invitation, type TrustEdge } from "@/lib/api";
+import { api, type Invitation, type Scopes, type TrustEdge } from "@/lib/api";
 import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,19 @@ import { EditPermissionsDialog } from "@/components/EditPermissionsDialog";
 import { SegmentedTabs } from "@/components/SegmentedTabs";
 
 type Tab = "all" | "send" | "receive";
+
+/** One-line "what this sender can do" summary for an incoming edge. */
+function scopeSummary(scopes: Scopes): string {
+  const tools = scopes.tools?.length ? scopes.tools.join(", ") : "default tools";
+  const mcp = scopes.mcp ?? [];
+  const mcpStr = mcp.includes("*")
+    ? "all"
+    : mcp.length
+      ? mcp.join(", ")
+      : "none";
+  const approval = scopes.approval === "auto" ? "auto-approve" : "manual approval";
+  return `Tools: ${tools} · MCP: ${mcpStr} · ${approval}`;
+}
 
 interface PersonRowData {
   peer: string;
@@ -193,6 +206,11 @@ function PersonRow({
       <div className="flex-1 min-w-0">
         <div className="font-semibold">{nameFromEmail(row.peer)}</div>
         <div className="text-sm text-muted-foreground truncate">{row.peer}</div>
+        {row.incoming && (tab === "all" || tab === "receive") && (
+          <div className="text-xs text-muted-foreground truncate mt-0.5">
+            {scopeSummary(row.incoming.scopes)}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         {row.outgoing && (tab === "all" || tab === "send") && (
