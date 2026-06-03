@@ -567,37 +567,6 @@ def _mcp_server_of(tool_name: str) -> str:
     return parts[1] if tool_name.startswith("mcp__") and len(parts) >= 3 else ""
 
 
-def _shareable_skills_path() -> Path:
-    return dispatch_home() / "shareable-skills.json"
-
-
-def load_shareable_skills() -> dict:
-    """The recipient's pool of Skills exposable to incoming dispatches.
-
-    Curated in ~/.dispatch/shareable-skills.json:
-        {"skills": ["repo-triage", ...], "plugins": ["/path/to/plugin", ...]}
-    `plugins` are local plugin dirs that *contain* the skills (so they load
-    without the recipient's filesystem settings — isolation preserved); `skills`
-    is the catalog of names those plugins provide. A dispatch then sees only the
-    intersection of this catalog and the edge's `skills` scope. Empty by default
-    (no skills exposed until the recipient opts in). A bare list is treated as
-    `{"skills": [...]}` with no plugins."""
-    try:
-        raw = json.loads(_shareable_skills_path().read_text())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"skills": [], "plugins": []}
-    if isinstance(raw, list):
-        return {"skills": [s for s in raw if isinstance(s, str)], "plugins": []}
-    if not isinstance(raw, dict):
-        return {"skills": [], "plugins": []}
-    skills = raw.get("skills") or []
-    plugins = raw.get("plugins") or []
-    return {
-        "skills": [s for s in skills if isinstance(s, str)],
-        "plugins": [p for p in plugins if isinstance(p, str)],
-    }
-
-
 def _shareable_mcp_path() -> Path:
     return dispatch_home() / "shareable-mcp.json"
 
@@ -965,17 +934,6 @@ async def process_dispatch(
     # remembered for the session). No up-front curation required.
     mcp_pool = load_shareable_mcp()
 
-    # Scoped Skills: expose only the edge-allowed subset of the recipient's
-    # curated shareable pool, loaded via curated local plugins (so the
-    # recipient's own ~/.claude never leaks — setting_sources stays empty).
-    # Off entirely unless the recipient curated a pool AND the edge scopes it.
-    _skill_pool = load_shareable_skills()
-    scoped_skills = [s for s in (scope.skills or []) if s in set(_skill_pool["skills"])]
-    skill_plugins = (
-        [{"type": "local", "path": p} for p in _skill_pool["plugins"]]
-        if scoped_skills else []
-    )
-
     async def _request_approval(tool_name: str, tool_input: dict[str, Any]) -> str:
         """Surface one tool call to the recipient (Layer 3); await allow/deny
         (timeout → deny)."""
@@ -1158,8 +1116,7 @@ async def process_dispatch(
             allowed_tools=list(scope.tools),
             can_use_tool=can_use_tool,
             mcp_servers=mcp_pool or None,
-            skills=scoped_skills or None,
-            plugins=skill_plugins or None,
+            skills="all",   # Skills are inert without tools; the tool scope is the sandbox.
         ):
             await send_event(payload.dispatch_id, event)
             if event["type"] == "error":

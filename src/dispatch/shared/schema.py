@@ -144,12 +144,10 @@ class Scopes(BaseModel):
       "notion"               -> any tool from the recipient's `notion` MCP server
       "mcp__github__*"        -> any tool from the `github` server
       "mcp__search__web"      -> one exact MCP tool
-    `skills` is the allowlist of the recipient's Skills a dispatch may use
-    (by SKILL.md name), drawn from the recipient's curated shareable pool
-    (~/.dispatch/shareable-skills.json). Empty (default) → no skills exposed.
-    NOTE: like `mcp`, the skills allowlist is a *context filter*, not a
-    sandbox — the hard boundary is still the `tools`/`paths` scope enforced
-    per-call in can_use_tool (a skill's steps still go through it).
+    Skills are NOT scoped here: a Skill is just instructions/context and grants
+    no capability on its own (any tool it tries to use still passes through the
+    `tools`/`mcp`/`paths` gate in can_use_tool). So delegated tasks get all of
+    the recipient's Skills; the real sandbox is the tools above.
 
     The recipient's *dispatch* control plane (sending/inviting/approving) is
     NEVER grantable here — a dispatched task can't re-wield the recipient's
@@ -158,7 +156,6 @@ class Scopes(BaseModel):
 
     tools: list[str] = Field(default_factory=lambda: ["Read", "Glob", "Grep"])
     mcp: list[str] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
     paths: list[str] = Field(default_factory=list)
     approval: Literal["manual", "auto"] = "manual"
     max_dispatches_per_day: int = Field(default=50, ge=1, le=10000)

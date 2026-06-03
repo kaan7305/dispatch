@@ -124,8 +124,7 @@ async def run_dispatch(
     can_use_tool: CanUseTool | None = None,
     system_prompt: str | None = None,
     mcp_servers: dict[str, Any] | None = None,
-    skills: list[str] | None = None,
-    plugins: list[dict[str, Any]] | None = None,
+    skills: list[str] | str | None = None,
 ) -> AsyncIterator[DispatchEvent]:
     """Run one dispatch.
 
@@ -144,15 +143,15 @@ async def run_dispatch(
     recipient's powerful tools; the caller's `can_use_tool` still gates every
     call against the edge scope and withholds the dispatch control plane.
 
-    `skills` enables a scoped subset of the recipient's Skills (by SKILL.md
-    name) and `plugins` (list of {"type":"local","path":...}) makes those
-    skills discoverable WITHOUT loading the recipient's filesystem settings —
-    `setting_sources` stays empty so the recipient's own ~/.claude (and the
-    dispatch plugin) never leak into a delegated task. Both default to off:
-    when neither is given, behavior is identical to before (no skills).
-    Like MCP, the skills list only filters what's *offered* — the hard
-    boundary remains the per-call `can_use_tool` (a skill's tool steps still
-    pass through it).
+    `skills` enables the recipient's Skills for the task — pass "all" to expose
+    every installed Skill (or a list of names). Skills are just instructions and
+    grant NO capability on their own: a Skill that wants to run a script still
+    needs `Bash`, an API still needs that MCP tool, all gated by `can_use_tool`.
+    So there's nothing to sandbox at the skill level — the tools are the
+    boundary. Enabling skills flips `setting_sources` to ["user"] so the SDK can
+    discover them (this also exposes the recipient's CLAUDE.md to the task);
+    `strict_mcp_config` still keeps MCP explicit and the dispatch control plane
+    is still withheld in `can_use_tool`. Omit/None → no skills (isolated base).
     """
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
@@ -184,11 +183,11 @@ async def run_dispatch(
     }
     if mcp_servers:
         options_kwargs["mcp_servers"] = mcp_servers
-    # Scoped skills come from curated local plugins only, so they load without
-    # `setting_sources` (which would pull in the recipient's whole ~/.claude).
-    if plugins:
-        options_kwargs["plugins"] = plugins
     if skills:
+        # Discover the recipient's Skills (and CLAUDE.md). Capability stays
+        # bounded: strict_mcp_config keeps MCP explicit and can_use_tool gates
+        # every tool, so skills add nothing the edge didn't already grant.
+        options_kwargs["setting_sources"] = ["user"]
         options_kwargs["skills"] = skills
     options = ClaudeAgentOptions(**options_kwargs)
 
