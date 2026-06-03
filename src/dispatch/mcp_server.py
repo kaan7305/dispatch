@@ -662,15 +662,68 @@ async def dispatch_invite(
         return {"error": "logged_out", "detail": _LOGIN_HINT}
 
 
+def _edge_summary(edges: list[dict]) -> list[dict]:
+    """Compact view of edges for an error payload the model can choose from."""
+    return [
+        {"trust_link_id": e.get("trust_link_id"), "peer": e.get("peer"),
+         "scopes": e.get("scopes", {})}
+        for e in edges
+    ]
+
+
+async def _resolve_editable_edge(
+    trust_link_id: str, peer: str
+) -> tuple[dict | None, dict | None]:
+    """Find the trust edge to edit/revoke without forcing the caller to know the
+    raw id. Only edges you can edit (you're the trustor — `can_edit_scopes`) are
+    candidates. Resolution order: explicit id → peer email → the sole editable
+    edge. Ambiguous/none → an error payload listing the choices so the model can
+    retry with a concrete id (instead of dead-ending on a missing param).
+    Returns (edge, None) on success or (None, error_dict)."""
+    data = await _local_call("GET", "/api/trust")
+    if isinstance(data, dict) and data.get("error"):
+        return None, data
+    edges = data.get("trust", []) if isinstance(data, dict) else []
+    editable = [e for e in edges if e.get("can_edit_scopes")]
+    if trust_link_id:
+        edge = next((e for e in editable if e.get("trust_link_id") == trust_link_id), None)
+        if edge is None:
+            return None, {"error": "no editable trust edge with that id",
+                          "editable_edges": _edge_summary(editable)}
+        return edge, None
+    if peer:
+        matches = [e for e in editable if (e.get("peer") or "").lower() == peer.lower()]
+        if len(matches) == 1:
+            return matches[0], None
+        if not matches:
+            return None, {"error": f"no editable edge for peer '{peer}'",
+                          "editable_edges": _edge_summary(editable)}
+        return None, {"error": f"multiple edges match '{peer}' — pass trust_link_id",
+                      "matches": _edge_summary(matches)}
+    if len(editable) == 1:
+        return editable[0], None
+    if not editable:
+        return None, {"error": "you have no editable trust edges — nobody can "
+                               "dispatch to you yet"}
+    return None, {"error": "multiple editable edges — pass trust_link_id or peer",
+                  "editable_edges": _edge_summary(editable)}
+
+
 @mcp.tool()
 async def dispatch_trust(
     action: Literal["revoke", "edit"],
-    trust_link_id: str,
     ctx: Context,
+    trust_link_id: str = "",
+    peer: str = "",
 ) -> Any:
     """Revoke or edit an existing trust edge — one where someone can dispatch to
-    YOU (you're the trustor who set their scopes). Get the trust_link_id from
-    dispatch_read(what='contacts').
+    YOU (you're the trustor who set their scopes).
+
+    Identifying the edge: pass `trust_link_id` (from dispatch_read(what=
+    'contacts')) OR `peer` (their email). If you pass neither and there's only
+    one editable edge, it's used; if it's ambiguous, this returns the list of
+    editable edges so you can retry with a concrete id — you never need to guess.
+
       revoke — delete the edge: that sender can no longer dispatch to you, and
                any in-flight dispatch on the edge is cancelled immediately.
       edit   — re-pick this sender's tool + MCP-server scopes via the same
@@ -682,18 +735,13 @@ async def dispatch_trust(
                scope it started with (revoke to stop those too).
     """
     try:
-        if not trust_link_id:
-            return {"error": "trust_link_id required (see dispatch_read(what='contacts'))"}
+        edge, err = await _resolve_editable_edge(trust_link_id, peer)
+        if err is not None:
+            return err
+        tlid = edge["trust_link_id"]
         if action == "revoke":
-            return await _local_call("DELETE", f"/api/trust/{trust_link_id}")
-        # edit — load current scopes to pre-fill the picker.
-        data = await _local_call("GET", "/api/trust")
-        edges = data.get("trust", []) if isinstance(data, dict) else []
-        edge = next((e for e in edges if e.get("trust_link_id") == trust_link_id), None)
-        if edge is None:
-            return {"error": "no such trust edge — see dispatch_read(what='contacts')"}
-        if not edge.get("can_edit_scopes"):
-            return {"error": "only the recipient (trustor) may edit this edge's scopes"}
+            return await _local_call("DELETE", f"/api/trust/{tlid}")
+        # edit — pre-fill the picker from the edge's current scopes.
         cur = edge.get("scopes") or {}
         scope_tools, scope_mcp = await _elicit_scopes(
             ctx,
@@ -706,7 +754,7 @@ async def dispatch_trust(
         new_scopes = dict(cur)
         new_scopes.update({"tools": scope_tools, "mcp": scope_mcp})
         return await _local_call(
-            "PATCH", f"/api/trust/{trust_link_id}", json={"scopes": new_scopes}
+            "PATCH", f"/api/trust/{tlid}", json={"scopes": new_scopes}
         )
     except _Dormant:
         return {"error": "logged_out", "detail": _LOGIN_HINT}
