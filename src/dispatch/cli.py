@@ -366,8 +366,14 @@ def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
         online = "online" if t.get("peer_online") else "offline"
         scopes = t.get("scopes", {})
         tools = ",".join(scopes.get("tools", [])) or "(default)"
+        mcp = scopes.get("mcp", [])
+        mcp_str = "*(all)" if "*" in mcp else (",".join(mcp) or "none")
         approval = scopes.get("approval", "?")
-        print(f"  {arrow} {t['peer']:<28} [{online}]  tools={tools} approval={approval}")
+        print(f"  {arrow} {t['peer']:<28} [{online}]  tools={tools} mcp={mcp_str} approval={approval}")
+        # Only incoming edges (you're the trustor) are editable/revocable.
+        if t.get("direction") == "incoming":
+            print(f"      edge={t.get('trust_link_id', '?')}  "
+                  f"(dispatch set-scope / revoke <edge>)")
     if not outgoing:
         print("\nNote: no outgoing edges — you can't send to anyone until a contact "
               "accepts your invitation and grants you scopes.")
@@ -440,6 +446,59 @@ def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> 
 def cmd_decline_invitation(args: argparse.Namespace, broker: str, token: str) -> int:
     result = _request(broker, token, "POST", f"/invitations/{args.token}/decline")
     _emit(args, result, "Declined the invitation; no trust edge created.")
+    return 0
+
+
+def cmd_revoke(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Delete a trust edge (you must be the trustor). Also cancels anything
+    in-flight on it."""
+    result = _request(broker, token, "DELETE", f"/trust/{args.trust_link_id}")
+    n = result.get("cancelled_dispatches", 0) if isinstance(result, dict) else 0
+    tail = f" Cancelled {n} in-flight dispatch(es)." if n else ""
+    _emit(args, result,
+          f"Revoked. That sender can no longer dispatch to you.{tail}")
+    return 0
+
+
+def cmd_set_scope(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Edit an existing edge's tool/MCP permissions. PATCH replaces the whole
+    scopes object, so we fetch the current scopes first and only overwrite the
+    flags you passed — unspecified fields are preserved."""
+    data = _request(broker, token, "GET", "/trust")
+    edge = next(
+        (e for e in data.get("trust", []) if e.get("trust_link_id") == args.trust_link_id),
+        None,
+    )
+    if edge is None:
+        print(f"error: no such trust edge {args.trust_link_id} (see `dispatch contacts`).",
+              file=sys.stderr)
+        return 1
+    if not edge.get("can_edit_scopes"):
+        print("error: only the recipient (the trustor) may edit this edge's scopes.",
+              file=sys.stderr)
+        return 1
+    scopes = dict(edge.get("scopes") or {})
+    if args.tools is not None:
+        scopes["tools"] = [t.strip() for t in args.tools.split(",") if t.strip()]
+    if args.mcp is not None:
+        scopes["mcp"] = (
+            ["*"] if args.mcp.strip() == "*"
+            else [m.strip() for m in args.mcp.split(",") if m.strip()]
+        )
+    if args.paths is not None:
+        scopes["paths"] = [p.strip() for p in args.paths.split(",") if p.strip()]
+    if args.approval is not None:
+        scopes["approval"] = args.approval
+    if args.max_per_day is not None:
+        scopes["max_dispatches_per_day"] = args.max_per_day
+    result = _request(
+        broker, token, "PATCH", f"/trust/{args.trust_link_id}", json={"scopes": scopes}
+    )
+    mcp = scopes.get("mcp", [])
+    mcp_str = "*(all)" if "*" in mcp else (",".join(mcp) or "none")
+    _emit(args, result,
+          f"Updated scopes for {edge.get('peer', 'the edge')}: "
+          f"tools={','.join(scopes.get('tools', [])) or '(default)'} mcp={mcp_str}.")
     return 0
 
 
@@ -932,6 +991,31 @@ def build_parser() -> argparse.ArgumentParser:
     add("decline-invitation", "Decline an invitation (no trust edge created).",
         cmd_decline_invitation).add_argument(
         "token", help="Invitation token (from `dispatch invitations`).")
+
+    # Edit / revoke existing edges (you must be the trustor — the recipient who
+    # granted the scopes). Edge ids come from `dispatch contacts`.
+    add("revoke", "Revoke a trust edge (stops new dispatches + cancels in-flight).",
+        cmd_revoke).add_argument(
+        "trust_link_id", help="Edge id from `dispatch contacts`.")
+
+    p_scope = add("set-scope", "Edit an edge's tool/MCP permissions.", cmd_set_scope)
+    p_scope.add_argument("trust_link_id", help="Edge id from `dispatch contacts`.")
+    p_scope.add_argument(
+        "--tools", default=None,
+        help="Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,Bash.")
+    p_scope.add_argument(
+        "--mcp", default=None,
+        help="Comma-separated MCP server names to allow, or '*' for all. "
+             "Empty string clears MCP access.")
+    p_scope.add_argument(
+        "--paths", default=None,
+        help="Comma-separated directory allowlist (empty string clears it).")
+    p_scope.add_argument(
+        "--approval", choices=["manual", "auto"], default=None,
+        help="Switch this edge to manual/auto approval.")
+    p_scope.add_argument(
+        "--max-per-day", dest="max_per_day", type=int, default=None,
+        help="Max dispatches/day on this edge.")
 
     p_send = add("send", "Send a dispatch (your daemon must be online to sign).", cmd_send)
     p_send.add_argument("recipient", help="Recipient user id (their email/identifier).")

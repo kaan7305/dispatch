@@ -224,10 +224,20 @@ class _Approve(BaseModel):
 # Built-in tools the invite picker can grant (mirrors executor.ALL_TOOLS).
 _ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 _READONLY_TOOLS = ["Read", "Glob", "Grep"]
+_RW_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit"]
+
+# Built-in tool tiers, shown as a single-select (arrow-key) prompt. "Allow all"
+# is the only tier that also grants every MCP server (and so skips the per-server
+# question). Order matters: the first entry is what the client highlights, which
+# we exploit to "pre-select" the current tier when editing an existing edge.
+_TIER_ALLOW_ALL = "Allow all — every tool + all my MCP servers"
+_TIER_READONLY = "Read-only — Read, Glob, Grep"
+_TIER_RW = "Read + Write/Edit (no Bash)"
+_TIER_CUSTOM = "Custom — use the tools/paths I passed"
+_TIERS = [_TIER_ALLOW_ALL, _TIER_READONLY, _TIER_RW, _TIER_CUSTOM]
 
 
 class _ToolGrant(BaseModel):
-    # "Allow all" first, per the design. Single-select → arrow-key prompt.
     # Built-in file tools only; MCP servers are a separate question below so the
     # two are orthogonal (e.g. read-only files yet allowed to use one MCP).
     grant: Literal[
@@ -238,20 +248,63 @@ class _ToolGrant(BaseModel):
     ]
 
 
-async def _pick_mcp_servers(ctx: Context, names: list[str]) -> list[str]:
-    """Second invite question: which installed MCP servers this sender may use.
+def _tier_of(scope_tools: list[str], scope_mcp: list[str]) -> str:
+    """Which tier an existing edge's scopes correspond to — so editing can
+    pre-select it. Anything that isn't a clean preset reads as Custom."""
+    tools = set(scope_tools or [])
+    if "*" in (scope_mcp or []) and tools == set(_ALL_TOOLS):
+        return _TIER_ALLOW_ALL
+    if tools == set(_READONLY_TOOLS):
+        return _TIER_READONLY
+    if tools == set(_RW_TOOLS):
+        return _TIER_RW
+    return _TIER_CUSTOM
+
+
+async def _elicit_tier(ctx: Context, message: str, default: str | None = None) -> str | None:
+    """Single-select tier prompt. With `default`, the tiers are reordered so the
+    current one is first (highlighted) — the closest thing to a pre-filled
+    single-select. Returns the chosen tier string, or None if unavailable."""
+    if default and default in _TIERS:
+        ordered = [default] + [t for t in _TIERS if t != default]
+    else:
+        ordered = list(_TIERS)
+    Model = create_model(
+        "ToolGrant",
+        grant=(Literal[ordered[0], ordered[1], ordered[2], ordered[3]], ...),
+    )
+    try:
+        res = await ctx.elicit(message=message, schema=Model)
+    except Exception:
+        return None
+    return res.data.grant if isinstance(res, AcceptedElicitation) else None
+
+
+async def _pick_mcp_servers(
+    ctx: Context, names: list[str], granted: list[str] | None = None
+) -> list[str]:
+    """The MCP-server question: which installed servers this sender may use.
 
     Multi-select (one bool per server) → the client renders a checkable form.
     Server names aren't always valid field identifiers (hyphens, dots), so each
     maps to a positional field `s<i>` whose human label is the real name.
-    Returns the chosen server names; [] if declined or elicitation unavailable."""
+
+    `granted` pre-checks the servers this edge already has (editing pre-fills,
+    rather than starting blank). Any granted server that's no longer installed
+    isn't shown — but it is UNION-preserved into the result, so editing one
+    grant never silently drops another for a server you've since uninstalled.
+    Returns the chosen server names; on decline/unavailable it preserves the
+    existing grants unchanged."""
+    granted_set = set(granted or [])
     if not names:
-        return []
+        return sorted(granted_set)
     fields = {
-        f"s{i}": (bool, Field(default=False, title=name, description=f"Allow '{name}'"))
+        f"s{i}": (bool, Field(default=(name in granted_set), title=name,
+                              description=f"Allow '{name}'"))
         for i, name in enumerate(names)
     }
     Model = create_model("McpServerPick", **fields)
+    missing = [g for g in granted_set if g not in names]  # granted but uninstalled
     try:
         res = await ctx.elicit(
             message=(
@@ -261,10 +314,54 @@ async def _pick_mcp_servers(ctx: Context, names: list[str]) -> list[str]:
             schema=Model,
         )
     except Exception:
-        return []
+        return sorted(granted_set)  # can't ask → don't change what they had
     if not isinstance(res, AcceptedElicitation):
+        return sorted(granted_set)  # declined → keep existing grants
+    chosen = [name for i, name in enumerate(names) if getattr(res.data, f"s{i}", False)]
+    return chosen + missing  # union-preserve grants for uninstalled servers
+
+
+async def _installed_server_names() -> list[str]:
+    servers = await _local_call("GET", "/api/mcp/servers")
+    if not isinstance(servers, list):
         return []
-    return [name for i, name in enumerate(names) if getattr(res.data, f"s{i}", False)]
+    return [s["name"] for s in servers if isinstance(s, dict) and s.get("name")]
+
+
+async def _elicit_scopes(
+    ctx: Context,
+    message: str,
+    *,
+    current_tools: list[str] | None = None,
+    current_mcp: list[str] | None = None,
+    passed_tools: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Run the two-question scope picker (built-in tool tier + MCP servers) and
+    return (scope_tools, scope_mcp). Shared by invite-accept and edit.
+
+    When `current_*` is supplied (editing) the tier is pre-selected and the
+    servers pre-checked. `passed_tools` pre-fills the Custom tier on accept."""
+    current_tools = current_tools or []
+    current_mcp = current_mcp or []
+    default_tier = (
+        _tier_of(current_tools, current_mcp) if (current_tools or current_mcp) else None
+    )
+    grant = await _elicit_tier(ctx, message, default=default_tier)
+    if grant and grant.startswith("Allow all"):
+        # The only tier that also grants every MCP server → skip Q2.
+        return list(_ALL_TOOLS), ["*"]
+    if grant and grant.startswith("Read-only"):
+        scope_tools = list(_READONLY_TOOLS)
+    elif grant and grant.startswith("Read + Write"):
+        scope_tools = list(_RW_TOOLS)
+    elif grant and grant.startswith("Custom"):
+        scope_tools = list(passed_tools or current_tools or _READONLY_TOOLS)
+    else:
+        # Elicitation unavailable → keep current (edit) or passed/least-priv (accept).
+        scope_tools = list(current_tools or passed_tools or _READONLY_TOOLS)
+    granted = [m for m in current_mcp if m != "*"]
+    scope_mcp = await _pick_mcp_servers(ctx, await _installed_server_names(), granted=granted)
+    return scope_tools, scope_mcp
 
 
 def _require_link() -> _Link:
@@ -542,39 +639,15 @@ async def dispatch_invite(
         if action == "accept":
             if not token:
                 return {"error": "token required for action='accept'"}
-            scope_tools = [t.strip() for t in tools.split(",") if t.strip()]
+            passed_tools = [t.strip() for t in tools.split(",") if t.strip()]
             scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
-            scope_mcp: list[str] = []
-            # Q1 — built-in file tools. "Allow all" first; single-select → the
-            # arrow-key prompt.
-            try:
-                res = await ctx.elicit(
-                    message=(
-                        f"Accept invite and let this sender dispatch to your machine.\n"
-                        f"What built-in tools may their tasks use?"
-                    ),
-                    schema=_ToolGrant,
-                )
-                grant = res.data.grant if isinstance(res, AcceptedElicitation) else None
-            except Exception:
-                grant = None  # elicitation unavailable → fall back to passed/default scope
-            if grant and grant.startswith("Allow all"):
-                # Allow all is the only choice that auto-grants every MCP server,
-                # so it skips the per-server question below.
-                scope_tools, scope_mcp = list(_ALL_TOOLS), ["*"]
-            else:
-                if grant and grant.startswith("Read-only"):
-                    scope_tools = list(_READONLY_TOOLS)
-                elif grant and grant.startswith("Read + Write"):
-                    scope_tools = ["Read", "Glob", "Grep", "Write", "Edit"]
-                elif not scope_tools:
-                    # "Custom" with nothing passed, or no elicitation → least priv.
-                    scope_tools = list(_READONLY_TOOLS)
-                # Q2 — which installed MCP servers (orthogonal to the tool tier).
-                servers = await _local_call("GET", "/api/mcp/servers")
-                names = [s["name"] for s in servers if isinstance(s, dict) and s.get("name")] \
-                    if isinstance(servers, list) else []
-                scope_mcp = await _pick_mcp_servers(ctx, names)
+            # Two-question picker: built-in tool tier, then which MCP servers.
+            scope_tools, scope_mcp = await _elicit_scopes(
+                ctx,
+                "Accept invite and let this sender dispatch to your machine.\n"
+                "What built-in tools may their tasks use?",
+                passed_tools=passed_tools,
+            )
             scopes: dict[str, Any] = {
                 "tools": scope_tools, "mcp": scope_mcp, "paths": scope_paths,
                 "approval": approval, "max_dispatches_per_day": max_dispatches_per_day,
@@ -585,6 +658,56 @@ async def dispatch_invite(
                 return {"error": "token required for action='decline'"}
             return await _local_call("POST", f"/api/invitations/{token}/decline")
         return {"error": f"unknown action: {action}"}
+    except _Dormant:
+        return {"error": "logged_out", "detail": _LOGIN_HINT}
+
+
+@mcp.tool()
+async def dispatch_trust(
+    action: Literal["revoke", "edit"],
+    trust_link_id: str,
+    ctx: Context,
+) -> Any:
+    """Revoke or edit an existing trust edge — one where someone can dispatch to
+    YOU (you're the trustor who set their scopes). Get the trust_link_id from
+    dispatch_read(what='contacts').
+      revoke — delete the edge: that sender can no longer dispatch to you, and
+               any in-flight dispatch on the edge is cancelled immediately.
+      edit   — re-pick this sender's tool + MCP-server scopes via the same
+               inline prompts as accepting an invite, PRE-FILLED with their
+               current grants (the current tool tier is highlighted, the MCP
+               servers they already have are pre-checked). A grant for a server
+               you've since uninstalled is preserved, not silently dropped.
+               Takes effect on their NEXT dispatch; anything in flight keeps the
+               scope it started with (revoke to stop those too).
+    """
+    try:
+        if not trust_link_id:
+            return {"error": "trust_link_id required (see dispatch_read(what='contacts'))"}
+        if action == "revoke":
+            return await _local_call("DELETE", f"/api/trust/{trust_link_id}")
+        # edit — load current scopes to pre-fill the picker.
+        data = await _local_call("GET", "/api/trust")
+        edges = data.get("trust", []) if isinstance(data, dict) else []
+        edge = next((e for e in edges if e.get("trust_link_id") == trust_link_id), None)
+        if edge is None:
+            return {"error": "no such trust edge — see dispatch_read(what='contacts')"}
+        if not edge.get("can_edit_scopes"):
+            return {"error": "only the recipient (trustor) may edit this edge's scopes"}
+        cur = edge.get("scopes") or {}
+        scope_tools, scope_mcp = await _elicit_scopes(
+            ctx,
+            f"Edit what {edge.get('peer', 'this sender')} may use when dispatching "
+            f"to you:",
+            current_tools=cur.get("tools") or [],
+            current_mcp=cur.get("mcp") or [],
+        )
+        # Only the tool/MCP permissions change; keep paths/approval/limits intact.
+        new_scopes = dict(cur)
+        new_scopes.update({"tools": scope_tools, "mcp": scope_mcp})
+        return await _local_call(
+            "PATCH", f"/api/trust/{trust_link_id}", json={"scopes": new_scopes}
+        )
     except _Dormant:
         return {"error": "logged_out", "detail": _LOGIN_HINT}
 
