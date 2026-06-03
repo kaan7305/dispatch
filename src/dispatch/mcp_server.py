@@ -216,8 +216,24 @@ async def _lifespan(_server: FastMCP):
 mcp = FastMCP("dispatch", lifespan=_lifespan)
 
 
-class _ApproveToolCall(BaseModel):
-    allow: bool
+class _Approve(BaseModel):
+    # Single-select → the client renders an arrow-key choose-one prompt.
+    decision: Literal["Allow", "Deny", "Allow the rest of this dispatch"]
+
+
+# Built-in tools the invite picker can grant (mirrors executor.ALL_TOOLS).
+_ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+_READONLY_TOOLS = ["Read", "Glob", "Grep"]
+
+
+class _ToolGrant(BaseModel):
+    # "Allow all" first, per the design. Single-select → arrow-key prompt.
+    grant: Literal[
+        "Allow all — every tool + all my MCP servers",
+        "Read-only — Read, Glob, Grep",
+        "Read + Write/Edit (no Bash, no MCP)",
+        "Custom — use the tools/paths I passed",
+    ]
 
 
 def _require_link() -> _Link:
@@ -311,6 +327,7 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
         return {"status": "error", "detail": accept.get("detail", "accept failed")}
 
     handled: set[str] = set()
+    auto_allow = False  # set once the human picks "Allow the rest of this dispatch"
     waited = 0.0
     status: Optional[str] = None
     events = 0
@@ -324,15 +341,25 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
                 if request_id in handled:
                     continue
                 handled.add(request_id)
-                msg = (
-                    f"Dispatch {dispatch_id[:8]}… from {sender} wants to run:\n"
-                    f"  {info.get('tool')}: {info.get('input')}\n\nAllow this tool call?"
-                )
-                try:
-                    res = await ctx.elicit(message=msg, schema=_ApproveToolCall)
-                    decision = "allow" if (isinstance(res, AcceptedElicitation) and res.data.allow) else "deny"
-                except Exception:
-                    decision = "deny"  # fail safe if elicitation is unavailable
+                if auto_allow:
+                    decision = "allow"
+                else:
+                    msg = (
+                        f"Dispatch {dispatch_id[:8]}… from {sender} wants to run:\n"
+                        f"  {info.get('tool')}: {info.get('input')}"
+                    )
+                    try:
+                        res = await ctx.elicit(message=msg, schema=_Approve)
+                        choice = res.data.decision if isinstance(res, AcceptedElicitation) else "Deny"
+                        if choice == "Allow the rest of this dispatch":
+                            auto_allow = True
+                            decision = "allow"
+                        elif choice == "Allow":
+                            decision = "allow"
+                        else:
+                            decision = "deny"
+                    except Exception:
+                        decision = "deny"  # fail safe if elicitation is unavailable
                 await _local_call(
                     "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
                     json={"decision": decision},
@@ -454,6 +481,7 @@ async def dispatch_send(
 @mcp.tool()
 async def dispatch_invite(
     action: Literal["send", "list", "accept", "decline"],
+    ctx: Context,
     to_email: str = "",
     token: str = "",
     tools: str = "",
@@ -466,11 +494,11 @@ async def dispatch_invite(
                 your scopes). Grants you nothing on its own.
       list    — list invitations you've sent / received (each has a token).
       accept  — accept invite `token`, creating an edge that lets the INVITER
-                dispatch to your machine, confined to scopes YOU set here:
-                `tools` (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash;
-                default read-only), `paths` (comma-separated dir allowlist),
-                `approval` (manual|auto). Granting Bash grants full shell —
-                confirm with the human.
+                dispatch to your machine. This PROMPTS the human to pick what the
+                sender may use (Allow all / read-only / etc.) via an inline
+                chooser — you do not need to pass `tools`. Passing `tools`
+                (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash) + `paths`
+                pre-fills the "Custom" choice.
       decline — decline invite `token`; no edge is created.
     """
     try:
@@ -483,11 +511,34 @@ async def dispatch_invite(
         if action == "accept":
             if not token:
                 return {"error": "token required for action='accept'"}
-            scopes: dict[str, Any] = {"approval": approval, "max_dispatches_per_day": max_dispatches_per_day}
-            if tools:
-                scopes["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
-            if paths:
-                scopes["paths"] = [p.strip() for p in paths.split(",") if p.strip()]
+            scope_tools = [t.strip() for t in tools.split(",") if t.strip()]
+            scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
+            scope_mcp: list[str] = []
+            # Ask the human what this sender may use — "Allow all" first.
+            try:
+                res = await ctx.elicit(
+                    message=(
+                        f"Accept invite and let this sender dispatch to your machine.\n"
+                        f"What may their tasks use?"
+                    ),
+                    schema=_ToolGrant,
+                )
+                grant = res.data.grant if isinstance(res, AcceptedElicitation) else None
+            except Exception:
+                grant = None  # elicitation unavailable → fall back to passed/default scope
+            if grant and grant.startswith("Allow all"):
+                scope_tools, scope_mcp = list(_ALL_TOOLS), ["*"]
+            elif grant and grant.startswith("Read-only"):
+                scope_tools, scope_mcp = list(_READONLY_TOOLS), []
+            elif grant and grant.startswith("Read + Write"):
+                scope_tools, scope_mcp = ["Read", "Glob", "Grep", "Write", "Edit"], []
+            elif not scope_tools:
+                # "Custom" with nothing passed, or no elicitation → least privilege.
+                scope_tools = list(_READONLY_TOOLS)
+            scopes: dict[str, Any] = {
+                "tools": scope_tools, "mcp": scope_mcp, "paths": scope_paths,
+                "approval": approval, "max_dispatches_per_day": max_dispatches_per_day,
+            }
             return await _local_call("POST", f"/api/invitations/{token}/accept", json={"scopes": scopes})
         if action == "decline":
             if not token:
