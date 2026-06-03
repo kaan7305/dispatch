@@ -433,5 +433,38 @@ class DispatchTrayApp(rumps.App):
         rumps.quit_application()
 
 
+def _acquire_single_instance_lock():
+    """Ensure only one tray (and thus one menu-bar icon) ever runs.
+
+    The tray gets launched from several places — the login LaunchAgent, the
+    dispatch-mcp daemon supervisor, a manual run — and rumps has no built-in
+    singleton, so each launch would add another menu-bar icon. We take an
+    exclusive flock on ~/.dispatch/tray.lock held for the whole process
+    lifetime. If another tray already holds it, this launch exits quietly.
+    The OS drops the lock automatically if the holder dies, so a crash never
+    leaves a stale lock that wedges future launches.
+
+    Returns the open file object (must be kept alive to hold the lock).
+    """
+    import fcntl
+    import sys
+
+    lock_path = Path.home() / ".dispatch" / "tray.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(lock_path, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        # Another tray instance is already running — don't add a second icon.
+        sys.stderr.write("dispatch-tray: another instance is already running; exiting.\n")
+        fh.close()
+        sys.exit(0)
+    fh.write(f"{os.getpid()}\n")
+    fh.flush()
+    return fh
+
+
 def main() -> None:
+    # Held for the lifetime of the process so the flock stays acquired.
+    _lock = _acquire_single_instance_lock()  # noqa: F841
     DispatchTrayApp().run()
