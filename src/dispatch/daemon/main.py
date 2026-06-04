@@ -42,6 +42,7 @@ from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import certifi
+import httpx
 import websockets
 from claude_agent_sdk import (
     PermissionResultAllow,
@@ -203,6 +204,12 @@ class DaemonState:
     # a server once (on first request) instead of curating up front; cleared on
     # restart (durable per-edge persistence is a follow-up).
     session_mcp_grants: dict[str, set] = field(default_factory=dict)
+    # Ask-on-first-use, TOOL granularity: sender_id -> set of exact tool names
+    # ("Bash", "mcp__notion__notion-move-pages") the recipient said "allow this
+    # session" (or "always") for. Skips the per-call manual prompt for the rest
+    # of this daemon run. "Always" ALSO persists to the edge's `auto_tools` so it
+    # survives a restart; "this session" lives only here.
+    session_tool_grants: dict[str, set] = field(default_factory=dict)
     # dispatch_id (str) → the running process_dispatch task, so a
     # cancel_dispatch from the broker can stop it.
     running: dict[str, asyncio.Task] = field(default_factory=dict)
@@ -901,6 +908,7 @@ async def handle_broker(
                     send_status, send_event,
                     local_state=local_state,
                     workflow_engine=workflow_engine,
+                    trust_link_id=msg.get("trust_link_id"),
                 )
             )
             state.running[did] = task
@@ -946,6 +954,7 @@ async def process_dispatch(
     send_event,
     local_state=None,
     workflow_engine=None,
+    trust_link_id: str | None = None,
 ) -> None:
     dispatch_id = str(payload.dispatch_id)
     scope = Scopes(**(scopes_data or {}))
@@ -1006,6 +1015,10 @@ async def process_dispatch(
     # Step 2 — per-tool gating, scoped to the trust edge.
     scope_tools = set(scope.tools)
     scope_mcp = list(scope.mcp or [])
+    # Exact tools the recipient already said "always allow" for on this edge —
+    # they skip the manual prompt. Start from the persisted edge list; "always"
+    # decisions this run append here too (and persist back to the broker).
+    auto_tools: set[str] = set(scope.auto_tools or [])
     paths_restricted = bool(scope.paths)
     allowed_dirs = [workspace.resolve()] + [
         Path(p).expanduser().resolve() for p in scope.paths
@@ -1045,6 +1058,37 @@ async def process_dispatch(
             {"type": "permission_response", "data": {"tool": tool_name, "decision": decision}},
         )
         return decision
+
+    async def _persist_always_tool(tool_name: str) -> None:
+        """Write an "always allow this tool" decision back onto the trust edge
+        so it survives a daemon restart. Best-effort: the in-memory session
+        grant (added by the caller) already covers the current run, so a broker
+        hiccup just means the recipient re-approves on a future dispatch — never
+        a hard failure of the live task. Requires the edge id (threaded from the
+        new_dispatch frame) and the recipient's broker creds (held by the local
+        UI state, which authenticates as the trustor who may edit this edge)."""
+        if not trust_link_id or local_state is None:
+            return
+        broker = (getattr(local_state, "broker_url", "") or "").rstrip("/")
+        token = getattr(local_state, "broker_token", "") or ""
+        if not (broker and token):
+            return
+        merged = sorted(set(scope.auto_tools or []) | {tool_name})
+        scope.auto_tools = merged  # keep the live scope object in sync
+        body = scope.model_dump(mode="json")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.patch(
+                    f"{broker}/trust/{trust_link_id}",
+                    json={"scopes": body},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "persist always-allow for %s failed: HTTP %s", tool_name, resp.status_code
+                )
+        except Exception:
+            logger.exception("persist always-allow for %s failed", tool_name)
 
     async def can_use_tool(
         tool_name: str,
@@ -1112,10 +1156,27 @@ async def process_dispatch(
                     )
 
         # (d) Approval mode for an already-permitted tool. Workflows + `auto`
-        # edges run unattended; `manual` edges approve every call (Layer 3).
+        # edges run unattended; `manual` edges approve every call (Layer 3) —
+        # UNLESS this exact tool was already "always allow"-ed (persisted on the
+        # edge) or "allow this session"-ed (in-memory for this run).
         if is_workflow or scope.approval == "auto":
             return PermissionResultAllow(updated_input=tool_input)
+        session_grants = state.session_tool_grants.setdefault(payload.sender_id, set())
+        if tool_name in auto_tools or tool_name in session_grants:
+            return PermissionResultAllow(updated_input=tool_input)
+
+        # Manual edge, tool not yet auto-approved → ask. The recipient can answer
+        # once (allow/deny), for the rest of this run (session), or forever for
+        # this edge (always → persisted). Anything we don't recognise denies.
         decision = await _request_approval(tool_name, tool_input)
+        if decision == "always":
+            session_grants.add(tool_name)   # stop prompting for the rest of THIS run
+            auto_tools.add(tool_name)
+            await _persist_always_tool(tool_name)  # …and every future dispatch
+            return PermissionResultAllow(updated_input=tool_input)
+        if decision == "session":
+            session_grants.add(tool_name)
+            return PermissionResultAllow(updated_input=tool_input)
         if decision == "allow":
             return PermissionResultAllow(updated_input=tool_input)
         return PermissionResultDeny(message="Recipient denied", interrupt=False)

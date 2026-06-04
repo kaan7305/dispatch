@@ -430,6 +430,11 @@ def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
         mcp_str = "*(all)" if "*" in mcp else (",".join(mcp) or "none")
         approval = scopes.get("approval", "?")
         print(f"  {arrow} {t['peer']:<28} [{online}]  tools={tools} mcp={mcp_str} approval={approval}")
+        # Tools the recipient said "always allow" for on a manual edge — these
+        # skip the per-call prompt from now on. Only meaningful on incoming edges.
+        auto_tools = scopes.get("auto_tools") or []
+        if auto_tools:
+            print(f"      always-allow: {', '.join(auto_tools)}")
         # Only incoming edges (you're the trustor) are editable/revocable.
         if t.get("direction") == "incoming":
             print(f"      edge={t.get('trust_link_id', '?')}  "
@@ -1103,7 +1108,10 @@ def _tool_decide(args: argparse.Namespace, *, decision: str) -> int:
         f"/api/dispatch/{args.dispatch_id}/tool/{args.request_id}/decision",
         json={"decision": decision},
     )
-    verb = "Allowed" if decision == "allow" else "Denied"
+    verb = {
+        "allow": "Allowed", "deny": "Denied",
+        "always": "Always-allowed", "session": "Allowed (this session)",
+    }.get(decision, "Decided")
     payload = {"dispatch_id": args.dispatch_id, "request_id": args.request_id,
                "decision": decision, "ok": True}
     _emit(args, payload, f"{verb} tool call {args.request_id} on {_short(args.dispatch_id)}.")
@@ -1111,7 +1119,10 @@ def _tool_decide(args: argparse.Namespace, *, decision: str) -> int:
 
 
 def cmd_approve(args: argparse.Namespace, broker: str, token: str) -> int:
-    return _tool_decide(args, decision="allow")
+    decision = "always" if getattr(args, "always", False) else (
+        "session" if getattr(args, "session", False) else "allow"
+    )
+    return _tool_decide(args, decision=decision)
 
 
 def cmd_deny(args: argparse.Namespace, broker: str, token: str) -> int:
@@ -1273,6 +1284,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_approve = add_local("approve", "Allow a pending tool call (manual-approval edge).", cmd_approve)
     p_approve.add_argument("dispatch_id", help="Full dispatch id (UUID).")
     p_approve.add_argument("request_id", help="Tool-call request id (from `dispatch approvals`).")
+    g_approve = p_approve.add_mutually_exclusive_group()
+    g_approve.add_argument(
+        "--always", action="store_true",
+        help="Always allow THIS tool from this sender — persists onto the trust edge.")
+    g_approve.add_argument(
+        "--session", action="store_true",
+        help="Allow this tool for the rest of this daemon run only (not persisted).")
     p_deny = add_local("deny", "Deny a pending tool call.", cmd_deny)
     p_deny.add_argument("dispatch_id", help="Full dispatch id (UUID).")
     p_deny.add_argument("request_id", help="Tool-call request id (from `dispatch approvals`).")

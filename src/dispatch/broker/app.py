@@ -561,8 +561,11 @@ async def _build_new_dispatch(stored: StoredDispatch) -> dict:
             "signature": crypto.b64encode(stored.signature),
             "sender_public_key": crypto.b64encode(pubkey) if pubkey else None,
         }
-    # The trust edge's scopes — the daemon constrains the agent to these.
+    # The trust edge's scopes — the daemon constrains the agent to these. The
+    # id travels too so the daemon can persist an "always allow this tool"
+    # decision straight back onto this edge (PATCH /trust/{id}) mid-run.
     if stored.trust_link_id:
+        msg["trust_link_id"] = str(stored.trust_link_id)
         link = await STORE.get_trust_link(stored.trust_link_id)
         if link:
             msg["scopes"] = link["scopes"] or {}

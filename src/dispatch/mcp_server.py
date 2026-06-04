@@ -218,7 +218,18 @@ mcp = FastMCP("dispatch", lifespan=_lifespan)
 
 class _Approve(BaseModel):
     # Single-select → the client renders an arrow-key choose-one prompt.
-    decision: Literal["Allow", "Deny", "Allow the rest of this dispatch"]
+    #   Allow                        — just this one call
+    #   Deny                         — refuse this one call
+    #   Always allow this tool       — persist onto the edge; never ask again
+    #   Allow this tool this session — in-memory for the rest of this run
+    #   Allow the rest of this dispatch — auto-allow every later call in THIS run
+    decision: Literal[
+        "Allow",
+        "Deny",
+        "Always allow this tool",
+        "Allow this tool this session",
+        "Allow the rest of this dispatch",
+    ]
 
 
 # Built-in tools the invite picker can grant (mirrors executor.ALL_TOOLS).
@@ -497,6 +508,11 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
                         if choice == "Allow the rest of this dispatch":
                             auto_allow = True
                             decision = "allow"
+                        elif choice == "Always allow this tool":
+                            # Persist onto the edge AND skip future prompts for it.
+                            decision = "always"
+                        elif choice == "Allow this tool this session":
+                            decision = "session"
                         elif choice == "Allow":
                             decision = "allow"
                         else:

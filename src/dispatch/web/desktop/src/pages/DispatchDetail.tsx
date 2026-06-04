@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Check, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, Clock, Infinity as InfinityIcon, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -251,7 +251,7 @@ function ToolDecision({
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const decide = useMutation({
-    mutationFn: (decision: "allow" | "deny") =>
+    mutationFn: (decision: "allow" | "deny" | "always" | "session") =>
       api.decideTool(dispatchId, requestId, decision),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dispatch", dispatchId] });
@@ -278,6 +278,29 @@ function ToolDecision({
             <Check className="size-4" /> Allow
           </Button>
         </div>
+      </div>
+      {/* Persisted / session shortcuts so the recipient stops re-approving the
+          same tool. "Always" writes onto the trust edge; "this session" is
+          in-memory for the current daemon run. */}
+      <div className="mt-3 flex flex-wrap gap-2 justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs"
+          onClick={() => decide.mutate("session")}
+          disabled={decide.isPending}
+        >
+          <Clock className="size-3.5" /> Allow this session
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs"
+          onClick={() => decide.mutate("always")}
+          disabled={decide.isPending}
+        >
+          <InfinityIcon className="size-3.5" /> Always allow this tool
+        </Button>
       </div>
       {error && <div className="mt-3 text-xs text-destructive">{error}</div>}
     </div>

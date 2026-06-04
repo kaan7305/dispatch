@@ -111,7 +111,11 @@ export const api = {
           method: "POST",
           body: JSON.stringify({ decision }),
         }),
-  decideTool: (dispatchId: string, requestId: string, decision: "allow" | "deny") =>
+  decideTool: (
+    dispatchId: string,
+    requestId: string,
+    decision: "allow" | "deny" | "always" | "session",
+  ) =>
     isBroker
       ? redirectToLocal("Approving a tool call")
       : request<{ status: string }>(
@@ -287,6 +291,10 @@ export interface Scopes {
   mcp?: string[];
   paths?: string[];
   approval?: "manual" | "auto";
+  // Exact tool names the recipient said "always allow" for on this edge (built-in
+  // like "Bash" or full MCP tool like "mcp__notion__notion-move-pages"). Grown
+  // JIT from live approvals; spread through edits so it isn't wiped on save.
+  auto_tools?: string[];
   max_dispatches_per_day?: number;
   expires_at?: string | null;
 }

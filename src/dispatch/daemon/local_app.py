@@ -414,8 +414,10 @@ def make_app(
     async def tool_decision(
         dispatch_id: UUID, request_id: str, body: _Decision
     ) -> dict:
-        if body.decision not in ("allow", "deny"):
-            raise HTTPException(status_code=400, detail="decision must be allow|deny")
+        if body.decision not in ("allow", "deny", "always", "session"):
+            raise HTTPException(
+                status_code=400, detail="decision must be allow|deny|always|session"
+            )
         fut = daemon_state.pending_approvals.get((str(dispatch_id), request_id))
         if fut is None or fut.done():
             raise HTTPException(status_code=409, detail="no pending approval for that tool call")

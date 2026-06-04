@@ -158,6 +158,14 @@ class Scopes(BaseModel):
     mcp: list[str] = Field(default_factory=list)
     paths: list[str] = Field(default_factory=list)
     approval: Literal["manual", "auto"] = "manual"
+    # Per-tool "always allow" learned just-in-time on a `manual` edge. Each entry
+    # is an EXACT tool name — a built-in ("Bash") or a full MCP tool
+    # ("mcp__notion__notion-move-pages") — that skips the per-call approval
+    # prompt from then on. Orthogonal to `mcp`: `mcp` decides which servers are
+    # even reachable; `auto_tools` decides which already-reachable tools no
+    # longer need a human Allow. Grown by the recipient picking "Always allow
+    # this tool" on a live approval; never widens reachability on its own.
+    auto_tools: list[str] = Field(default_factory=list)
     max_dispatches_per_day: int = Field(default=50, ge=1, le=10000)
     expires_at: Optional[datetime] = None
 

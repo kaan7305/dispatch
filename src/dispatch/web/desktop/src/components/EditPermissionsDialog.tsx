@@ -28,6 +28,10 @@ export function EditPermissionsDialog({ edge, children }: Props) {
   const [servers, setServers] = useState<string[]>(
     grantedMcp.filter((m) => m !== "*"),
   );
+  // Tools the recipient previously said "always allow" for (grown JIT from live
+  // approvals). Shown here so they can be revoked — removing one means that tool
+  // prompts again on the next dispatch.
+  const [autoTools, setAutoTools] = useState<string[]>(edge.scopes.auto_tools ?? []);
   const [error, setError] = useState<string | null>(null);
 
   const qc = useQueryClient();
@@ -56,8 +60,9 @@ export function EditPermissionsDialog({ edge, children }: Props) {
     setApproval(edge.scopes.approval ?? "manual");
     setAllowAllMcp(grantedMcp.includes("*"));
     setServers(grantedMcp.filter((m) => m !== "*"));
+    setAutoTools(edge.scopes.auto_tools ?? []);
     setError(null);
-  }, [open, edge.scopes.tools, edge.scopes.approval, grantedMcp]);
+  }, [open, edge.scopes.tools, edge.scopes.approval, edge.scopes.auto_tools, grantedMcp]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -67,6 +72,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
         tools,
         mcp,
         approval,
+        auto_tools: autoTools,
       };
       return api.updateTrust(edge.trust_link_id, next);
     },
@@ -200,6 +206,32 @@ export function EditPermissionsDialog({ edge, children }: Props) {
               </>
             )}
           </div>
+
+          {autoTools.length > 0 && (
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+                Always-allowed tools
+              </div>
+              <div className="text-xs text-muted-foreground mb-2">
+                These skip the per-call prompt on a manual edge. Remove one to be
+                asked again next time.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {autoTools.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setAutoTools((prev) => prev.filter((x) => x !== t))}
+                    className="group flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-mono hover:bg-destructive/10 hover:border-destructive/40"
+                    title="Remove this always-allow"
+                  >
+                    <span className="truncate max-w-[18rem]">{t}</span>
+                    <span className="text-muted-foreground group-hover:text-destructive">×</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
