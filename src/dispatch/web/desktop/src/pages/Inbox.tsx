@@ -103,11 +103,24 @@ function statusMatches(status: string, filter: Filter): boolean {
 
 function statusHint(entry: InboxEntry): string | undefined {
   if (entry.status === "delivered" || entry.status === "pending") return "needs approval";
-  if (Object.keys(entry.pending_tools).length > 0) return `${Object.keys(entry.pending_tools).length} tool to approve`;
-  const scopeTools = entry.scopes.tools ?? [];
-  if (scopeTools.includes("Write") || scopeTools.includes("Edit") || scopeTools.includes("Bash")) {
+  const pending = Object.keys(entry.pending_tools).length;
+  if (pending > 0) return `${pending} tool${pending === 1 ? "" : "s"} to approve`;
+
+  const tools = entry.scopes.tools ?? [];
+  const mcp = entry.scopes.mcp ?? [];
+
+  // No scope data on this entry — e.g. it was hydrated from the broker's
+  // dispatch list after a daemon restart, which doesn't carry per-edge scopes
+  // (see daemon seed_from_broker / api.summaryToInboxEntry, both set scopes={}).
+  // Show no badge rather than asserting "read-only", which we can't actually know.
+  if (tools.length === 0 && mcp.length === 0) return undefined;
+
+  if (tools.includes("Write") || tools.includes("Edit") || tools.includes("Bash")) {
     return "write";
   }
+  // MCP grants reach the recipient's *powerful* tools (Notion, search, etc.) —
+  // far from read-only, so surface them rather than collapsing to "read-only".
+  if (mcp.length > 0) return "MCP";
   return "read-only";
 }
 

@@ -152,6 +152,20 @@ export const api = {
     isBroker
       ? Promise.resolve([])
       : request<McpServer[]>("/api/mcp/servers").catch(() => []),
+  // The tools a single installed server exposes — fed to the per-tool grant
+  // checkboxes in Edit Permissions. Daemon-local (a live MCP handshake), so in
+  // broker mode we report "can't enumerate from the web" and the dialog keeps
+  // the whole-server checkbox. ok=false (auth needed / offline) degrades the
+  // same way rather than throwing.
+  mcpServerTools: (name: string): Promise<McpServerTools> =>
+    isBroker
+      ? Promise.resolve({
+          name,
+          ok: false,
+          reason: "Open the local Dispatch app to view a server's tools.",
+          tools: [],
+        })
+      : request<McpServerTools>(`/api/mcp/servers/${encodeURIComponent(name)}/tools`),
   invite: (to_email: string) =>
     request<InviteResult>("/api/invitations", {
       method: "POST",
@@ -301,6 +315,19 @@ export interface Scopes {
 
 export interface McpServer {
   name: string;
+}
+
+export interface McpTool {
+  name: string;        // raw tool name as the server reports it, e.g. "notion-search".
+                       // The grant pattern is `mcp__<server>__<name>`.
+  description: string;
+}
+
+export interface McpServerTools {
+  name: string;
+  ok: boolean;         // false → couldn't enumerate (auth/offline); see `reason`
+  reason?: string;
+  tools: McpTool[];
 }
 
 export interface InboxEntry {

@@ -534,6 +534,31 @@ def make_app(
         from dispatch.daemon.main import shareable_mcp_pool
         return [{"name": n} for n in sorted(shareable_mcp_pool())]
 
+    @app.get("/api/mcp/servers/{name}/tools", dependencies=[Depends(require_local_token)])
+    async def list_mcp_server_tools(name: str) -> dict:
+        """The tools a single installed MCP server exposes — fed to the
+        edit-permissions dialog so the recipient can grant individual tools
+        (`mcp__<server>__<tool>`) instead of the whole server.
+
+        Best-effort: we do a live MCP handshake against the server's own config.
+        Servers that need OAuth (e.g. notion) or are offline return ok=false with
+        a reason; the UI then degrades to the whole-server checkbox. Tool *names*
+        and descriptions cross the boundary — never the server's command/env."""
+        from dispatch.daemon.main import shareable_mcp_pool
+        from dispatch.daemon.mcp_introspect import (
+            McpIntrospectError,
+            list_server_tools,
+        )
+
+        config = shareable_mcp_pool().get(name)
+        if config is None:
+            raise HTTPException(status_code=404, detail=f"no such MCP server: {name}")
+        try:
+            tools = await list_server_tools(name, config)
+        except McpIntrospectError as exc:
+            return {"name": name, "ok": False, "reason": str(exc), "tools": []}
+        return {"name": name, "ok": True, "tools": tools}
+
     @app.get("/api/dispatches", dependencies=[Depends(require_local_token)])
     async def list_dispatches(role: str = Query(default="received")) -> Response:
         return await _broker_request("GET", "/dispatches", params={"role": role})
