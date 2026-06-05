@@ -1,11 +1,17 @@
-"""Transactional SMS for Dispatch (recipient notifications).
+"""Transactional SMS / WhatsApp for Dispatch (recipient notifications).
 
-When a recipient receives a dispatch, the broker texts them so they know to
+When a recipient receives a dispatch, the broker messages them so they know to
 open Dispatch and review it — even if their daemon is offline.
 
-If the TWILIO_* env vars are set, real texts go out via Twilio's REST API.
+If the TWILIO_* env vars are set, real messages go out via Twilio's REST API.
 Otherwise the message is logged and the call is a no-op, so the dispatch
 flow still works in development without any Twilio account.
+
+Channel is selected with TWILIO_CHANNEL ("sms" default, or "whatsapp"). For
+WhatsApp the From/To numbers are sent with a "whatsapp:" prefix; everything
+else is identical. Auth accepts either an API-key pair
+(TWILIO_API_KEY_SID/SECRET) or the account's Auth Token (TWILIO_AUTH_TOKEN),
+whichever is configured.
 
 Mirrors broker/email.py: one async _send() entry point, a provider helper,
 and a dev-mode fallback. To wire in a different provider, replace
@@ -31,17 +37,36 @@ class SmsResult:
 
 
 def _twilio_config() -> Optional[dict]:
-    """Read Twilio creds from the environment. Returns None if any are
-    missing — the caller treats that as dev mode (log, don't send)."""
-    cfg = {
-        "account_sid": os.environ.get("TWILIO_ACCOUNT_SID"),
-        "key_sid": os.environ.get("TWILIO_API_KEY_SID"),
-        "key_secret": os.environ.get("TWILIO_API_KEY_SECRET"),
-        "from_number": os.environ.get("TWILIO_FROM_NUMBER"),
-    }
-    if not all(cfg.values()):
+    """Read Twilio creds from the environment. Returns None if any required
+    value is missing — the caller treats that as dev mode (log, don't send).
+
+    Auth prefers an API-key pair (TWILIO_API_KEY_SID/SECRET); if that isn't
+    set it falls back to the account Auth Token (TWILIO_AUTH_TOKEN). The
+    channel ("sms" or "whatsapp") comes from TWILIO_CHANNEL, default "sms".
+    """
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    from_number = os.environ.get("TWILIO_FROM_NUMBER")
+    channel = (os.environ.get("TWILIO_CHANNEL") or "sms").strip().lower()
+
+    key_sid = os.environ.get("TWILIO_API_KEY_SID")
+    key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if key_sid and key_secret:
+        username, password = key_sid, key_secret
+    elif account_sid and auth_token:
+        username, password = account_sid, auth_token
+    else:
         return None
-    return cfg
+
+    if not all([account_sid, from_number, username, password]):
+        return None
+    return {
+        "account_sid": account_sid,
+        "username": username,
+        "password": password,
+        "from_number": from_number,
+        "channel": channel,
+    }
 
 
 def is_configured() -> bool:
@@ -70,23 +95,29 @@ async def send_sms(to_number: str, body: str) -> SmsResult:
 
 
 async def _send_via_twilio(to_number: str, body: str, cfg: dict) -> Optional[str]:
-    """POST to Twilio's Messages endpoint using API-key basic auth.
+    """POST to Twilio's Messages endpoint using basic auth.
 
-    Auth is the API key SID/secret pair (SK…/secret), scoped under the
-    account SID in the URL — the same scheme the beeper relay uses.
+    Auth is the API-key pair (SK…/secret) or the account Auth Token, scoped
+    under the account SID in the URL. For the WhatsApp channel both From and
+    To carry a "whatsapp:" prefix; for SMS they're sent as-is.
     """
     url = (
         "https://api.twilio.com/2010-04-01/Accounts/"
         f"{cfg['account_sid']}/Messages.json"
     )
     auth = base64.b64encode(
-        f"{cfg['key_sid']}:{cfg['key_secret']}".encode()
+        f"{cfg['username']}:{cfg['password']}".encode()
     ).decode()
+    prefix = "whatsapp:" if cfg["channel"] == "whatsapp" else ""
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(
             url,
             headers={"Authorization": f"Basic {auth}"},
-            data={"From": cfg["from_number"], "To": to_number, "Body": body},
+            data={
+                "From": f"{prefix}{cfg['from_number']}",
+                "To": f"{prefix}{to_number}",
+                "Body": body,
+            },
         )
         if r.status_code >= 400:
             raise RuntimeError(f"Twilio API {r.status_code}: {r.text}")
