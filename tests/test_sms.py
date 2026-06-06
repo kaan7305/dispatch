@@ -14,7 +14,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dispatch.broker.sms import (  # noqa: E402
+    _twilio_config,
     dispatch_notification_body,
+    dispatch_notification_variables,
     is_configured,
     send_sms,
 )
@@ -25,6 +27,9 @@ TWILIO_VARS = (
     "TWILIO_API_KEY_SID",
     "TWILIO_API_KEY_SECRET",
     "TWILIO_FROM_NUMBER",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_CHANNEL",
+    "TWILIO_CONTENT_SID",
 )
 
 
@@ -84,6 +89,48 @@ def test_phone_accepts_and_normalizes(raw, expected):
 def test_phone_rejects_non_e164(raw):
     with pytest.raises(ValueError):
         PhoneUpdateRequest(phone=raw)
+
+
+# ---------------- template variables ----------------
+
+def test_notification_variables():
+    v = dispatch_notification_variables("alice@example.com", "Fix the build\nmore")
+    assert v == {"1": "alice@example.com", "2": "Fix the build"}
+
+
+def test_notification_variables_truncate_and_empty():
+    assert dispatch_notification_variables("a", "x" * 300)["2"].endswith("...")
+    assert dispatch_notification_variables("a", "   ")["2"] == "(no task)"
+
+
+# ---------------- config: auth + channel + template ----------------
+
+def test_config_via_auth_token_and_whatsapp(monkeypatch):
+    _clear_twilio(monkeypatch)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok_test")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+14155238886")
+    monkeypatch.setenv("TWILIO_CHANNEL", "whatsapp")
+    monkeypatch.setenv("TWILIO_CONTENT_SID", "HX123")
+    cfg = _twilio_config()
+    assert cfg is not None
+    # Auth Token mode authenticates as the account SID.
+    assert cfg["username"] == "AC_test" and cfg["password"] == "tok_test"
+    assert cfg["channel"] == "whatsapp"
+    assert cfg["content_sid"] == "HX123"
+
+
+def test_config_api_key_pair_preferred(monkeypatch):
+    _clear_twilio(monkeypatch)
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "AC_test")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "tok_test")
+    monkeypatch.setenv("TWILIO_API_KEY_SID", "SK_test")
+    monkeypatch.setenv("TWILIO_API_KEY_SECRET", "secret_test")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+14155238886")
+    cfg = _twilio_config()
+    assert cfg["username"] == "SK_test" and cfg["password"] == "secret_test"
+    assert cfg["channel"] == "sms"          # default
+    assert cfg["content_sid"] is None
 
 
 # ---------------- send path (dev-mode no-op) ----------------

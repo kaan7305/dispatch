@@ -20,6 +20,7 @@ _send_via_twilio().
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -43,10 +44,13 @@ def _twilio_config() -> Optional[dict]:
     Auth prefers an API-key pair (TWILIO_API_KEY_SID/SECRET); if that isn't
     set it falls back to the account Auth Token (TWILIO_AUTH_TOKEN). The
     channel ("sms" or "whatsapp") comes from TWILIO_CHANNEL, default "sms".
+    TWILIO_CONTENT_SID, when set, names an approved WhatsApp template to send
+    instead of a freeform body (the only way past WhatsApp's 24h window).
     """
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     from_number = os.environ.get("TWILIO_FROM_NUMBER")
     channel = (os.environ.get("TWILIO_CHANNEL") or "sms").strip().lower()
+    content_sid = os.environ.get("TWILIO_CONTENT_SID") or None
 
     key_sid = os.environ.get("TWILIO_API_KEY_SID")
     key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
@@ -66,6 +70,7 @@ def _twilio_config() -> Optional[dict]:
         "password": password,
         "from_number": from_number,
         "channel": channel,
+        "content_sid": content_sid,
     }
 
 
@@ -74,32 +79,50 @@ def is_configured() -> bool:
     return _twilio_config() is not None
 
 
-async def send_sms(to_number: str, body: str) -> SmsResult:
-    """Send one SMS. Never raises — logs and returns delivered=False on any
-    failure so callers can fire-and-forget without guarding every call site."""
+async def send_sms(
+    to_number: str,
+    body: str,
+    content_variables: Optional[dict] = None,
+) -> SmsResult:
+    """Send one message. Never raises — logs and returns delivered=False on any
+    failure so callers can fire-and-forget without guarding every call site.
+
+    `content_variables` fills an approved WhatsApp template's {{1}}, {{2}}…
+    placeholders; it's used only when TWILIO_CONTENT_SID is configured on the
+    WhatsApp channel. Otherwise `body` is sent as freeform text.
+    """
     cfg = _twilio_config()
     if cfg is None:
         logger.warning(
-            "TWILIO_* not set; SMS not sent (dev mode).\n    To:   %s\n    Body: %s",
+            "TWILIO_* not set; message not sent (dev mode).\n    To:   %s\n    Body: %s",
             to_number, body,
         )
         return SmsResult(delivered=False, sid=None)
 
     try:
-        sid = await _send_via_twilio(to_number, body, cfg)
-        logger.info("texted %s (sid=%s)", to_number, sid)
+        sid = await _send_via_twilio(to_number, body, cfg, content_variables)
+        logger.info("messaged %s (sid=%s)", to_number, sid)
         return SmsResult(delivered=True, sid=sid)
     except Exception:
         logger.exception("Twilio send failed for %s", to_number)
         return SmsResult(delivered=False, sid=None)
 
 
-async def _send_via_twilio(to_number: str, body: str, cfg: dict) -> Optional[str]:
+async def _send_via_twilio(
+    to_number: str,
+    body: str,
+    cfg: dict,
+    content_variables: Optional[dict] = None,
+) -> Optional[str]:
     """POST to Twilio's Messages endpoint using basic auth.
 
     Auth is the API-key pair (SK…/secret) or the account Auth Token, scoped
     under the account SID in the URL. For the WhatsApp channel both From and
     To carry a "whatsapp:" prefix; for SMS they're sent as-is.
+
+    When a Content template SID is configured (WhatsApp only), the message is
+    sent as that approved template with ContentVariables, which is exempt from
+    WhatsApp's 24-hour freeform window. Otherwise a freeform Body is sent.
     """
     url = (
         "https://api.twilio.com/2010-04-01/Accounts/"
@@ -109,29 +132,50 @@ async def _send_via_twilio(to_number: str, body: str, cfg: dict) -> Optional[str
         f"{cfg['username']}:{cfg['password']}".encode()
     ).decode()
     prefix = "whatsapp:" if cfg["channel"] == "whatsapp" else ""
+    data = {
+        "From": f"{prefix}{cfg['from_number']}",
+        "To": f"{prefix}{to_number}",
+    }
+    if cfg["channel"] == "whatsapp" and cfg.get("content_sid"):
+        data["ContentSid"] = cfg["content_sid"]
+        if content_variables:
+            data["ContentVariables"] = json.dumps(content_variables)
+    else:
+        data["Body"] = body
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.post(
             url,
             headers={"Authorization": f"Basic {auth}"},
-            data={
-                "From": f"{prefix}{cfg['from_number']}",
-                "To": f"{prefix}{to_number}",
-                "Body": body,
-            },
+            data=data,
         )
         if r.status_code >= 400:
             raise RuntimeError(f"Twilio API {r.status_code}: {r.text}")
         return r.json().get("sid")
 
 
+def _task_first_line(task: str) -> str:
+    """The task's first line, trimmed to 100 chars — shared by the freeform
+    body and the template variables so both stay consistent."""
+    first_line = task.strip().splitlines()[0] if task.strip() else "(no task)"
+    if len(first_line) > 100:
+        first_line = first_line[:97] + "..."
+    return first_line
+
+
 def dispatch_notification_body(sender_id: str, task: str, queued: bool) -> str:
-    """The SMS text for a freshly received dispatch.
+    """The freeform message text for a freshly received dispatch.
 
     `queued` is True when the recipient's daemon was offline and the dispatch
     is waiting for it to reconnect, False when it was pushed live.
     """
-    first_line = task.strip().splitlines()[0] if task.strip() else "(no task)"
-    if len(first_line) > 100:
-        first_line = first_line[:97] + "..."
     lead = "Dispatch queued from" if queued else "New dispatch from"
-    return f"\U0001F4DF {lead} {sender_id}: {first_line}"
+    return f"\U0001F4DF {lead} {sender_id}: {_task_first_line(task)}"
+
+
+def dispatch_notification_variables(sender_id: str, task: str) -> dict:
+    """ContentVariables for an approved WhatsApp template: {{1}} is the sender,
+    {{2}} is the task's first line. Pair with a template whose body reads e.g.
+    "\U0001F4DF New dispatch from {{1}}: {{2}}". (Templates can't vary their
+    wording, so the queued/live distinction isn't reflected in template mode.)
+    """
+    return {"1": sender_id, "2": _task_first_line(task)}

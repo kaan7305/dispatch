@@ -40,7 +40,11 @@ from fastapi.staticfiles import StaticFiles
 
 from dispatch.broker.clerk import ClerkAuthError, extract_email, verify_clerk_token
 from dispatch.broker.email import send_invitation
-from dispatch.broker.sms import dispatch_notification_body, send_sms
+from dispatch.broker.sms import (
+    dispatch_notification_body,
+    dispatch_notification_variables,
+    send_sms,
+)
 from dispatch.broker.state import STATE
 from dispatch.broker.store import STORE, StoredDispatch
 from dispatch.shared import crypto
@@ -617,14 +621,19 @@ async def _deliver_or_queue(payload: DispatchPayload) -> DispatchStatus:
 
 
 async def _notify_recipient_sms(payload: DispatchPayload, queued: bool) -> None:
-    """Text the recipient that a dispatch landed, if they've opted in with a
+    """Message the recipient that a dispatch landed, if they've opted in with a
     phone number. Best-effort: send_sms never raises, and a missing number or
-    unconfigured Twilio is a silent no-op so delivery is never affected."""
+    unconfigured Twilio is a silent no-op so delivery is never affected.
+
+    Both the freeform body and the template variables are passed; send_sms
+    picks the template (via TWILIO_CONTENT_SID) when one is configured,
+    otherwise the body."""
     phone = await STORE.get_user_phone(payload.recipient_id)
     if not phone:
         return
     body = dispatch_notification_body(payload.sender_id, payload.task, queued)
-    await send_sms(phone, body)
+    variables = dispatch_notification_variables(payload.sender_id, payload.task)
+    await send_sms(phone, body, content_variables=variables)
 
 
 async def _drain_signature_queue(
