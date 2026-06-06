@@ -169,13 +169,13 @@ def dispatch_notification_body(sender_id: str, task: str, queued: bool) -> str:
     is waiting for it to reconnect, False when it was pushed live.
     """
     lead = "Dispatch queued from" if queued else "New dispatch from"
-    return f"\U0001F4DF {lead} {sender_id}: {_task_first_line(task)}"
+    return f"\U0001F4E8 {lead} {sender_id}: {_task_first_line(task)}"
 
 
 def dispatch_notification_variables(sender_id: str, task: str) -> dict:
     """ContentVariables for an approved WhatsApp template: {{1}} is the sender,
     {{2}} is the task's first line. Pair with a template whose body reads e.g.
-    "\U0001F4DF New dispatch from {{1}}: {{2}}". (Templates can't vary their
+    "\U0001F4E8 New dispatch from {{1}}: {{2}}". (Templates can't vary their
     wording, so the queued/live distinction isn't reflected in template mode.)
     """
     return {"1": sender_id, "2": _task_first_line(task)}
