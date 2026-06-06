@@ -43,7 +43,9 @@ from dispatch.broker.email import send_invitation
 from dispatch.broker.sms import (
     dispatch_notification_body,
     dispatch_notification_variables,
+    event_notification,
     send_sms,
+    status_notification,
 )
 from dispatch.broker.state import STATE
 from dispatch.broker.store import STORE, StoredDispatch
@@ -636,6 +638,19 @@ async def _notify_recipient_sms(payload: DispatchPayload, queued: bool) -> None:
     await send_sms(phone, body, content_variables=variables)
 
 
+async def _notify_user(user_id: str, text: str) -> None:
+    """Best-effort WhatsApp/SMS alert to one user about a dispatch event.
+    Silent no-op if they have no registered phone or Twilio is unconfigured;
+    never raises, so it can be fired from any handler without guarding."""
+    try:
+        phone = await STORE.get_user_phone(user_id)
+        if not phone:
+            return
+        await send_sms(phone, text)
+    except Exception:
+        logger.exception("notify_user failed for %s", user_id)
+
+
 async def _drain_signature_queue(
     ws: WebSocket, user_id: str, device_id: str, device_uuid: UUID
 ) -> None:
@@ -962,6 +977,9 @@ async def create_invitation(
 
     link = f"{_public_url()}/invite/{token}"
     result = await send_invitation(to_email, user_id, link)
+    note = event_notification("invite_received", user_id)
+    if note:
+        await _notify_user(to_email, note)
     body: dict = {"status": "sent", "delivered": result.delivered, "to_email": to_email}
     if not result.delivered and result.dev_link:
         body["dev_link"] = result.dev_link
@@ -1026,15 +1044,25 @@ async def accept_invitation(
             "wrong_recipient": 403,
         }.get(error, 400)
         raise HTTPException(status_code=status, detail=error)
+    inv = await STORE.get_invitation_by_token(token)
+    if inv:
+        note = event_notification("invite_accepted", user_id)
+        if note:
+            await _notify_user(inv["from_user"], note)
     return {"status": "accepted", "trust_link_id": str(trust_link_id)}
 
 
 @app.post("/invitations/{token}/decline")
 async def decline_invitation(
-    token: str, _: str = Depends(authed_user)
+    token: str, user_id: str = Depends(authed_user)
 ) -> dict:
+    inv = await STORE.get_invitation_by_token(token)
     if not await STORE.decline_invitation(token):
         raise HTTPException(status_code=404, detail="Unknown or already-resolved invitation")
+    if inv:
+        note = event_notification("invite_declined", inv["to_email"])
+        if note:
+            await _notify_user(inv["from_user"], note)
     return {"status": "declined"}
 
 
@@ -1114,6 +1142,14 @@ async def cancel_dispatch(
     ):
         return {"status": "noop", "current_status": stored.status.value}
     await _cancel_one(dispatch_id, stored.payload.recipient_id)
+    other = (
+        stored.payload.recipient_id
+        if user_id == stored.payload.sender_id
+        else stored.payload.sender_id
+    )
+    note = event_notification("cancelled", user_id, stored.payload.task)
+    if note:
+        await _notify_user(other, note)
     return {"status": "cancelled"}
 
 
@@ -1143,11 +1179,17 @@ async def _cancel_inflight(trust_link_id: UUID) -> int:
 async def revoke_trust(
     trust_link_id: UUID, user_id: str = Depends(authed_user)
 ) -> dict:
+    link = await STORE.get_trust_link(trust_link_id)
     if not await STORE.revoke_trust_link(trust_link_id, user_id):
         raise HTTPException(status_code=404, detail="Unknown trust link")
     # Revoking the edge also cancels anything in flight on it, and
     # POST /dispatch already refuses new dispatches (no accepted edge).
     cancelled = await _cancel_inflight(trust_link_id)
+    if link:
+        peer = link["to_user"] if link["from_user"] == user_id else link["from_user"]
+        note = event_notification("revoked", user_id)
+        if note:
+            await _notify_user(peer, note)
     return {"status": "revoked", "cancelled_dispatches": cancelled}
 
 
@@ -1313,6 +1355,11 @@ async def _record_status(msg: dict) -> None:
         return
     await STORE.update_status(dispatch_id, status)
     await _broadcast_status(dispatch_id, stored.payload.recipient_id, status)
+    note = status_notification(
+        status.value, stored.payload.recipient_id, stored.payload.task
+    )
+    if note:
+        await _notify_user(stored.payload.sender_id, note)
 
 
 # ----------------------------------------------------------------------------

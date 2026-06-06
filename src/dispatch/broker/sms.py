@@ -179,3 +179,30 @@ def dispatch_notification_variables(sender_id: str, task: str) -> dict:
     wording, so the queued/live distinction isn't reflected in template mode.)
     """
     return {"1": sender_id, "2": _task_first_line(task)}
+
+
+def status_notification(status: str, recipient_id: str, task: str) -> Optional[str]:
+    """WhatsApp text for a dispatch status change, addressed to the SENDER.
+    Returns None for statuses not worth a phone alert (delivered/running/etc.),
+    so the caller can skip silently."""
+    first = _task_first_line(task)
+    return {
+        "accepted":  f"\U0001F4E8 {recipient_id} accepted your dispatch: {first}",
+        "denied":    f"\U0001F4E8 {recipient_id} rejected your dispatch: {first}",
+        "completed": f"\U0001F4E8 {recipient_id} finished your dispatch: {first}",
+        "failed":    f"\U0001F4E8 your dispatch to {recipient_id} failed: {first}",
+    }.get(status)
+
+
+def event_notification(event: str, actor: str, task: Optional[str] = None) -> Optional[str]:
+    """WhatsApp text for a non-task lifecycle event (invites, revoke, cancel),
+    addressed to the affected user. `actor` is whoever performed the action.
+    Returns None for an unknown event."""
+    detail = f": {_task_first_line(task)}" if task else ""
+    return {
+        "invite_received": f"\U0001F4E8 {actor} invited you to connect on Dispatch.",
+        "invite_accepted": f"\U0001F4E8 {actor} accepted your invitation — you can now dispatch them.",
+        "invite_declined": f"\U0001F4E8 {actor} declined your invitation.",
+        "revoked":         f"\U0001F4E8 {actor} revoked your dispatch connection.",
+        "cancelled":       f"\U0001F4E8 {actor} cancelled the dispatch{detail}.",
+    }.get(event)

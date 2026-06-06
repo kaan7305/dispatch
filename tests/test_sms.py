@@ -17,8 +17,10 @@ from dispatch.broker.sms import (  # noqa: E402
     _twilio_config,
     dispatch_notification_body,
     dispatch_notification_variables,
+    event_notification,
     is_configured,
     send_sms,
+    status_notification,
 )
 from dispatch.shared.schema import PhoneUpdateRequest  # noqa: E402
 
@@ -101,6 +103,35 @@ def test_notification_variables():
 def test_notification_variables_truncate_and_empty():
     assert dispatch_notification_variables("a", "x" * 300)["2"].endswith("...")
     assert dispatch_notification_variables("a", "   ")["2"] == "(no task)"
+
+
+# ---------------- lifecycle event notifications ----------------
+
+def test_status_notification_maps_meaningful_statuses():
+    assert "accepted your dispatch" in status_notification("accepted", "ed@x.com", "Fix it")
+    assert "rejected your dispatch" in status_notification("denied", "ed@x.com", "Fix it")
+    assert "finished your dispatch" in status_notification("completed", "ed@x.com", "Fix it")
+    assert "failed" in status_notification("failed", "ed@x.com", "Fix it")
+
+
+def test_status_notification_skips_noisy_statuses():
+    for s in ("delivered", "running", "pending", "awaiting_signature", "expired", "cancelled"):
+        assert status_notification(s, "ed@x.com", "Fix it") is None
+
+
+def test_event_notification_messages():
+    assert "invited you" in event_notification("invite_received", "alice@x.com")
+    assert "accepted your invitation" in event_notification("invite_accepted", "bob@x.com")
+    assert "declined your invitation" in event_notification("invite_declined", "bob@x.com")
+    assert "revoked your dispatch connection" in event_notification("revoked", "carol@x.com")
+    assert event_notification("unknown_event", "x@x.com") is None
+
+
+def test_event_notification_cancelled_includes_task():
+    msg = event_notification("cancelled", "alice@x.com", "Deploy the thing\nstep two")
+    assert "cancelled the dispatch" in msg
+    assert "Deploy the thing" in msg
+    assert "step two" not in msg   # first line only
 
 
 # ---------------- config: auth + channel + template ----------------
