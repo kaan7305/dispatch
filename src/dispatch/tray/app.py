@@ -110,7 +110,9 @@ class DispatchTrayApp(rumps.App):
         # click instead of quitting the menu bar by hand.
         self._started_commit = _read_installed_commit()
         self._update_pending = False
-        self._update_item = rumps.MenuItem("Up to date", callback=self._reload_for_update)
+        # No callback ⇒ AppKit renders it greyed/disabled: a status row, not a
+        # button. It only becomes clickable once an update is actually detected.
+        self._update_item = rumps.MenuItem("Up to date")
 
         self.menu = [
             self._status_item,
@@ -352,6 +354,7 @@ class DispatchTrayApp(rumps.App):
 
     def _mark_update_pending(self) -> None:
         self._update_item.title = "⬇ Reload to apply update"
+        self._update_item.set_callback(self._reload_for_update)  # now clickable
         self.title = ICON_BUSY
         cur = self._status_item.title or ""
         if "update" not in cur.lower():
