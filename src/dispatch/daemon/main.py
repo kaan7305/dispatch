@@ -1100,7 +1100,14 @@ async def process_dispatch(
         except Exception:
             logger.exception("persist always-allow for %s failed", tool_name)
 
-    async def can_use_tool(
+    # Circuit breaker: abort a run that keeps hitting tool calls it can't make
+    # (out-of-scope, path-blocked, or denied) rather than letting the agent
+    # permute blocked variants forever. Any allowed call resets the streak.
+    DENY_LIMIT = 5
+    denial_streak = 0
+    run_aborted = False
+
+    async def _gate(
         tool_name: str,
         tool_input: dict[str, Any],
         ctx: ToolPermissionContext,
@@ -1189,7 +1196,45 @@ async def process_dispatch(
             return PermissionResultAllow(updated_input=tool_input)
         if decision == "allow":
             return PermissionResultAllow(updated_input=tool_input)
-        return PermissionResultDeny(message="Recipient denied", interrupt=False)
+        return PermissionResultDeny(
+            message="The recipient denied this tool call.", interrupt=False,
+        )
+
+    async def can_use_tool(
+        tool_name: str,
+        tool_input: dict[str, Any],
+        ctx: ToolPermissionContext,
+    ):
+        # Circuit breaker around the scope/approval gate: count consecutive
+        # denials and stop the run once it's clearly stuck, so a mis-scoped or
+        # unwanted task can't burn turns retrying calls that will never pass. Any
+        # allowed call resets the streak.
+        nonlocal denial_streak, run_aborted
+        result = await _gate(tool_name, tool_input, ctx)
+        if isinstance(result, PermissionResultDeny):
+            denial_streak += 1
+            if denial_streak >= DENY_LIMIT:
+                run_aborted = True
+                await send_event(
+                    payload.dispatch_id,
+                    {"type": "error",
+                     "data": {
+                         "message": (
+                             f"Aborted after {denial_streak} consecutive denied tool "
+                             "calls — the task can't proceed under this trust scope. "
+                             "Widen the edge (tools/paths/approval) or send a narrower "
+                             "task."
+                         ),
+                         "exception": "TooManyDenials"}},
+                )
+                return PermissionResultDeny(
+                    message=("Stop — too many consecutive denied tool calls; this run is "
+                             "being aborted. The trust scope does not permit this work."),
+                    interrupt=True,
+                )
+        else:
+            denial_streak = 0
+        return result
 
     # Step 3 — run the payload.
     #
@@ -1288,7 +1333,10 @@ async def process_dispatch(
             },
         )
 
-    await send_status(payload.dispatch_id, final)
+    await send_status(
+        payload.dispatch_id,
+        DispatchStatus.failed if run_aborted else final,
+    )
 
 
 def main() -> int:

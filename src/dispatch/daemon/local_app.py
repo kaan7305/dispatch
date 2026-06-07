@@ -19,6 +19,7 @@ import json
 import logging
 import secrets
 import sys as _sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -188,6 +189,11 @@ class LocalState:
         entry = self.entries.get(dispatch_id)
         if entry is None:
             return
+        # Stamp every event with an epoch-seconds timestamp (diagnostics: lets us
+        # tell an instant deny from a 120s-timeout deny after the fact). All
+        # executor + permission events fan through here, so one stamp covers them.
+        if isinstance(event, dict) and "ts" not in event:
+            event["ts"] = time.time()
         entry.events.append(event)
         self._broadcast({
             "type": "dispatch_event",
