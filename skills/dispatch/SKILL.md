@@ -169,28 +169,32 @@ machine. You establish an edge with an invitation:
    the sender, and ask the user: **accept**, **decline**, or **show details**
    (`dispatch status <id>`). `inbox`/`status` show **short** ids; the decision
    commands need the **full UUID** — get it from `dispatch inbox --json`.
-2. If **accept**: call **`dispatch_act(action="accept", dispatch_id=…)`** (MCP).
-   **Accepting *is* running the task** — it executes in the sandboxed dp-agent,
-   confined to the edge's tools and paths, and the call **blocks until that
-   finishes**, prompting you inline for each tool call on a `manual` edge.
-   **You MUST NOT perform the task yourself.** After accepting: do not announce
-   "now creating/sending …", do not call Bash/Write/Edit or any tool to carry
-   the task out, and do not re-do it — the sandbox already did. Your job is only
-   to report the result it returns. (Doing it yourself would run it *unconfined*,
-   with no scope and no approval — exactly what must not happen.) The CLI
-   `dispatch accept <id>` is the daemon-mode alternative; it routes to the
-   recipient's local daemon, not the broker.
+2. If **accept**: ALWAYS call **`dispatch_act(action="accept", dispatch_id=…)`**
+   (MCP) — this is the **only** way to accept interactively. **Accepting *is*
+   running the task** — it executes in the sandboxed dp-agent, confined to the
+   edge's tools and paths, and the call **blocks until that finishes, rendering
+   an inline approval prompt (arrow-key Allow / Deny / Always / …) for every
+   tool call on a `manual` edge**.
+   **Do NOT tell the user to run `dispatch accept <id>` in a terminal**, and do
+   NOT end your turn with a "paste this command" hand-off: the CLI `dispatch
+   accept` is fire-and-forget with **no approval prompt attached**, so on a
+   manual edge it silently waits and auto-denies every call after a timeout. The
+   eliciting MCP tool is the only interactive accept; the CLI exists for
+   headless/daemon-mode use (where approvals go to the web UI or a phone).
+   **You MUST NOT perform the task yourself** either. After accepting: do not
+   announce "now creating/sending …", do not call Bash/Write/Edit or any tool to
+   carry the task out, and do not re-do it — the sandbox already did. Your job is
+   only to report the result the call returns. (Doing it yourself would run it
+   *unconfined*, with no scope and no approval — exactly what must not happen.)
 3. If **decline**: run `dispatch decline <id>`.
-4. **Accepting is NOT blanket approval.** When the edge is `approval: manual`,
-   *every* tool call the agent makes pauses for a separate human allow/deny.
-   Surface these and let the user decide each one — never auto-approve:
-   - `dispatch approvals` — lists what's waiting (dispatch id, request id, tool,
-     input).
-   - `dispatch approve <id> <request_id>` / `dispatch deny <id> <request_id>`.
-   Only an `approval: auto` edge runs tool calls without these prompts (still
-   confined to the edge's tools + paths). The daemon's own local UI on
-   `127.0.0.1:8001` does the same thing — the CLI is just a terminal front-end
-   to it.
+4. **Accepting is NOT blanket approval.** On a `manual` edge *every* tool call
+   pauses for a separate human allow/deny. With `dispatch_act(action="accept")`
+   these are surfaced **inline as you go** — the blocking call prompts you for
+   each one; you do not poll for them, and you never auto-approve. Only an
+   `approval: auto` edge runs tool calls without prompts (still confined to the
+   edge's tools + paths). `dispatch approvals` + `dispatch approve/deny`, and the
+   web UI on `127.0.0.1:8001`, remain as out-of-band fallbacks for the case where
+   a dispatch was accepted outside the MCP path.
 5. Track progress any time with `dispatch status <id>` (shows the live event
    trace: reasoning, tool calls, results).
 

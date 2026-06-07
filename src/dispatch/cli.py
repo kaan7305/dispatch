@@ -866,8 +866,11 @@ def _runtime_restart(args: argparse.Namespace, config: dict,
 
     if tray:
         info["action"] = "deferred"
-        info["note"] = ("A menu-bar tray (⬡ Dispatch) is supervising the daemon on the old "
-                        "code — quit it from the menu bar and run `dispatch tray` to reload.")
+        info["note"] = ("The ⬡ Dispatch tray is supervising the daemon on the old code. It "
+                        "detects the update within ~15s and shows a Reload prompt — click "
+                        "⬡ Dispatch → “Reload to apply update” to load the new code (no need "
+                        "to quit the menu bar). On an older tray build, quit it and run "
+                        "`dispatch tray`.")
         return info
 
     if not args.restart:
@@ -959,12 +962,15 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     if runtime.get("note"):
         message += " " + runtime["note"]
 
+    _plugin_refresh = (
+        "refresh the plugin too — in Claude Code run `/plugin marketplace update "
+        "dispatch`, or from a terminal run `claude plugin marketplace update "
+        "dispatch && claude plugin update dispatch`."
+    )
     if plugin_changed is True:
-        message += (" The plugin's skill/manifest changed — also run `/plugin "
-                    "marketplace update dispatch` in Claude Code.")
+        message += " The plugin's skill/manifest changed — " + _plugin_refresh
     elif plugin_changed is None:
-        message += (" If the skill text or manifest changed, also run `/plugin "
-                    "marketplace update dispatch` in Claude Code.")
+        message += " If the skill text or manifest changed, " + _plugin_refresh
     _emit(
         args,
         {"status": "updated", "spec": spec, "commit": remote,
@@ -1055,11 +1061,43 @@ def _decide_local(args: argparse.Namespace, config: dict, *, decision: str) -> i
     _local_request(
         config, "POST", f"/api/dispatch/{target}/decision", json={"decision": decision}
     )
-    verb = "Accepted" if decision == "accept" else "Declined"
-    payload = {"dispatch_id": target, "decision": decision, "ok": True}
-    tail = " The agent is starting; tool calls still need per-call approval " \
-           "under a `manual` edge — watch `dispatch approvals`." if decision == "accept" else ""
-    _emit(args, payload, f"{verb} {_short(target)}.{tail}")
+    if decision != "accept":
+        _emit(args, {"dispatch_id": target, "decision": decision, "ok": True},
+              f"Declined {_short(target)}.")
+        return 0
+
+    # `dispatch accept` is fire-and-forget: it does NOT attach an approver or
+    # stream. On a `manual` edge that means every tool call waits on the web UI /
+    # a signed phone approval and auto-denies after ~120s if nothing answers —
+    # which silently kills the run. Warn loudly so accepting here is never a
+    # silent dead run. The interactive path is `dispatch_act(action="accept")`
+    # inside a Claude Code session, which prompts inline for each call.
+    approval = "manual"
+    try:
+        detail = _local_request(config, "GET", f"/api/dispatch/{target}")
+        if isinstance(detail, dict):
+            approval = (detail.get("scopes") or {}).get("approval", "manual") or "manual"
+    except CliError:
+        pass
+    payload = {"dispatch_id": target, "decision": decision, "ok": True,
+               "approval": approval}
+    if approval == "manual":
+        human = (
+            f"Accepted {_short(target)} — the dp-agent is starting.\n"
+            "  ⚠ manual edge: this CLI does NOT show approval prompts or the live "
+            "stream. Each tool call WAITS and auto-denies after ~120s unless you "
+            "approve it.\n"
+            "  → Approve in the web UI: http://127.0.0.1:8001\n"
+            "  → Or, better, accept inside a Claude Code session instead — it "
+            "prompts you inline for every call."
+        )
+    else:
+        human = (
+            f"Accepted {_short(target)} — the dp-agent is running unattended "
+            f"(auto edge, no per-call approval). Watch: dispatch status "
+            f"{_short(target)}."
+        )
+    _emit(args, payload, human)
     return 0
 
 

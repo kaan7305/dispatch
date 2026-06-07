@@ -39,6 +39,21 @@ ICON_OK     = "⬡ Dispatch"
 ICON_BUSY   = "◌ Dispatch"
 ICON_ERROR  = "⚠ Dispatch"
 
+# Held by _acquire_single_instance_lock for the process lifetime. Exposed at
+# module scope so a self-reload (re-exec) can release it before re-acquiring.
+_LOCK_FH = None
+
+
+def _read_installed_commit() -> str:
+    """The commit `dispatch update` last installed on disk (it writes this marker
+    after pipx succeeds). The running tray + its in-process daemon stay on the
+    code they imported at startup until the process re-execs — comparing this
+    marker against the startup value is how we detect 'daemon is outdated'."""
+    try:
+        return (Path.home() / ".dispatch" / "installed_commit").read_text().strip()
+    except OSError:
+        return ""
+
 
 class _URLHandler(NSObject):
     """Cocoa delegate that receives dispatch:// URLs via Apple Events.
@@ -89,8 +104,17 @@ class DispatchTrayApp(rumps.App):
 
         self._status_item = rumps.MenuItem("Starting…")
 
+        # Outdated-code detection: remember the commit we imported at startup; a
+        # background timer compares it against the on-disk marker so the user can
+        # SEE when `dispatch update` has installed newer code, and reload in one
+        # click instead of quitting the menu bar by hand.
+        self._started_commit = _read_installed_commit()
+        self._update_pending = False
+        self._update_item = rumps.MenuItem("Up to date", callback=self._reload_for_update)
+
         self.menu = [
             self._status_item,
+            self._update_item,
             None,
             rumps.MenuItem("Open Inbox",   callback=self.open_inbox),
             rumps.MenuItem("Open Broker",  callback=self.open_broker_ui),
@@ -101,6 +125,7 @@ class DispatchTrayApp(rumps.App):
         ]
 
         rumps.Timer(self._on_startup, 0.3).start()
+        rumps.Timer(self._check_for_update, 15.0).start()
 
     # ------------------------------------------------------------------
     # Startup
@@ -306,6 +331,74 @@ class DispatchTrayApp(rumps.App):
         ))
 
     # ------------------------------------------------------------------
+    # Self-update (outdated-code detection + one-click reload)
+    # ------------------------------------------------------------------
+
+    def _check_for_update(self, _timer: rumps.Timer) -> None:
+        """Runs on the main loop. If `dispatch update` installed a newer commit
+        than the one we imported at startup, flag it: the running tray + its
+        in-process daemon are on stale code until re-exec'd."""
+        current = _read_installed_commit()
+        if not current:
+            return
+        if not self._started_commit:
+            # Started before any marker existed — adopt the first one we see as
+            # the baseline rather than crying "outdated" spuriously.
+            self._started_commit = current
+            return
+        if current != self._started_commit and not self._update_pending:
+            self._update_pending = True
+            self._mark_update_pending()
+
+    def _mark_update_pending(self) -> None:
+        self._update_item.title = "⬇ Reload to apply update"
+        self.title = ICON_BUSY
+        cur = self._status_item.title or ""
+        if "update" not in cur.lower():
+            self._status_item.title = f"{cur}  ·  update ready — Reload"
+        rumps.notification(
+            title="Dispatch — update installed",
+            subtitle="Running on the old code until you reload.",
+            message="Click ⬡ Dispatch → “Reload to apply update”.",
+        )
+
+    def _reload_for_update(self, _item: rumps.MenuItem) -> None:
+        if not self._update_pending:
+            rumps.notification(
+                title="Dispatch", subtitle="Already up to date.",
+                message="No newer code has been installed since this tray started.",
+            )
+            return
+        self._reexec()
+
+    def _reexec(self) -> None:
+        """Re-exec the tray so it (and its in-process daemon) re-import the
+        freshly-installed code. A daemon-thread restart is NOT enough — Python
+        keeps the old modules in memory; only a fresh process picks up new code.
+        Releases the single-instance flock first so the new image can re-acquire
+        it (otherwise the inherited fd would block the re-launch)."""
+        import sys
+        loop = self._daemon_loop
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
+        global _LOCK_FH
+        try:
+            if _LOCK_FH is not None:
+                _LOCK_FH.close()
+        except Exception:
+            pass
+        exe = sys.argv[0]
+        if not os.path.isabs(exe):
+            import shutil
+            exe = shutil.which("dispatch-tray") or exe
+        try:
+            os.execv(exe, [exe])
+        except Exception:
+            # Couldn't re-exec — fall back to quitting; the user (or a login
+            # agent) relaunches onto the new code.
+            rumps.quit_application()
+
+    # ------------------------------------------------------------------
     # Menu callbacks
     # ------------------------------------------------------------------
 
@@ -461,6 +554,8 @@ def _acquire_single_instance_lock():
         sys.exit(0)
     fh.write(f"{os.getpid()}\n")
     fh.flush()
+    global _LOCK_FH
+    _LOCK_FH = fh
     return fh
 
 

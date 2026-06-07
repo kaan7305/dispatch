@@ -518,7 +518,24 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
                         else:
                             decision = "deny"
                     except Exception:
-                        decision = "deny"  # fail safe if elicitation is unavailable
+                        # Elicitation is unavailable in this session (e.g. a
+                        # non-interactive run). Do NOT silently deny every call —
+                        # that produced runs that looked "rejected" though the
+                        # human was never asked. Cancel the run and surface loudly
+                        # so approval can happen on a surface that works.
+                        await _local_call("POST", f"/api/dispatch/{dispatch_id}/cancel")
+                        return {
+                            "status": "error",
+                            "dispatch_id": dispatch_id,
+                            "detail": (
+                                "Can't show approval prompts in this session "
+                                "(elicitation unavailable), so the run was "
+                                "cancelled instead of silently denying every tool "
+                                "call. Accept from an interactive Claude Code "
+                                "session, or approve via the web UI at "
+                                "http://127.0.0.1:8001."
+                            ),
+                        }
                 await _local_call(
                     "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
                     json={"decision": decision},
@@ -585,8 +602,11 @@ async def dispatch_act(
 ) -> dict:
     """Act on an inbound or in-flight dispatch.
       accept  — accept AND run it in the sandboxed dp-agent; BLOCKS until done,
-                prompting you inline for each tool call on a manual edge. You
-                MUST NOT perform the task yourself — accepting *is* running it.
+                rendering an inline approval prompt for each tool call on a
+                manual edge. This is the ONLY interactive way to accept — never
+                tell the user to run the `dispatch accept` CLI instead (that is
+                fire-and-forget with no prompt attached and silently times out).
+                You MUST NOT perform the task yourself — accepting *is* running it.
       decline — reject an inbound dispatch; it never runs.
       cancel  — cancel an in-flight dispatch (either party).
       approve / deny — allow/deny one pending tool call (needs `request_id`,

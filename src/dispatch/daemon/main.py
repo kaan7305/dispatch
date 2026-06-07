@@ -1045,17 +1045,27 @@ async def process_dispatch(
             {"type": "permission_request",
              "data": {"id": request_id, "tool": tool_name, "input": tool_input}},
         )
+        timed_out = False
         try:
             decision = await asyncio.wait_for(fut, timeout=TOOL_APPROVAL_TIMEOUT_S)
         except asyncio.TimeoutError:
             decision = "deny"
+            timed_out = True
         finally:
             state.pending_approvals.pop((dispatch_id, request_id), None)
             if local_state is not None:
                 local_state.on_tool_resolved(payload.dispatch_id, request_id)
+        data: dict[str, Any] = {"tool": tool_name, "decision": decision}
+        if timed_out:
+            # Mark auto-denies so the UI never renders them as "You denied" — no
+            # human acted; nobody answered within the window.
+            data["reason"] = (
+                f"no approver answered within {int(TOOL_APPROVAL_TIMEOUT_S)}s — "
+                "auto-denied"
+            )
         await send_event(
             payload.dispatch_id,
-            {"type": "permission_response", "data": {"tool": tool_name, "decision": decision}},
+            {"type": "permission_response", "data": data},
         )
         return decision
 
@@ -1259,6 +1269,14 @@ async def process_dispatch(
             await send_event(payload.dispatch_id, event)
             if event["type"] == "error":
                 final = DispatchStatus.failed
+    except asyncio.CancelledError:
+        # Cancel (trust revoked / either party cancelled / daemon shutdown) raises
+        # CancelledError — a BaseException, so it slips past `except Exception` and
+        # would skip the terminal send_status below, leaving the dispatch stuck at
+        # "running" locally (the broker shows cancelled). Write the terminal status
+        # explicitly, then re-raise. Mirrors the workflow branch above.
+        await send_status(payload.dispatch_id, DispatchStatus.cancelled)
+        raise
     except Exception as exc:
         logger.exception("executor crashed")
         final = DispatchStatus.failed

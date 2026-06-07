@@ -65,12 +65,20 @@ function EventCard({ event, viewerRole }: { event: DispatchEvent; viewerRole: "r
     }
 
     case "permission_response": {
+      const allowed = event.data["decision"] === "allow";
+      const reason = event.data["reason"];
       const subject = viewerRole === "recipient" ? "You" : "They";
-      const verb = event.data["decision"] === "allow" ? "allowed" : "denied";
+      // A deny that carries a reason was automatic (timeout / out-of-scope / no
+      // approver) — never attribute it to the human as "You denied".
+      const label = allowed
+        ? `${subject} allowed`
+        : reason
+          ? "Auto-denied"
+          : `${subject} denied`;
       return (
         <Block
-          tone={event.data["decision"] === "allow" ? "result" : "error"}
-          label={`${subject} ${verb}`}
+          tone={allowed ? "result" : "error"}
+          label={label}
           name={stringFrom(event.data, "tool")}
         >
           {event.data["reason"] ? (
