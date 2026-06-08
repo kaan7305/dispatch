@@ -393,14 +393,17 @@ def make_app(
 
     @app.get("/api/dispatch/{dispatch_id}", dependencies=[Depends(require_local_token)])
     async def dispatch_detail(dispatch_id: UUID):
-        # Received dispatches live in the daemon's local state — return
-        # those directly (events stream into LocalState from the agent
-        # session, no network roundtrip).
+        # Serve the event trace from LocalState only when it's authoritative:
+        # the dispatch is actively running in THIS daemon (real-time stream), or
+        # it ran in this session and we still hold its events in memory (so the
+        # trace survives a broker outage). LocalState is RAM — wiped on restart
+        # and only metadata-seeded on startup — so for anything this process
+        # didn't witness (historical, or a stale "running" left by a previous
+        # daemon) fall back to the broker, which persists every event durably.
         entry = local_state.entries.get(dispatch_id)
-        if entry is not None:
+        is_live = str(dispatch_id) in daemon_state.running
+        if entry is not None and (is_live or entry.events):
             return {**_entry_summary(entry), "events": entry.events}
-        # SENT dispatches and historical ones the daemon didn't witness
-        # locally: fall back to the broker (proxied with the broker JWT).
         return await _broker_request("GET", f"/dispatch/{dispatch_id}")
 
     @app.post("/api/dispatch/{dispatch_id}/decision", dependencies=[Depends(require_local_token)])
