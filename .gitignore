@@ -36,3 +36,6 @@ build/
 # `pnpm --dir src/dispatch/web/desktop build` and commit the result.
 !/src/dispatch/web/desktop/dist/
 !/src/dispatch/web/desktop/dist/**
+
+# Claude Code: personal overrides — never share
+.claude/settings.local.json
