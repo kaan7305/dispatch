@@ -912,6 +912,26 @@ def _runtime_restart(args: argparse.Namespace, config: dict,
     return info
 
 
+def _poke_tray_recheck(config: dict) -> None:
+    """Best-effort: tell a running tray/daemon to re-check for the just-installed
+    update right now, so it surfaces the Reload prompt immediately rather than
+    waiting for its poll. Silent if nothing is listening, there's no local token,
+    or the running daemon predates the endpoint (old code → 404)."""
+    try:
+        port = _local_port(config)
+        token = _local_token()
+    except CliError:
+        return
+    try:
+        httpx.post(
+            f"http://127.0.0.1:{port}/api/internal/recheck-update",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=2.0,
+        )
+    except Exception:
+        pass
+
+
 def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     """Self-update: reinstall the dispatch package (CLI + daemon + MCP server)
     from the latest source via pipx, so your local commands match `main`.
@@ -949,6 +969,10 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
             _UPDATE_MARKER.write_text(remote)
         except OSError:
             pass
+        # Poke a running tray/daemon to re-check NOW so it shows the Reload
+        # prompt immediately, instead of waiting for its poll (which macOS App
+        # Nap throttles well past the nominal interval). Best-effort.
+        _poke_tray_recheck(_load_config())
 
     message = (
         "Updated. Restart your Claude Code session so the in-session dispatch-mcp "

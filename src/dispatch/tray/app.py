@@ -267,6 +267,12 @@ class DispatchTrayApp(rumps.App):
         def on_signout() -> None:
             self._on_main(self._restart_daemon)
 
+        # `dispatch update` pokes the daemon's local API after installing new
+        # code; re-check the marker on the main thread immediately so the Reload
+        # prompt appears at once instead of waiting for the throttled poll.
+        def on_recheck() -> None:
+            self._on_main(self._check_for_update)
+
         backoff = 2
         while True:
             args = Namespace(
@@ -283,6 +289,7 @@ class DispatchTrayApp(rumps.App):
                     on_status=on_status,
                     on_notification=on_notification,
                     on_signout=on_signout,
+                    on_recheck=on_recheck,
                 )
                 if rc == 7:
                     # Broker told us the user signed out. Stop reconnecting
@@ -336,7 +343,7 @@ class DispatchTrayApp(rumps.App):
     # Self-update (outdated-code detection + one-click reload)
     # ------------------------------------------------------------------
 
-    def _check_for_update(self, _timer: rumps.Timer) -> None:
+    def _check_for_update(self, _timer=None) -> None:
         """Runs on the main loop. If `dispatch update` installed a newer commit
         than the one we imported at startup, flag it: the running tray + its
         in-process daemon are on stale code until re-exec'd."""

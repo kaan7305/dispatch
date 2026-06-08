@@ -270,6 +270,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def run_session(
     args: argparse.Namespace, on_status=None, on_notification=None, on_signout=None,
+    on_recheck=None,
 ) -> int:
     """Run a single broker session.
 
@@ -389,6 +390,7 @@ async def run_session(
         broker_token=args.token,
         notify=on_notification,
         on_signout=on_signout,
+        on_recheck=on_recheck,
         running_commit=running_commit,
     )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)

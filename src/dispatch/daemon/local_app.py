@@ -116,6 +116,11 @@ class LocalState:
     # Called (thread-safely) when the user signs out from the web UI so the
     # tray supervisor can restart the daemon with the new/cleared credentials.
     on_signout: Optional[Callable[[], None]] = None
+    # Called (thread-safely) when `dispatch update` pokes us after installing
+    # new code, so the tray re-checks the installed-commit marker and shows the
+    # Reload prompt immediately instead of waiting for its (App-Nap-throttled)
+    # poll. No-op when the daemon runs without a tray.
+    on_recheck: Optional[Callable[[], None]] = None
 
     async def seed_from_broker(self) -> None:
         """Populate entries from the broker DB on startup so the inbox
@@ -327,6 +332,18 @@ def make_app(
             "broker_connected": local_state.broker_connected,
             "running_commit": local_state.running_commit,
         }
+
+    @app.post("/api/internal/recheck-update", dependencies=[Depends(require_local_token)])
+    async def recheck_update() -> dict:
+        # `dispatch update` pokes this right after installing new code so the
+        # tray surfaces the Reload prompt immediately (its own poll is throttled
+        # by macOS App Nap). No tray attached → harmless no-op.
+        if local_state.on_recheck is not None:
+            try:
+                local_state.on_recheck()
+            except Exception:
+                logger.exception("on_recheck callback failed")
+        return {"status": "ok"}
 
     @app.post("/api/open-broker", dependencies=[Depends(require_local_token)])
     async def open_broker() -> dict:
