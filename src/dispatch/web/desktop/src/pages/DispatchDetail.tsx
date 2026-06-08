@@ -106,6 +106,7 @@ function DetailBody({
             <EventStream
               events={entry.events ?? []}
               viewerRole={isRecipient ? "recipient" : "watcher"}
+              status={entry.status}
             />
           </Section>
         </div>

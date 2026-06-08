@@ -1,18 +1,23 @@
 import { cn } from "@/lib/utils";
-import type { DispatchEvent } from "@/lib/api";
+import type { DispatchEvent, DispatchStatus } from "@/lib/api";
 
 interface Props {
   events: DispatchEvent[];
   /** Whose decisions matter for this view. "you" if the viewer is the
    *  recipient, "them" if the viewer is just watching. */
   viewerRole?: "recipient" | "watcher";
+  /** Dispatch status — drives the empty-state copy. Only a running dispatch
+   *  can still produce events, so only it gets the "streaming in" promise. */
+  status?: DispatchStatus;
 }
 
-export function EventStream({ events, viewerRole = "watcher" }: Props) {
+export function EventStream({ events, viewerRole = "watcher", status }: Props) {
   if (events.length === 0) {
     return (
       <div className="text-sm text-muted-foreground px-4 py-6 text-center border rounded-md">
-        No events yet. They'll stream in once the agent starts running.
+        {status === "running"
+          ? "No events yet. They'll stream in once the agent starts running."
+          : "No events."}
       </div>
     );
   }
