@@ -85,6 +85,36 @@ DELEGATED_TASK_SYSTEM_PROMPT = (
 )
 
 
+def _scope_notice(in_scope: list[str], disallowed: list[str]) -> str:
+    """A hard statement of the agent's tool scope, appended to the system prompt
+    so the agent knows its limits UP FRONT instead of discovering them by trying
+    a tool and getting denied. The reported bug: with a read-only edge the agent
+    would attempt Write/Bash, get denied, and keep hunting for a workaround. This
+    tells it the boundary and that there is no way around it — if the task needs
+    a tool it doesn't have, stop and report rather than iterate."""
+    allowed = ", ".join(in_scope) if in_scope else "(none)"
+    notice = (
+        f"\n\nTOOL SCOPE (hard limit set by the person whose machine you run on): "
+        f"you have ONLY these tools — {allowed}."
+    )
+    if disallowed:
+        notice += (
+            f" These tools are NOT granted and every attempt to use them WILL be "
+            f"denied — there is no workaround: {', '.join(disallowed)}."
+        )
+    notice += (
+        " If the task needs a capability you don't have (e.g. it asks you to "
+        "create or modify files but you lack Write/Edit, or to run a command but "
+        "you lack Bash), do NOT retry the denied tool, look for an alternate "
+        "route, or improvise around it. Stop immediately and reply in plain "
+        "language stating exactly which tool/capability the task requires and "
+        "that your trust scope doesn't grant it, so the sender can ask the "
+        "recipient to widen the scope. Reporting that cleanly is the correct, "
+        "successful outcome — not a failure to keep trying."
+    )
+    return notice
+
+
 def _truncate(text: str) -> tuple[str, bool]:
     if len(text) <= TOOL_RESULT_TRUNCATE_BYTES:
         return text, False
@@ -190,6 +220,13 @@ async def run_dispatch(
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
 
+    # Whatever framing we use (default or a workflow override), always state the
+    # tool scope explicitly so the agent knows its limits before it acts and
+    # won't burn turns probing for a way around a tool it wasn't granted.
+    effective_system_prompt = (
+        (system_prompt or DELEGATED_TASK_SYSTEM_PROMPT) + _scope_notice(in_scope, disallowed)
+    )
+
     if can_use_tool is not None:
         sdk_allowed_tools: list[str] = []   # nothing auto-approved
         permission_mode = "default"
@@ -205,8 +242,9 @@ async def run_dispatch(
         "cwd": cwd,
         "can_use_tool": can_use_tool,
         # Default framing so the task is understood as work to perform, not a
-        # message to relay. Overridable by the caller (workflows).
-        "system_prompt": system_prompt or DELEGATED_TASK_SYSTEM_PROMPT,
+        # message to relay (caller-overridable), plus an explicit tool-scope
+        # notice appended so the agent knows its hard limits up front.
+        "system_prompt": effective_system_prompt,
         # Clean base: do NOT inherit the recipient's settings (their plugins,
         # skills, or filesystem MCP config). This is what makes the
         # dispatch-control exclusion airtight — the dispatch plugin can't even

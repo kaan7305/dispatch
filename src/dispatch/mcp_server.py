@@ -361,12 +361,18 @@ async def _elicit_scopes(
     current_tools: list[str] | None = None,
     current_mcp: list[str] | None = None,
     passed_tools: list[str] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str]] | None:
     """Run the two-question scope picker (built-in tool tier + MCP servers) and
     return (scope_tools, scope_mcp). Shared by invite-accept and edit.
 
     When `current_*` is supplied (editing) the tier is pre-selected and the
-    servers pre-checked. `passed_tools` pre-fills the Custom tier on accept."""
+    servers pre-checked. `passed_tools` pre-fills the Custom tier on accept.
+
+    Returns None when no scope could be determined — the human wasn't asked
+    (the picker didn't render or was declined) AND there's nothing explicit to
+    honor (no `current_tools`, no `passed_tools`). The caller MUST treat this as
+    "abort, the trustor has to choose" rather than granting a default: a trust
+    scope is never invented on the human's behalf."""
     current_tools = current_tools or []
     current_mcp = current_mcp or []
     default_tier = (
@@ -382,9 +388,15 @@ async def _elicit_scopes(
         scope_tools = list(_RW_TOOLS)
     elif grant and grant.startswith("Custom"):
         scope_tools = list(passed_tools or current_tools or _READONLY_TOOLS)
+    elif current_tools or passed_tools:
+        # No interactive choice (picker unavailable or declined), but an explicit
+        # scope already exists — the current grant when editing, or tools the
+        # caller passed when accepting. Honor that; it's a real human choice.
+        scope_tools = list(current_tools or passed_tools)
     else:
-        # Elicitation unavailable → keep current (edit) or passed/least-priv (accept).
-        scope_tools = list(current_tools or passed_tools or _READONLY_TOOLS)
+        # Picker unavailable AND nothing explicit to fall back to. Do NOT invent
+        # a default grant — signal the caller to abort and make the human choose.
+        return None
     granted = [m for m in current_mcp if m != "*"]
     scope_mcp = await _pick_mcp_servers(ctx, await _installed_server_names(), granted=granted)
     return scope_tools, scope_mcp
@@ -693,12 +705,27 @@ async def dispatch_invite(
             passed_tools = [t.strip() for t in tools.split(",") if t.strip()]
             scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
             # Two-question picker: built-in tool tier, then which MCP servers.
-            scope_tools, scope_mcp = await _elicit_scopes(
+            picked = await _elicit_scopes(
                 ctx,
                 "Accept invite and let this sender dispatch to your machine.\n"
                 "What built-in tools may their tasks use?",
                 passed_tools=passed_tools,
             )
+            if picked is None:
+                # The scope picker couldn't be shown and no `tools` were passed.
+                # Refuse to accept with a silent default — the human must choose.
+                return {
+                    "error": "scope_choice_required",
+                    "detail": (
+                        "Couldn't show the tool-scope picker and no `tools` were "
+                        "given, so there is nothing to grant. Dispatch will not "
+                        "apply a default scope on its own. Re-run accept with an "
+                        "explicit `tools` — a subset of Read,Glob,Grep,Write,Edit,"
+                        "Bash — to choose what this sender's agent may do on your "
+                        "machine (Bash = full shell; grant deliberately)."
+                    ),
+                }
+            scope_tools, scope_mcp = picked
             scopes: dict[str, Any] = {
                 "tools": scope_tools, "mcp": scope_mcp, "paths": scope_paths,
                 "approval": approval, "max_dispatches_per_day": max_dispatches_per_day,
@@ -794,13 +821,25 @@ async def dispatch_trust(
             return await _local_call("DELETE", f"/api/trust/{tlid}")
         # edit — pre-fill the picker from the edge's current scopes.
         cur = edge.get("scopes") or {}
-        scope_tools, scope_mcp = await _elicit_scopes(
+        picked = await _elicit_scopes(
             ctx,
             f"Edit what {edge.get('peer', 'this sender')} may use when dispatching "
             f"to you:",
             current_tools=cur.get("tools") or [],
             current_mcp=cur.get("mcp") or [],
         )
+        if picked is None:
+            # Picker unavailable and the edge had no tools to keep — don't invent
+            # a scope; leave the edge unchanged and tell the human to choose.
+            return {
+                "error": "scope_choice_required",
+                "detail": (
+                    "Couldn't show the tool-scope picker, so the edge is "
+                    "unchanged. Re-run from an interactive session to choose the "
+                    "scope."
+                ),
+            }
+        scope_tools, scope_mcp = picked
         # Only the tool/MCP permissions change; keep paths/approval/limits intact.
         new_scopes = dict(cur)
         new_scopes.update({"tools": scope_tools, "mcp": scope_mcp})

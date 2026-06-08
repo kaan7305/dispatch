@@ -489,6 +489,19 @@ def cmd_invitations(args: argparse.Namespace, broker: str, token: str) -> int:
 def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> int:
     """Accept an invitation, setting the scopes the inviter's agent is confined
     to. The accepter (you) is the trustor — you control what's allowed."""
+    # The CLI is non-interactive — there's no scope picker here. Require the
+    # human to state the tools explicitly rather than letting the broker apply a
+    # silent default: a trust scope is never invented on the accepter's behalf.
+    if args.tools is None:
+        print(
+            "error: --tools is required when accepting an invitation. You are the "
+            "trustor and must choose what the inviter's agent may do on your "
+            "machine — e.g. --tools Read,Glob,Grep (read-only) or, deliberately, "
+            "--tools Read,Glob,Grep,Write,Edit,Bash (Bash = full shell). Dispatch "
+            "will not grant a default scope on its own.",
+            file=sys.stderr,
+        )
+        return 1
     scopes: dict[str, Any] = {
         "approval": args.approval,
         "max_dispatches_per_day": args.max_per_day,
@@ -1274,8 +1287,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_acc_inv.add_argument("token", help="Invitation token (from `dispatch invitations`).")
     p_acc_inv.add_argument(
         "--tools", default=None,
-        help="Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,Bash. "
-             "Default: Read,Glob,Grep (read-only).")
+        help="REQUIRED. Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,"
+             "Bash — what the inviter's agent may do on your machine. No default: "
+             "you must choose (Bash = full shell).")
     p_acc_inv.add_argument(
         "--paths", default=None,
         help="Comma-separated directory allowlist. Default: no path restriction.")

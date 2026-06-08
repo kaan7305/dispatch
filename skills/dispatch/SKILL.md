@@ -129,13 +129,43 @@ machine. You establish an edge with an invitation:
    Only then does an **outgoing** edge to them appear in `dispatch contacts`.
 3. **Conversely, when someone invites you**: run `dispatch invitations` to see
    it (with its `token`), show the user who's inviting them, and — only on the
-   user's say-so — `dispatch accept-invitation <token>` with the scopes they
-   want to grant, or `dispatch decline-invitation <token>`. Accepting lets the
-   inviter dispatch to *this* machine, so treat the scope choice like any trust
-   decision: default to read-only + manual, widen only when asked, and flag
-   that granting `Bash` is full shell access. **Never auto-accept an invite.**
+   user's say-so — accept it. Accepting lets the inviter dispatch to *this*
+   machine, so the scope is a trust decision the **human must make explicitly**.
+   **Never auto-accept, and never pick the scope for them.**
+
+   **ALWAYS prompt the user with a numbered scope menu and wait for their
+   choice before accepting.** Do not call the accept tool/command until they've
+   answered. Present exactly this menu (one line per option) and ask them to
+   reply with a number:
+
+   ```
+   <inviter> wants to be able to dispatch tasks to your machine.
+   Choose what their agent may do here:
+     1. Read-only — Read, Glob, Grep (safest; can look, can't change anything)
+     2. Read + Write/Edit — read plus create/modify files (no shell)
+     3. Allow all — Read, Glob, Grep, Write, Edit, Bash + all MCP servers
+        (Bash = full shell access — grant deliberately)
+     4. Custom — you tell me the exact tools
+     5. Decline — don't create the edge
+   Also: approval mode — 'manual' (you approve every tool call, default) or
+   'auto'? And any path restriction (default: any path)?
+   ```
+
+   After they pick, map the choice to explicit tools and accept with them
+   **spelled out** — never rely on a silent default:
+   - **MCP:** `dispatch_invite(action="accept", token=…, tools="<chosen>",
+     approval=…, paths=…)` — always pass `tools` so the inline picker isn't the
+     only thing standing between the user and a default. (1→`Read,Glob,Grep`,
+     2→`Read,Glob,Grep,Write,Edit`, 3→`Read,Glob,Grep,Write,Edit,Bash`,
+     4→whatever they listed.)
+   - **CLI:** `dispatch accept-invitation <token> --tools <chosen> [--approval …]
+     [--paths …]` — `--tools` is **required** (the CLI now refuses to accept
+     without it, by design — so the human always chooses).
+   - Option 5 → `dispatch_invite(action="decline", …)` /
+     `dispatch decline-invitation <token>`.
 4. As the trustor you can change what you grant later (you'll show as
-   `can_edit_scopes: true` on that edge in `dispatch contacts`).
+   `can_edit_scopes: true` on that edge in `dispatch contacts`). Edit it the
+   same way — show the menu, let the human pick.
 
 ## Sender workflow
 
