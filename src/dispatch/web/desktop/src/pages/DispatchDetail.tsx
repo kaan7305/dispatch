@@ -334,10 +334,18 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       </Row>
       <Row label="Paths">
         {paths.length === 0 ? (
-          <span className="text-muted-foreground">workspace only</span>
+          // An empty paths list is NOT enforced as "workspace only" — the path
+          // gate is skipped, so the agent may touch any path. On a manual edge
+          // each call is still approved; on an auto edge there's no boundary.
+          approval === "auto" ? (
+            <Badge variant="warning">any path — unrestricted (auto-approved)</Badge>
+          ) : (
+            <span className="text-muted-foreground">any path — each call needs approval</span>
+          )
         ) : (
           <ul className="text-xs font-mono space-y-0.5">
             {paths.map((p) => <li key={p}>{p}</li>)}
+            <li className="text-muted-foreground">+ workspace</li>
           </ul>
         )}
       </Row>
