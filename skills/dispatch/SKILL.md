@@ -45,6 +45,28 @@ session and exposes **four** `dispatch_*` MCP tools:
 **Prefer the MCP tools when available.** They host the signer/approver *in this
 session* with no separate daemon.
 
+## Speed: act in one shot, don't pre-read
+
+The broker and daemon answer in tens of milliseconds; the only real latency is
+the number of *tool round-trips* you make, each of which is a separate model
+turn. **Minimize round-trips:**
+
+- **Don't read state to "check" before acting.** Call the action tool directly
+  and let its result drive any fallback. The tools return authoritative errors:
+  - `dispatch_invite(action="send", to_email=…)` directly — do **not** read
+    `contacts`/`invitations` first to see if an edge or invite exists. If one
+    already does, the tool tells you.
+  - `dispatch_send(recipient=…, task=…)` directly — do **not** read `contacts`
+    first. A `403` means "no outgoing edge → invite them"; a `503` means "your
+    daemon is offline." Only read `contacts` when the user's recipient name is
+    ambiguous and you genuinely can't resolve the id.
+  - `dispatch_act(action="accept", dispatch_id=…)` directly — you already have
+    the id from the inbox you just showed.
+- **One action = one tool call.** Resolve everything you need from a single
+  call's response instead of chaining reads. The only human gates that justify
+  an extra turn are the two trust-critical ones below (scope menu on
+  *accept-invitation*, and the verbatim-task confirm on *send*).
+
 **Critical — how accepting works (do not skip this):** `dispatch_act(action="accept", dispatch_id=…)`
 **runs the task in a sandboxed dp-agent** (confined to the trust edge's tools +
 paths) and **blocks until it finishes**, prompting you inline for each tool call
@@ -169,17 +191,18 @@ machine. You establish an edge with an invitation:
 
 ## Sender workflow
 
-1. Run `dispatch contacts` if you're unsure of the exact recipient id or
-   whether an outgoing edge exists. You can only send across an **outgoing**
-   edge the recipient has accepted. No edge yet? See *Connecting with a
-   contact* above — invite them first.
-2. Confirm the recipient id and the verbatim task with the user (show both,
-   ask Y/N) before sending. Do not paraphrase the task — Dispatch preserves it
-   verbatim on purpose.
-3. Run `dispatch send <recipient> '<task>' [--cwd <dir>] [--expires <s>]`.
-   - Sending requires the **sender's own daemon to be online** — the broker
-     asks it to sign (Layer 2). A `503` means your daemon is offline.
-4. Report the returned `dispatch_id` so the user can track it
+1. Confirm the recipient id and the verbatim task with the user (show both,
+   ask Y/N) before sending — this is the one deliberate gate, since Dispatch
+   preserves the task verbatim and a wrong recipient/task can't be recalled. Do
+   not paraphrase the task. Don't pre-read `contacts` to "verify" the edge — go
+   straight to send and let the error guide you (see below).
+2. Run `dispatch send <recipient> '<task>' [--cwd <dir>] [--expires <s>]`.
+   - `403` → no accepted outgoing edge to that recipient; invite them first
+     (*Connecting with a contact*). Only then read `contacts` if you need to
+     disambiguate the exact id.
+   - `503` → the **sender's own daemon is offline** (the broker asks it to sign,
+     Layer 2). Start `dispatch-daemon` and retry.
+3. Report the returned `dispatch_id` so the user can track it
    (`dispatch status <id>`).
 
 ## Recipient workflow
