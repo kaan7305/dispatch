@@ -477,22 +477,48 @@ async def _do_status(dispatch_id: str) -> dict:
     return result
 
 
-async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
-    """Accept + supervise the daemon's confined run to completion, asking the
-    human (via elicitation) for each tool call on a manual edge. The run
-    executes in the DAEMON's executor; we relay its pending approvals here."""
-    accept = await _local_call(
-        "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "accept"},
-    )
-    if isinstance(accept, dict) and accept.get("error"):
-        if accept.get("error") == 409:
-            return {"status": "error",
-                    "detail": "no pending decision for that dispatch — run "
-                              "dispatch_read(what='inbox') (it may not be addressed "
-                              "to you, or it's already decided/expired)."}
-        return {"status": "error", "detail": accept.get("detail", "accept failed")}
+def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict) -> dict:
+    """Payload returned to the HOST agent when this session can't render an
+    inline elicitation prompt. The pending tool call is handed to the main
+    agent to relay to the human in chat — exactly like a Bash permission
+    prompt — instead of cancelling the run or silently denying. The run stays
+    paused on the daemon's approval future (which auto-denies after ~120s,
+    see TOOL_APPROVAL_TIMEOUT_S in dispatch.daemon.main)."""
+    return {
+        "status": "approval_needed",
+        "dispatch_id": dispatch_id,
+        "request_id": request_id,
+        "sender_id": sender,
+        "tool": info.get("tool"),
+        "input": info.get("input"),
+        "answer_within_seconds": 120,
+        "detail": (
+            "This session can't render inline approval prompts, so this pending "
+            "tool call is handed to you instead. ASK THE USER NOW — show the "
+            "tool and its input verbatim and offer: Allow once / Always allow "
+            "this tool / Allow for this session / Deny. Never decide on their "
+            "behalf. Then relay their choice with dispatch_act(action='approve' "
+            "or 'deny', dispatch_id=…, request_id=…, grant='once'|'always'|"
+            "'session'). That call resumes watching the run and returns either "
+            "the next approval_needed or the final result. The daemon "
+            "auto-denies this call if no decision arrives within ~120s, so ask "
+            "immediately."
+        ),
+    }
 
-    handled: set[str] = set()
+
+async def _supervise(
+    dispatch_id: str, ctx: Context, already_handled: set[str] | None = None
+) -> dict:
+    """Watch a running dispatch to completion, gating each pending tool call on
+    the human (Layer 3). When the session can render elicitation, the prompt is
+    inline (arrow-key Allow/Deny). When it can't, the pending call is returned
+    as an `approval_needed` payload so the host agent asks the user in chat and
+    relays the decision via dispatch_act(approve/deny) — which re-enters this
+    loop until the next gate or the final result. `already_handled` carries
+    request ids whose decision was just posted, so the brief window before the
+    daemon pops them from pending_tools can't surface them twice."""
+    handled: set[str] = set(already_handled or ())
     auto_allow = False  # set once the human picks "Allow the rest of this dispatch"
     waited = 0.0
     status: Optional[str] = None
@@ -506,7 +532,6 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
             for request_id, info in (detail.get("pending_tools") or {}).items():
                 if request_id in handled:
                     continue
-                handled.add(request_id)
                 if auto_allow:
                     decision = "allow"
                 else:
@@ -516,38 +541,27 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
                     )
                     try:
                         res = await ctx.elicit(message=msg, schema=_Approve)
-                        choice = res.data.decision if isinstance(res, AcceptedElicitation) else "Deny"
-                        if choice == "Allow the rest of this dispatch":
-                            auto_allow = True
-                            decision = "allow"
-                        elif choice == "Always allow this tool":
-                            # Persist onto the edge AND skip future prompts for it.
-                            decision = "always"
-                        elif choice == "Allow this tool this session":
-                            decision = "session"
-                        elif choice == "Allow":
-                            decision = "allow"
-                        else:
-                            decision = "deny"
                     except Exception:
                         # Elicitation is unavailable in this session (e.g. a
-                        # non-interactive run). Do NOT silently deny every call —
-                        # that produced runs that looked "rejected" though the
-                        # human was never asked. Cancel the run and surface loudly
-                        # so approval can happen on a surface that works.
-                        await _local_call("POST", f"/api/dispatch/{dispatch_id}/cancel")
-                        return {
-                            "status": "error",
-                            "dispatch_id": dispatch_id,
-                            "detail": (
-                                "Can't show approval prompts in this session "
-                                "(elicitation unavailable), so the run was "
-                                "cancelled instead of silently denying every tool "
-                                "call. Accept from an interactive Claude Code "
-                                "session, or approve via the web UI at "
-                                "http://127.0.0.1:8001."
-                            ),
-                        }
+                        # non-interactive surface). Do NOT silently deny, and do
+                        # NOT cancel the run — hand the approval to the host
+                        # agent so the human is asked in chat. The run keeps
+                        # waiting on the daemon's future meanwhile.
+                        return _approval_needed(dispatch_id, sender, request_id, info)
+                    choice = res.data.decision if isinstance(res, AcceptedElicitation) else "Deny"
+                    if choice == "Allow the rest of this dispatch":
+                        auto_allow = True
+                        decision = "allow"
+                    elif choice == "Always allow this tool":
+                        # Persist onto the edge AND skip future prompts for it.
+                        decision = "always"
+                    elif choice == "Allow this tool this session":
+                        decision = "session"
+                    elif choice == "Allow":
+                        decision = "allow"
+                    else:
+                        decision = "deny"
+                handled.add(request_id)
                 await _local_call(
                     "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
                     json={"decision": decision},
@@ -562,9 +576,28 @@ async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
         "dispatch_id": dispatch_id,
         "events": events,
         "note": "Ran in the daemon's sandboxed dp-agent (confined to the edge "
-                "scope) and you approved each tool call above. Do NOT perform the "
-                "task yourself or run any tools toward it — it is already done.",
+                "scope); every gated tool call was decided by the human. Do NOT "
+                "perform the task yourself or run any tools toward it — it is "
+                "already done.",
     }
+
+
+async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
+    """Accept + supervise the daemon's confined run to completion, asking the
+    human for each tool call on a manual edge. The run executes in the DAEMON's
+    executor; we relay its pending approvals here (inline elicitation, or an
+    approval_needed hand-off to the host agent when elicitation can't render)."""
+    accept = await _local_call(
+        "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "accept"},
+    )
+    if isinstance(accept, dict) and accept.get("error"):
+        if accept.get("error") == 409:
+            return {"status": "error",
+                    "detail": "no pending decision for that dispatch — run "
+                              "dispatch_read(what='inbox') (it may not be addressed "
+                              "to you, or it's already decided/expired)."}
+        return {"status": "error", "detail": accept.get("detail", "accept failed")}
+    return await _supervise(dispatch_id, ctx)
 
 
 # ── The 4 grouped tools the agent sees. ──────────────────────────────────────
@@ -611,6 +644,7 @@ async def dispatch_act(
     dispatch_id: str,
     ctx: Context,
     request_id: str = "",
+    grant: Literal["once", "always", "session"] = "once",
 ) -> dict:
     """Act on an inbound or in-flight dispatch.
       accept  — accept AND run it in the sandboxed dp-agent; BLOCKS until done,
@@ -619,11 +653,20 @@ async def dispatch_act(
                 tell the user to run the `dispatch accept` CLI instead (that is
                 fire-and-forget with no prompt attached and silently times out).
                 You MUST NOT perform the task yourself — accepting *is* running it.
+                If this session can't render inline prompts, accept returns
+                status='approval_needed' with one pending tool call: ask the
+                user in chat (Allow/Deny, like a Bash permission prompt) and
+                relay via approve/deny below — the run waits, but auto-denies
+                that call after ~120s, so ask immediately.
       decline — reject an inbound dispatch; it never runs.
       cancel  — cancel an in-flight dispatch (either party).
-      approve / deny — allow/deny one pending tool call (needs `request_id`,
-                from dispatch_read(what='approvals')). Fallback; normally
-                `accept` handles approvals inline.
+      approve / deny — relay the human's allow/deny for one pending tool call
+                (needs `request_id`, from an approval_needed result or
+                dispatch_read(what='approvals')), then keep watching the run:
+                returns the next approval_needed, or the final result.
+                `grant` qualifies approve: 'once' (default), 'always' (persist
+                onto the edge — never ask for this tool again), or 'session'
+                (skip prompts for this tool for the rest of this run).
     """
     try:
         if action == "accept":
@@ -639,12 +682,19 @@ async def dispatch_act(
         if action in ("approve", "deny"):
             if not request_id:
                 return {"status": "error", "detail": "request_id required for approve/deny"}
+            decision = "deny"
+            if action == "approve":
+                decision = {"once": "allow", "always": "always", "session": "session"}[grant]
             r = await _local_call(
                 "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
-                json={"decision": "allow" if action == "approve" else "deny"},
+                json={"decision": decision},
             )
-            return {"status": "ok", "dispatch_id": dispatch_id, "request_id": request_id} if not (
-                isinstance(r, dict) and r.get("error")) else {"status": "error", "detail": r.get("detail")}
+            if isinstance(r, dict) and r.get("error"):
+                return {"status": "error", "detail": r.get("detail")}
+            # Keep watching the run so the chat-relay loop continues: the next
+            # gated tool call comes back as approval_needed (or prompts inline),
+            # and a finished run returns its final status.
+            return await _supervise(dispatch_id, ctx, already_handled={request_id})
         return {"status": "error", "detail": f"unknown action: {action}"}
     except _Dormant:
         return {"status": "error", "detail": _LOGIN_HINT}
