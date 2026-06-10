@@ -78,7 +78,10 @@ turn. **Minimize round-trips:**
     daemon is offline." Only read `contacts` when the user's recipient name is
     ambiguous and you genuinely can't resolve the id.
   - `dispatch_act(action="accept", dispatch_id=…)` directly — you already have
-    the id from the inbox you just showed.
+    the id from the inbox you just showed. The daemon resolves the run
+    directory itself (it matches the task against a local index of this
+    machine's projects); pass `cwd` only to override — e.g. the user named a
+    specific directory, or a previous run couldn't find the project.
 - **One action = one tool call.** Resolve everything you need from a single
   call's response instead of chaining reads. The only human gates that justify
   an extra turn are the two trust-critical ones below (scope menu on
@@ -86,7 +89,10 @@ turn. **Minimize round-trips:**
 
 **Critical — how accepting works (do not skip this):** `dispatch_act(action="accept", dispatch_id=…)`
 **runs the task in a sandboxed dp-agent** (confined to the trust edge's tools +
-paths). On a `manual` edge each gated tool call comes back as
+paths). The run directory is always the **recipient's** side: the daemon
+auto-resolves it by matching the task against a local index of this machine's
+project directories (a sender hint is ignored by design); pass `cwd` only to
+override that with a specific directory. On a `manual` edge each gated tool call comes back as
 `status: "approval_needed"` with one pending tool call — **ask the user
 immediately via the AskUserQuestion tool**
 (the native numbered picker, never plain chat text; options Allow once /
@@ -136,7 +142,6 @@ dispatch accept-invitation <token>       # accept an invite; I set the inviter's
 dispatch decline-invitation <token>      # decline an invite (no edge created)
 dispatch send <recipient> '<task>'       # create a dispatch (your daemon must be ONLINE to sign)
   [--expires <seconds>]                  #   TTL, 60–86400 (default 3600)
-  [--cwd <dir>]                          #   working-directory hint → metadata.cwd
   [--meta key=value]                     #   extra metadata (repeatable)
 dispatch sent                            # dispatches I've sent + status
 dispatch inbox                           # dispatches addressed to me + status
@@ -239,7 +244,9 @@ machine. You establish an edge with an invitation:
      then act. If the user already said "just send it", skip even the Y/N.
    - Don't pre-read `contacts` to "verify" the edge — go straight to send and
      let the error guide you (see below).
-2. Run `dispatch send <recipient> '<task>' [--cwd <dir>] [--expires <s>]`.
+2. Run `dispatch send <recipient> '<task>' [--expires <s>]`. (Where the task
+   runs is the recipient's choice at accept time — there is no sender-side
+   working-directory option.)
    - `403` → no accepted outgoing edge to that recipient; invite them first
      (*Connecting with a contact*). Only then read `contacts` if you need to
      disambiguate the exact id.
@@ -266,7 +273,11 @@ machine. You establish an edge with an invitation:
    (`dispatch status <id>`). `inbox`/`status` show **short** ids; the decision
    commands need the **full UUID** — get it from `dispatch inbox --json`.
 2. If **accept**: ALWAYS call **`dispatch_act(action="accept", dispatch_id=…)`**
-   (MCP) — this is the **only** way to accept interactively. **Accepting *is*
+   (MCP) — this is the **only** way to accept interactively. The daemon
+   resolves the run directory itself (matching the task against a local index
+   of this machine's project dirs — the recipient's side always decides, a
+   sender hint is ignored by design); pass `cwd` only to override with a
+   specific directory. **Accepting *is*
    running the task** — it executes in the sandboxed dp-agent, confined to the
    edge's tools and paths. On a `manual` edge the call pauses at **every** tool
    call and hands it to you as `approval_needed` (step 3) — you ask the human

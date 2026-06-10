@@ -613,10 +613,15 @@ async def dispatch_act(
                 — never plain chat text) and relay via approve/deny below —
                 the run waits, but auto-denies that call after ~120s, so ask
                 immediately.
-                Optional `cwd`: a directory on THIS machine the agent should run
-                in (e.g. the repo the task is about) — skips its filesystem
-                search. If the task names a project, ask the user whether to pin
-                its directory before accepting.
+                `cwd` (optional) pins the directory on THIS machine the
+                confined agent runs in — always the recipient's choice, never
+                the sender's. Omitted, the daemon resolves it itself: it
+                matches the task against a local index of this machine's
+                project directories and starts the agent there (or hands the
+                agent the index when no single project matches). Pass `cwd`
+                only to override that — e.g. the user named a specific
+                directory, or a previous run reported it couldn't find the
+                project.
       decline — reject an inbound dispatch; it never runs.
       cancel  — cancel an in-flight dispatch (either party).
       approve / deny — relay the human's allow/deny for one pending tool call
@@ -629,7 +634,10 @@ async def dispatch_act(
     """
     try:
         if action == "accept":
-            return await _run_accept(dispatch_id, ctx, cwd=cwd or None)
+            return await _run_accept(
+                dispatch_id, ctx,
+                cwd=None if cwd.strip().lower() in ("", "none") else cwd,
+            )
         if action == "decline":
             r = await _local_call(
                 "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "reject"},
@@ -661,17 +669,17 @@ async def dispatch_act(
 
 @mcp.tool()
 async def dispatch_send(
-    recipient: str, task: str, expires_in_seconds: int = 3600, cwd: Optional[str] = None
+    recipient: str, task: str, expires_in_seconds: int = 3600
 ) -> dict:
     """Send a dispatch to a trusted contact. The verbatim `task` runs on their
     machine across an accepted, scoped trust edge. Returns the dispatch_id
-    (track with dispatch_read(what='status')).
+    (track with dispatch_read(what='status')). Where the task runs is the
+    RECIPIENT's choice at accept time — there is no sender-side cwd.
     """
     try:
-        metadata = {"cwd": cwd} if cwd else {}
         body = {
             "recipient_id": recipient, "task": task,
-            "expires_in_seconds": expires_in_seconds, "metadata": metadata,
+            "expires_in_seconds": expires_in_seconds, "metadata": {},
         }
         return await _local_call("POST", "/api/compose", json=body)
     except _Dormant:

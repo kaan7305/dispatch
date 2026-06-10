@@ -753,8 +753,6 @@ def cmd_sync(args: argparse.Namespace, broker: str, token: str) -> int:
 
 def cmd_send(args: argparse.Namespace, broker: str, token: str) -> int:
     metadata: dict[str, Any] = {}
-    if args.cwd:
-        metadata["cwd"] = args.cwd
     for kv in args.meta or []:
         if "=" not in kv:
             raise CliError(f"--meta expects key=value, got {kv!r}")
@@ -1635,7 +1633,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("recipient", help="Recipient user id (their email/identifier).")
     p_send.add_argument("task", help="The verbatim task for the recipient's agent.")
     p_send.add_argument("--expires", type=int, default=3600, help="TTL in seconds (60–86400). Default 3600.")
-    p_send.add_argument("--cwd", help="Working-directory hint, stored in metadata.cwd.")
     p_send.add_argument("--meta", action="append", metavar="K=V", help="Extra metadata (repeatable).")
 
     add("sent", "List dispatches you've sent.", cmd_sent)

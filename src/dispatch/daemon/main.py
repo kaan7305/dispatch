@@ -59,6 +59,7 @@ from dispatch.daemon.identity import (
 )
 from dispatch.daemon.nonces import NonceStore
 from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S as CONN_STANDBY_POLL_S
+from dispatch.daemon import machine_index
 from dispatch.daemon import memory as run_memory
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
@@ -1439,6 +1440,24 @@ async def process_dispatch(
 
         await send_status(payload.dispatch_id, DispatchStatus.accepted)
 
+    # No recipient-pinned cwd → resolve one on the daemon side, so every
+    # accept surface (MCP, CLI, web UI, phone) starts the agent in the right
+    # directory on any machine. Deterministic: the task text is matched
+    # against a cached index of this machine's project dirs; only a single,
+    # unambiguous, in-scope match pins (resolve_cwd is conservative — when in
+    # doubt it returns None and the index is injected as advisory context
+    # below instead).
+    if run_cwd is None:
+        # In a thread: the first call may scan the filesystem (the index
+        # cache refresh), which must not stall the daemon's event loop.
+        run_cwd = await asyncio.to_thread(
+            machine_index.resolve_cwd, payload.task, list(scope.paths or [])
+        )
+        if run_cwd is not None:
+            logger.info(
+                "dispatch %s: machine index pinned cwd %s", dispatch_id, run_cwd
+            )
+
     # Step 2 — per-tool gating, scoped to the trust edge.
     scope_tools = set(scope.tools)
     scope_mcp = list(scope.mcp or [])
@@ -1475,6 +1494,39 @@ async def process_dispatch(
     except Exception:
         logger.exception("dispatch memory load failed; running without it")
         memory_context = None
+
+    # Nothing pinned and nothing resolved → the agent wakes up in the empty
+    # scratch workspace. Say so explicitly and hand it the machine's project
+    # index, so its first hop is a real directory instead of a blind search
+    # (left to itself it greps from "/", where /System matches fill the head
+    # limit before the search ever reaches the user's home).
+    if run_cwd is None:
+        cold_start_notice = (
+            f"Your working directory ({workspace}) is an EMPTY scratch "
+            "workspace — it is not the user's project and contains no files."
+        )
+        index_context = await asyncio.to_thread(
+            machine_index.index_prompt, list(scope.paths or [])
+        )
+        if index_context is None:
+            # No indexed projects to offer — at least aim the search right.
+            search_roots = (
+                [str(d) for d in allowed_dirs[1:]] if paths_restricted
+                else [str(Path.home())]
+            )
+            index_context = (
+                "If the task refers to a project, repository, or other "
+                f"existing files, look for them under {', '.join(search_roots)} "
+                f"(e.g. Glob '{search_roots[0]}/**/<name>*'). NEVER search "
+                "from the filesystem root '/' — system directories flood the "
+                "results and bury the user's files. If you can't find what "
+                "the task refers to, stop and reply asking the sender for "
+                "the exact path."
+            )
+        blocks = [
+            b for b in (cold_start_notice, index_context, memory_context) if b
+        ]
+        memory_context = "\n\n".join(blocks)
 
     async def _request_approval(tool_name: str, tool_input: dict[str, Any]) -> str:
         """Surface one tool call to the recipient (Layer 3); await allow/deny
