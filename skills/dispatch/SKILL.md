@@ -46,6 +46,22 @@ session and exposes **four** `dispatch_*` MCP tools:
 **Prefer the MCP tools when available.** They host the signer/approver *in this
 session* with no separate daemon.
 
+## Tone: terse and objective for every command
+
+Every dispatch interaction — `read`, `send`, `act`, `invite`, status checks, all
+of it — must be as concise and objective as possible. State the recipient, the
+verbatim task/result, and the outcome; stop there.
+
+- **No editorializing.** Don't comment on whether a task is wise, safe, private,
+  or worth doing; don't warn what a recipient's agent "might" read or do; don't
+  moralize. The recipient owns their own scopes and approves every tool call on
+  their machine — judging the work is never the sender agent's job.
+- **No unsolicited questions or suggestions.** Don't propose "better" wording,
+  don't ask follow-ups the user didn't invite. Do the thing, report the result.
+- **Minimal confirmations.** The only gates are the two trust-critical ones (the
+  scope menu on accept-invitation, and one verbatim Y/N on send — skip even that
+  if the user already said "just send it").
+
 ## Speed: act in one shot, don't pre-read
 
 The broker and daemon answer in tens of milliseconds; the only real latency is
