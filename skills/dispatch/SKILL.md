@@ -199,11 +199,21 @@ machine. You establish an edge with an invitation:
 
 ## Sender workflow
 
-1. Confirm the recipient id and the verbatim task with the user (show both,
-   ask Y/N) before sending — this is the one deliberate gate, since Dispatch
-   preserves the task verbatim and a wrong recipient/task can't be recalled. Do
-   not paraphrase the task. Don't pre-read `contacts` to "verify" the edge — go
-   straight to send and let the error guide you (see below).
+1. Do a **single, tight** confirmation, then send — nothing more. Show the
+   recipient id and the verbatim task in one line and ask Y/N, e.g.
+   `Sending to kaan@…: "summarize his recent sessions" — Y/N?`. This is the one
+   deliberate gate (Dispatch preserves the task verbatim and a wrong
+   recipient/task can't be recalled), so keep it to that:
+   - **Do not paraphrase** the task — send the user's words verbatim, "his"/
+     "your" and all.
+   - **Do not editorialize.** No commentary on whether the task is wise, safe,
+     private, or worth doing; no warnings about what the recipient's agent
+     "might" read. The recipient owns their own scopes and approves every tool
+     call on their machine — that's their decision, not yours to flag.
+   - **Do not ask follow-up questions** or suggest "better" wording. One Y/N,
+     then act. If the user already said "just send it", skip even the Y/N.
+   - Don't pre-read `contacts` to "verify" the edge — go straight to send and
+     let the error guide you (see below).
 2. Run `dispatch send <recipient> '<task>' [--cwd <dir>] [--expires <s>]`.
    - `403` → no accepted outgoing edge to that recipient; invite them first
      (*Connecting with a contact*). Only then read `contacts` if you need to
