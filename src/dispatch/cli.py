@@ -42,8 +42,30 @@ from typing import Any, Optional
 import certifi
 import httpx
 
+from dispatch.shared.schema import SYNC_TASK_SENTINEL
+
 
 HTTP_TIMEOUT_S = 30.0
+# Dispatch statuses past which a sync/dispatch won't change — used to stop polling.
+_TERMINAL_STATUSES = ("completed", "failed", "denied", "cancelled", "expired")
+
+
+def _parse_window(window: Optional[str]) -> int:
+    """Turn a friendly look-back ('today', '24h', '7d', '<N>h', '<N>d') into a
+    clamped hour count (1 .. 30 days). Unrecognized → 24h."""
+    w = (window or "").strip().lower()
+    if w in ("", "today", "24h", "1d"):
+        return 24
+    if w in ("7d", "week"):
+        return 168
+    try:
+        if w.endswith("h"):
+            return max(1, min(24 * 30, int(w[:-1])))
+        if w.endswith("d"):
+            return max(1, min(30, int(w[:-1]))) * 24
+    except ValueError:
+        pass
+    return 24
 
 
 # ----------------------------------------------------------------------------
@@ -534,6 +556,7 @@ def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> 
     scopes: dict[str, Any] = {
         "approval": args.approval,
         "max_dispatches_per_day": args.max_per_day,
+        "result_visibility": args.result_visibility,
     }
     if args.tools is not None:
         scopes["tools"] = [t.strip() for t in args.tools.split(",") if t.strip()]
@@ -606,6 +629,125 @@ def cmd_set_scope(args: argparse.Namespace, broker: str, token: str) -> int:
     _emit(args, result,
           f"Updated scopes for {edge.get('peer', 'the edge')}: "
           f"tools={','.join(scopes.get('tools', [])) or '(default)'} mcp={mcp_str}.")
+    return 0
+
+
+def cmd_sync_grant(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Grant (or --disable) read-only Claude Code activity-digest access to a
+    sender on an INCOMING edge (you must be the trustor). This is what lets that
+    contact run `dispatch sync <you>`. PATCH replaces the whole scopes object, so
+    we fetch current scopes and only touch the `sync` block."""
+    data = _request(broker, token, "GET", "/trust")
+    edge = next(
+        (e for e in data.get("trust", []) if e.get("trust_link_id") == args.trust_link_id),
+        None,
+    )
+    if edge is None:
+        print(f"error: no such trust edge {args.trust_link_id} (see `dispatch contacts`).",
+              file=sys.stderr)
+        return 1
+    if not edge.get("can_edit_scopes"):
+        print("error: only the recipient (the trustor) may grant sync on this edge.",
+              file=sys.stderr)
+        return 1
+    scopes = dict(edge.get("scopes") or {})
+    sync = dict(scopes.get("sync") or {})
+    if args.disable:
+        sync["enabled"] = False
+    else:
+        sync["enabled"] = True
+        if args.roots is not None:
+            sync["roots"] = [r.strip() for r in args.roots.split(",") if r.strip()]
+        if args.projects is not None:
+            sync["project_allow"] = [p.strip() for p in args.projects.split(",") if p.strip()]
+        if args.window_hours is not None:
+            sync["window_hours"] = args.window_hours
+        if args.manual:
+            sync["auto"] = False
+        if args.auto:
+            sync["auto"] = True
+    scopes["sync"] = sync
+    result = _request(
+        broker, token, "PATCH", f"/trust/{args.trust_link_id}", json={"scopes": scopes}
+    )
+    if args.disable:
+        human = f"Sync disabled for {edge.get('peer', 'the edge')}."
+    else:
+        roots = sync.get("roots") or ["~/.claude/projects"]
+        human = (
+            f"Sync enabled for {edge.get('peer', 'the edge')}: roots={','.join(roots)} "
+            f"window_hours={sync.get('window_hours', 24)} auto={sync.get('auto', True)}. "
+            f"They can now run `dispatch sync {edge.get('peer', '<you>')}`."
+        )
+    _emit(args, result, human)
+    return 0
+
+
+def cmd_sync(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Pull a read-only Claude Code activity digest from a teammate (they must
+    have granted you sync). Sends a sync dispatch, then waits for the digest.
+
+    Like `send`, this needs YOUR daemon online to sign (Layer 2)."""
+    metadata = {
+        "sync": {
+            "window_hours": _parse_window(args.window),
+            "projects": [p.strip() for p in (args.projects or "").split(",") if p.strip()],
+            "focus": (args.focus or "")[:500],
+        }
+    }
+    body = {
+        "recipient_id": args.recipient,
+        "task": SYNC_TASK_SENTINEL,
+        "expires_in_seconds": args.expires,
+        "metadata": metadata,
+    }
+    result = _request(broker, token, "POST", "/dispatch", json=body)
+    did = result.get("dispatch_id")
+    if not did:
+        # Fan-out/failure shape (shouldn't happen for a single recipient).
+        _emit(args, result, f"sync request failed: {json.dumps(result)}")
+        return 1
+
+    if args.no_wait:
+        _emit(
+            args,
+            {"dispatch_id": did, "status": result.get("status")},
+            f"Sync requested. dispatch_id={did} status={result.get('status', '?')}\n"
+            f"  Get the digest later:  dispatch status {did}",
+        )
+        return 0
+
+    # Poll the broker for the digest. The recipient runs it unattended on an
+    # `auto` grant; on a `manual` grant it waits for their Accept.
+    deadline = time.monotonic() + args.timeout
+    detail: dict = {}
+    while time.monotonic() < deadline:
+        detail = _request(broker, token, "GET", f"/dispatch/{did}")
+        if detail.get("status") in _TERMINAL_STATUSES:
+            break
+        time.sleep(2.0)
+
+    status = detail.get("status", "pending")
+    reply = detail.get("reply")
+    if args.json:
+        print(json.dumps(
+            {"dispatch_id": did, "status": status, "digest": reply}, indent=2,
+        ))
+        return 0
+    if status != "completed":
+        hint = {
+            "denied": " — the recipient hasn't granted you sync (run on their side: "
+                      "`dispatch sync-grant <edge>`), or declined this pull.",
+            "expired": " — the request timed out or their daemon is offline.",
+            "failed": " — the digest run errored on their machine.",
+            "pending": " — still waiting; check `dispatch status %s` shortly." % did,
+        }.get(status, "")
+        print(f"Sync {status}{hint}")
+        if reply:
+            print(f"\n{reply}")
+        return 0 if status == "completed" else 1
+    print(f"Activity digest from {args.recipient}:\n")
+    print(reply or "(completed, but no digest text was returned)")
     return 0
 
 
@@ -1124,8 +1266,12 @@ def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
 
 def _decide_local(args: argparse.Namespace, config: dict, *, decision: str) -> int:
     target = args.dispatch_id
+    body: dict = {"decision": decision}
+    cwd = getattr(args, "cwd", None)
+    if decision == "accept" and cwd:
+        body["cwd"] = cwd
     _local_request(
-        config, "POST", f"/api/dispatch/{target}/decision", json={"decision": decision}
+        config, "POST", f"/api/dispatch/{target}/decision", json=body
     )
     if decision != "accept":
         _emit(args, {"dispatch_id": target, "decision": decision, "ok": True},
@@ -1233,6 +1379,75 @@ def cmd_deny(args: argparse.Namespace, broker: str, token: str) -> int:
     return _tool_decide(args, decision="deny")
 
 
+def cmd_approve_remote(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Approve a tool call running on ANOTHER of your devices (phone-as-approver).
+
+    This machine signs the decision with its own device key and hands the signed
+    blob to the broker, which relays it to whichever device is running the
+    dispatch. That runner verifies the signature against this device's enrolled
+    public key before acting — so the broker only ever relays, never forges. This
+    is the terminal stand-in for the phone: it proves the machine-to-machine path
+    end-to-end before the phone PWA exists."""
+    # Import here (not at module top) so the rest of the CLI never pulls in the
+    # daemon's keychain backend — only this verb needs to sign.
+    from datetime import datetime, timezone
+
+    from dispatch.daemon.identity import get_private_key
+    from dispatch.shared import crypto
+    from dispatch.shared.signing import canonical_approval_bytes
+
+    config = _load_config()
+    device_id = config.get("device_id")
+    if not device_id:
+        raise CliError(
+            "this machine isn't enrolled as a device yet (no device_id in "
+            f"{_dispatch_home()}/config.json). Run the daemon once to enroll."
+        )
+    private_key = get_private_key()
+    if private_key is None:
+        raise CliError(
+            "no device private key found on this machine. The daemon creates one "
+            "on first run; start it once, then retry."
+        )
+
+    decision = "always" if getattr(args, "always", False) else (
+        "session" if getattr(args, "session", False) else (
+            "deny" if getattr(args, "deny", False) else "allow"
+        )
+    )
+    issued_at = datetime.now(timezone.utc).isoformat()
+    canonical = canonical_approval_bytes(
+        dispatch_id=args.dispatch_id,
+        request_id=args.request_id,
+        tool_name=args.tool_name,
+        decision=decision,
+        approver_device=device_id,
+        issued_at=issued_at,
+    )
+    signature = crypto.b64encode(crypto.sign(private_key, canonical))
+
+    _request(
+        broker, token, "POST",
+        f"/dispatch/{args.dispatch_id}/tool/{args.request_id}/remote-decision",
+        json={
+            "decision": decision,
+            "approver_device": device_id,
+            "issued_at": issued_at,
+            "signature": signature,
+        },
+    )
+    payload = {
+        "dispatch_id": args.dispatch_id, "request_id": args.request_id,
+        "decision": decision, "approver_device": device_id, "ok": True,
+    }
+    _emit(
+        args, payload,
+        f"Signed remote '{decision}' for {args.tool_name} on "
+        f"{_short(args.dispatch_id)} — relayed to the running device.",
+    )
+    return 0
+
+
 # ----------------------------------------------------------------------------
 # argparse
 # ----------------------------------------------------------------------------
@@ -1328,6 +1543,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_acc_inv.add_argument(
         "--max-per-day", dest="max_per_day", type=int, default=50,
         help="Max dispatches/day on this edge (1–10000). Default 50.")
+    p_acc_inv.add_argument(
+        "--results", choices=["full", "redacted"], default="redacted",
+        dest="result_visibility",
+        help="What the SENDER's watch view sees of tool results. 'redacted' "
+             "(default) shows only size/status stubs — file contents never "
+             "leave your machine; 'full' streams result contents to them.")
 
     add("decline-invitation", "Decline an invitation (no trust edge created).",
         cmd_decline_invitation).add_argument(
@@ -1358,6 +1579,58 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-per-day", dest="max_per_day", type=int, default=None,
         help="Max dispatches/day on this edge.")
 
+    # Sync — read-only Claude Code activity digests between trusted contacts.
+    p_sync = add(
+        "sync",
+        "Pull a read-only Claude Code activity digest from a teammate (they must grant sync).",
+        cmd_sync,
+    )
+    p_sync.add_argument("recipient", help="Teammate user id (the `peer` in `dispatch contacts`).")
+    p_sync.add_argument(
+        "--window", default="today",
+        help="Look-back window: today | 24h | 7d | <N>h | <N>d. Default: today.")
+    p_sync.add_argument(
+        "--projects", default=None,
+        help="Comma-separated project filter (only narrows their grant).")
+    p_sync.add_argument(
+        "--focus", default=None,
+        help="Optional topic to emphasize in the digest (<=500 chars).")
+    p_sync.add_argument(
+        "--expires", type=int, default=900,
+        help="Request TTL in seconds (60–86400). Default 900.")
+    p_sync.add_argument(
+        "--timeout", type=int, default=120,
+        help="Seconds to wait for the digest before giving up. Default 120.")
+    p_sync.add_argument(
+        "--no-wait", dest="no_wait", action="store_true",
+        help="Don't wait for the digest; print the id and return.")
+
+    p_grant = add(
+        "sync-grant",
+        "Grant (or --disable) read-only activity-digest access to a sender on an incoming edge.",
+        cmd_sync_grant,
+    )
+    p_grant.add_argument("trust_link_id", help="Incoming edge id from `dispatch contacts`.")
+    p_grant.add_argument(
+        "--roots", default=None,
+        help="Comma-separated session directories. Default: ~/.claude/projects.")
+    p_grant.add_argument(
+        "--projects", default=None,
+        help="Comma-separated project allowlist (empty = all projects under roots).")
+    p_grant.add_argument(
+        "--window-hours", dest="window_hours", type=int, default=None,
+        help="Max look-back a single request may ask for (1–720). Default 24.")
+    g_grant = p_grant.add_mutually_exclusive_group()
+    g_grant.add_argument(
+        "--manual", action="store_true",
+        help="Require an Accept on each sync (default: auto/unattended).")
+    g_grant.add_argument(
+        "--auto", action="store_true",
+        help="Run syncs unattended (the default).")
+    p_grant.add_argument(
+        "--disable", action="store_true",
+        help="Revoke sync access on this edge.")
+
     p_send = add("send", "Send a dispatch (your daemon must be online to sign).", cmd_send)
     p_send.add_argument("recipient", help="Recipient user id (their email/identifier).")
     p_send.add_argument("task", help="The verbatim task for the recipient's agent.")
@@ -1380,8 +1653,14 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(local_only=True)
         return p
 
-    add_local("accept", "Accept an inbound dispatch (resolved by your local daemon).",
-              cmd_accept).add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_accept = add_local("accept", "Accept an inbound dispatch (resolved by your local daemon).",
+                         cmd_accept)
+    p_accept.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_accept.add_argument(
+        "--cwd",
+        help="Directory the agent runs in (skips its filesystem search). "
+             "Added to the path allowlist for this run.",
+    )
     add_local("decline", "Decline an inbound dispatch (local daemon).",
               cmd_decline).add_argument("dispatch_id", help="Full dispatch id (UUID).")
     add_local("approvals", "List tool calls awaiting allow/deny on your local daemon.",
@@ -1399,6 +1678,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_deny = add_local("deny", "Deny a pending tool call.", cmd_deny)
     p_deny.add_argument("dispatch_id", help="Full dispatch id (UUID).")
     p_deny.add_argument("request_id", help="Tool-call request id (from `dispatch approvals`).")
+
+    # Remote (signed) approval — answer a tool call running on ANOTHER of your
+    # devices. Goes THROUGH the broker (signed), unlike local approve/deny.
+    p_remote = add(
+        "approve-remote",
+        "Approve a tool call running on another of your devices (signed relay).",
+        cmd_approve_remote,
+    )
+    p_remote.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_remote.add_argument("request_id", help="Tool-call request id.")
+    p_remote.add_argument(
+        "tool_name",
+        help="Exact tool name being approved (bound into the signature), "
+             "e.g. 'Bash' or 'mcp__notion__notion-move-pages'.",
+    )
+    g_remote = p_remote.add_mutually_exclusive_group()
+    g_remote.add_argument("--always", action="store_true",
+                          help="Always allow this tool — persists onto the trust edge.")
+    g_remote.add_argument("--session", action="store_true",
+                          help="Allow for the rest of the runner's session only.")
+    g_remote.add_argument("--deny", action="store_true", help="Deny the call.")
 
     return parser
 

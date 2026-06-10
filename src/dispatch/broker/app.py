@@ -838,6 +838,14 @@ async def get_dispatch(
     if stored.payload.sender_id != user_id and stored.payload.recipient_id != user_id:
         raise HTTPException(status_code=403, detail="Not your dispatch")
     events = await STORE.get_events(dispatch_id)
+    # The edge's scopes, so both parties' detail views can show what the run
+    # was confined to. Current edge state, not a creation-time snapshot — the
+    # trustor may have edited the edge since.
+    scopes = None
+    if stored.trust_link_id:
+        link = await STORE.get_trust_link(stored.trust_link_id)
+        if link:
+            scopes = link.get("scopes")
     return {
         "dispatch_id": str(dispatch_id),
         "sender_id": stored.payload.sender_id,
@@ -846,6 +854,7 @@ async def get_dispatch(
         "status": stored.status.value,
         "created_at": stored.payload.created_at.isoformat(),
         "expires_at": stored.payload.expires_at.isoformat(),
+        "scopes": scopes,
         # The agent's final message — the consumable answer, derived from the
         # event trace (last agent_text before done). None until it has spoken.
         "reply": reply_from_events(events),
@@ -954,6 +963,86 @@ async def revoke_device(
         except Exception:
             pass
     return {"status": "revoked"}
+
+
+@app.get("/devices/keys")
+async def device_keys(user_id: str = Depends(authed_user)) -> dict:
+    """The user's active devices and their Ed25519 public keys. A runner daemon
+    pulls this roster to verify a remote tool-approval signature against the
+    *approver* device's key (phone-as-approver). Only the user's own devices —
+    never cross-user — so it's safe to expose the public keys here."""
+    rows = await STORE.list_device_keys(user_id)
+    return {
+        "devices": [
+            {
+                "device_id": str(r["device_id"]),
+                "public_key": crypto.b64encode(r["public_key"]),
+                "status": r["status"],
+            }
+            for r in rows
+        ]
+    }
+
+
+class _RemoteDecision(BaseModel):
+    decision: str            # allow | deny | always | session
+    approver_device: UUID    # which of the user's devices signed this
+    issued_at: str           # ISO-8601 UTC; bounds the replay window (daemon checks)
+    signature: str           # base64 Ed25519 over canonical_approval_bytes(...)
+
+
+@app.post("/dispatch/{dispatch_id}/tool/{request_id}/remote-decision")
+async def remote_tool_decision(
+    dispatch_id: UUID,
+    request_id: str,
+    body: _RemoteDecision,
+    user_id: str = Depends(authed_user),
+) -> dict:
+    """Relay a *signed* tool-approval decision from one of the recipient's
+    devices (e.g. their phone) to whichever device is running the dispatch.
+
+    The broker is a dumb relay: it authorizes that the caller is the dispatch's
+    recipient and that ``approver_device`` is really one of their active devices,
+    then forwards the opaque signed frame to the recipient's online devices. It
+    does NOT (and cannot) verify the signature or resolve the approval — only the
+    runner daemon, which holds the pending tool-call Future, does that. So a
+    compromised broker can drop or misroute a decision but never forge one."""
+    if body.decision not in ("allow", "deny", "always", "session"):
+        raise HTTPException(
+            status_code=400, detail="decision must be allow|deny|always|session"
+        )
+    stored = await STORE.get_dispatch(dispatch_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Unknown dispatch")
+    # You may only approve dispatches addressed to you.
+    if stored.payload.recipient_id != user_id:
+        raise HTTPException(status_code=403, detail="Not your dispatch to approve")
+    if not await STORE.device_belongs_to(user_id, body.approver_device):
+        raise HTTPException(status_code=403, detail="Unknown approver device")
+    frame = json.dumps(
+        {
+            "type": "approval_decision",
+            "dispatch_id": str(dispatch_id),
+            "request_id": request_id,
+            "decision": body.decision,
+            "approver_device": str(body.approver_device),
+            "issued_at": body.issued_at,
+            "signature": body.signature,
+        }
+    )
+    # Fan out to every online device of the recipient; only the runner holds the
+    # matching pending-approval Future and acts on it, the rest ignore it.
+    devices = STATE.agents.get(user_id, {})
+    delivered = 0
+    for ws in list(devices.values()):
+        try:
+            await ws.send_text(frame)
+            delivered += 1
+        except Exception:
+            logger.debug("remote-decision relay drop for %s", user_id)
+    if delivered == 0:
+        raise HTTPException(status_code=409, detail="No online device to receive the decision")
+    return {"status": "relayed", "devices": delivered}
 
 
 # ----------------------------------------------------------------------------
