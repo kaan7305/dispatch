@@ -48,7 +48,7 @@ from uuid import UUID
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.elicitation import AcceptedElicitation
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon.local_app import read_local_token
@@ -223,13 +223,13 @@ class _Approve(BaseModel):
     #   Always allow this tool       — persist onto the edge; never ask again
     #   Allow this tool this session — in-memory for the rest of this run
     #   Allow the rest of this dispatch — auto-allow every later call in THIS run
-    decision: Literal[
+    decision: str = Field(json_schema_extra={"enum": [
         "Allow",
         "Deny",
         "Always allow this tool",
         "Allow this tool this session",
         "Allow the rest of this dispatch",
-    ]
+    ]})
 
 
 # Built-in tools the invite picker can grant (mirrors executor.ALL_TOOLS).
@@ -251,12 +251,12 @@ _TIERS = [_TIER_ALLOW_ALL, _TIER_READONLY, _TIER_RW, _TIER_CUSTOM]
 class _ToolGrant(BaseModel):
     # Built-in file tools only; MCP servers are a separate question below so the
     # two are orthogonal (e.g. read-only files yet allowed to use one MCP).
-    grant: Literal[
+    grant: str = Field(json_schema_extra={"enum": [
         "Allow all — every tool + all my MCP servers",
         "Read-only — Read, Glob, Grep",
         "Read + Write/Edit (no Bash)",
         "Custom — use the tools/paths I passed",
-    ]
+    ]})
 
 
 def _tier_of(scope_tools: list[str], scope_mcp: list[str]) -> str:
@@ -272,19 +272,21 @@ def _tier_of(scope_tools: list[str], scope_mcp: list[str]) -> str:
     return _TIER_CUSTOM
 
 
-# Per-server Allow/Don't, as STATIC enum models. Single-select Literals are the
-# only elicitation shape Claude Code reliably renders (same as _Approve) — a
-# dynamically-built create_model() schema silently fails to render, and a
+# Per-server Allow/Don't, as STATIC enum models. A `str` field carrying its
+# choices via json_schema_extra={"enum": [...]} renders as a single-select AND
+# passes mcp's elicitation validator — which since 1.27.2 REJECTS Literal/enum
+# annotations (only str/int/float/bool/list[str]/Optional pass), so the old
+# `Literal[...]` form threw before any prompt was sent. A boolean checkbox a
 # boolean checkbox conflates "accept the prompt" with "check the box" so an
 # accepted-but-untoggled box reads as False. Two classes only differ in which
 # option is listed first, i.e. which the client highlights as the default — we
 # pick the one matching the current grant so editing is effectively pre-filled.
 class _ServerGrantDenyFirst(BaseModel):
-    allow: Literal["Don't allow", "Allow"]
+    allow: str = Field(json_schema_extra={"enum": ["Don't allow", "Allow"]})
 
 
 class _ServerGrantAllowFirst(BaseModel):
-    allow: Literal["Allow", "Don't allow"]
+    allow: str = Field(json_schema_extra={"enum": ["Allow", "Don't allow"]})
 
 
 async def _elicit_tier(ctx: Context, message: str, default: str | None = None) -> str | None:
