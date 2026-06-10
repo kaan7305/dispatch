@@ -257,7 +257,7 @@ class _Approve(BaseModel):
 
 
 # Built-in tools an edge can grant (mirrors executor.ALL_TOOLS).
-_ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+_ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 
 # The scope menu the HOST agent shows the human (via its native picker) before
 # accepting an invite or editing an edge. Kept here so every error payload that
@@ -265,10 +265,12 @@ _ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
 _SCOPE_MENU = (
     "Ask the human to choose what this sender's agent may do on this machine "
     "(use your native picker, e.g. AskUserQuestion — never plain chat text): "
-    "1. Read-only — tools='Read,Glob,Grep' (safest); "
-    "2. Read + Write/Edit — tools='Read,Glob,Grep,Write,Edit' (no shell); "
-    "3. Allow all — tools='Read,Glob,Grep,Write,Edit,Bash' + mcp_servers='*' "
-    "(Bash = full shell — grant deliberately); "
+    "1. Read-only — tools='Read,Glob,Grep,WebSearch,WebFetch' (safest; incl. "
+    "internet read); "
+    "2. Read + Write/Edit — tools='Read,Glob,Grep,WebSearch,WebFetch,Write,Edit' "
+    "(no shell); "
+    "3. Allow all — tools='Read,Glob,Grep,WebSearch,WebFetch,Write,Edit,Bash' + "
+    "mcp_servers='*' (Bash = full shell — grant deliberately); "
     "4. Custom — the exact tools they list. "
     "Then re-call with the chosen `tools` (and `mcp_servers`) spelled out. "
     "A trust scope is never invented on the human's behalf."
@@ -781,8 +783,9 @@ async def dispatch_invite(
       list    — list invitations you've sent / received (each has a token).
       accept  — accept invite `token`, creating an edge that lets the INVITER
                 dispatch to your machine. `tools` is REQUIRED (comma-separated
-                ⊆ Read,Glob,Grep,Write,Edit,Bash): ask the human which scope to
-                grant — via the AskUserQuestion picker, never plain chat — and
+                ⊆ Read,Glob,Grep,Write,Edit,Bash,WebSearch,WebFetch): ask the
+                human which scope to grant — via the AskUserQuestion picker,
+                never plain chat — and
                 pass their choice explicitly. Without `tools` this returns
                 scope_choice_required instead of inventing a default.
                 `mcp_servers` = '*' (all), 'none', or comma-separated server
@@ -891,7 +894,8 @@ async def dispatch_trust(
       revoke — delete the edge: that sender can no longer dispatch to you, and
                any in-flight dispatch on the edge is cancelled immediately.
       edit   — set this sender's tool + MCP-server scopes. `tools` is REQUIRED
-               (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash): ask the
+               (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash,WebSearch,
+               WebFetch): ask the
                human which scope to grant — via the AskUserQuestion picker,
                pre-filled with the edge's current grants — and pass their
                choice explicitly. Without `tools` this returns the current

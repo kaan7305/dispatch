@@ -547,7 +547,8 @@ def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> 
         print(
             "error: --tools is required when accepting an invitation. You are the "
             "trustor and must choose what the inviter's agent may do on your "
-            "machine — e.g. --tools Read,Glob,Grep (read-only) or, deliberately, "
+            "machine — e.g. --tools Read,Glob,Grep,WebSearch,WebFetch (read-only, "
+            "incl. internet) or, deliberately, "
             "--tools Read,Glob,Grep,Write,Edit,Bash (Bash = full shell). Dispatch "
             "will not grant a default scope on its own.",
             file=sys.stderr,
@@ -1530,8 +1531,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_acc_inv.add_argument(
         "--tools", default=None,
         help="REQUIRED. Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,"
-             "Bash — what the inviter's agent may do on your machine. No default: "
-             "you must choose (Bash = full shell).")
+             "Bash,WebSearch,WebFetch — what the inviter's agent may do on your "
+             "machine. No default: you must choose (Bash = full shell; "
+             "WebSearch/WebFetch = internet access).")
     p_acc_inv.add_argument(
         "--paths", default=None,
         help="Comma-separated directory allowlist. Default: no path restriction.")
@@ -1562,7 +1564,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_scope.add_argument("trust_link_id", help="Edge id from `dispatch contacts`.")
     p_scope.add_argument(
         "--tools", default=None,
-        help="Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,Bash.")
+        help="Comma-separated allowed tools ⊆ Read,Glob,Grep,Write,Edit,Bash,"
+             "WebSearch,WebFetch.")
     p_scope.add_argument(
         "--mcp", default=None,
         help="Comma-separated MCP server names to allow, or '*' for all. "

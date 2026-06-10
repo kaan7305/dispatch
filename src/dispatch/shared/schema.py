@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep")
+VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch")
 
 
 def utcnow() -> datetime:
@@ -167,7 +167,8 @@ class SyncScope(BaseModel):
 
 class Scopes(BaseModel):
     """Per-trust-edge permissions. New edges default to least privilege:
-    read-only tools, no MCP, manual approval of every tool call.
+    read-only tools (local read + internet read: WebSearch/WebFetch), no MCP,
+    manual approval of every tool call.
 
     `tools` are the built-in tools; `mcp` is the allowlist of the recipient's
     own MCP servers/tools a sender's dispatch may use — this is what lets a
@@ -186,7 +187,7 @@ class Scopes(BaseModel):
     identity to dispatch onward. That exclusion is enforced in the executor,
     not by this allowlist (see daemon: can_use_tool)."""
 
-    tools: list[str] = Field(default_factory=lambda: ["Read", "Glob", "Grep"])
+    tools: list[str] = Field(default_factory=lambda: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"])
     mcp: list[str] = Field(default_factory=list)
     paths: list[str] = Field(default_factory=list)
     approval: Literal["manual", "auto"] = "manual"

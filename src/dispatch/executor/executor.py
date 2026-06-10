@@ -34,7 +34,7 @@ from dispatch.shared.schema import DispatchEvent, DispatchPayload
 # Every built-in tool the agent could have. Anything not in the caller's
 # `allowed_tools` is sent to the SDK as a disallowed tool — the agent
 # cannot use it at all.
-ALL_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+ALL_TOOLS: list[str] = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
 TOOL_RESULT_TRUNCATE_BYTES = 8 * 1024
 
 # Model the delegated-task agent runs on. Defaults to Sonnet — a delegated
