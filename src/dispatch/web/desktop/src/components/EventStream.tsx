@@ -145,7 +145,19 @@ function EventCard({
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="prose-dispatch text-sm break-words [&>*+*]:mt-2 [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:rounded [&_pre]:p-2 [&_pre]:text-xs [&_code]:font-mono [&_code]:text-xs [&_table]:text-xs [&_th]:text-left [&_th]:border-b [&_th]:px-2 [&_th]:py-1 [&_td]:border-b [&_td]:px-2 [&_td]:py-1 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-3 [&_a]:underline">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Reply links must leave the app, never navigate the SPA itself.
+          // target=_blank routes them through the native window's UI delegate,
+          // which hands them to the system browser.
+          a: ({ node: _node, ...props }) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }

@@ -454,7 +454,7 @@ class DispatchTrayApp(rumps.App):
             suffix = f"#t={token}" if token else ""
             open_native_window(
                 f"http://127.0.0.1:{port}/{suffix}",
-                title="Dispatch — Inbox",
+                title="Dispatch",
             )
 
         rumps.Timer(_try, 0.5).start()

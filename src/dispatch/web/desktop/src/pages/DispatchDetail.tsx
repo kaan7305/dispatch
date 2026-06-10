@@ -64,6 +64,27 @@ interface AnyDispatch {
   reply?: string | null;
 }
 
+/** Wall-clock duration + tool-call count for a finished run, from the event
+ *  trace's `ts` stamps. Null when there's nothing to measure (no events, or a
+ *  pre-upgrade trace without timestamps). */
+function runStats(entry: AnyDispatch): { duration: string | null; toolCalls: number } | null {
+  const events = entry.events ?? [];
+  if (events.length === 0) return null;
+  const toolCalls = events.filter((e) => e.type === "tool_use").length;
+  const stamps = events
+    .map((e) => (typeof e.data["ts"] === "string" ? new Date(e.data["ts"] as string).getTime() : NaN))
+    .filter((t) => !isNaN(t));
+  let duration: string | null = null;
+  if (stamps.length >= 2) {
+    const s = Math.round((Math.max(...stamps) - Math.min(...stamps)) / 1000);
+    if (s >= 3600) duration = `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+    else if (s >= 60) duration = `${Math.floor(s / 60)}m ${s % 60}s`;
+    else duration = `${s}s`;
+  }
+  if (!duration && toolCalls === 0) return null;
+  return { duration, toolCalls };
+}
+
 /** The consumable answer: the broker derives `reply` server-side; for local
  *  (live) entries fall back to the last agent_text in the trace. */
 function replyOf(entry: AnyDispatch): string | null {
@@ -101,6 +122,7 @@ function DetailBody({
           <ArrowLeft className="size-4" /> Back
         </Button>
         <StatusBadge status={entry.status} />
+        <RunStats entry={entry} />
         {cancellable && (
           <div className="ml-auto">
             <CancelButton dispatchId={entry.dispatch_id} />
@@ -133,6 +155,22 @@ function DetailBody({
         </div>
       </div>
     </div>
+  );
+}
+
+/** "took 3m 12s · 7 tool calls" for finished runs. */
+function RunStats({ entry }: { entry: AnyDispatch }) {
+  if (entry.status !== "completed" && entry.status !== "failed") return null;
+  const stats = runStats(entry);
+  if (!stats) return null;
+  const parts: string[] = [];
+  if (stats.duration) parts.push(`took ${stats.duration}`);
+  parts.push(`${stats.toolCalls} tool call${stats.toolCalls === 1 ? "" : "s"}`);
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <Clock className="size-3.5" />
+      {parts.join(" · ")}
+    </span>
   );
 }
 

@@ -177,12 +177,12 @@ export function EditPermissionsDialog({ edge, children }: Props) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit permissions</DialogTitle>
           <DialogDescription>
             What can <strong>{edge.peer}</strong>'s dispatches do on your machine?
-            You're the recipient on this edge, so you set the rules.
+            You're the recipient, so you set the rules.
           </DialogDescription>
         </DialogHeader>
 
@@ -191,7 +191,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
               Tools their dispatches may use
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {ALL_TOOLS.map((t) => (
                 <label
                   key={t}
@@ -296,7 +296,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
               Approval
             </div>
-            <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-2">
               <label className="flex items-start gap-3 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/40">
                 <input
                   type="radio"
@@ -308,7 +308,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Manual</div>
                   <div className="text-xs text-muted-foreground">
-                    Approve every tool call individually.
+                    Approve every tool call.
                   </div>
                 </div>
               </label>
@@ -323,8 +323,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Auto</div>
                   <div className="text-xs text-muted-foreground">
-                    Run within scope without per-tool prompts. Top-level Accept/Reject
-                    still applies.
+                    Runs in scope without prompts. Accept/Reject still applies.
                   </div>
                 </div>
               </label>
@@ -335,7 +334,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
               Tool results the sender sees
             </div>
-            <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-2">
               <label className="flex items-start gap-3 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/40">
                 <input
                   type="radio"
@@ -347,9 +346,8 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Redacted</div>
                   <div className="text-xs text-muted-foreground">
-                    The sender's live view shows each tool call and whether it
-                    succeeded, but not the result contents — your files never
-                    leave this machine. They still get the final reply.
+                    Sender sees each call and its status — never the contents.
+                    They still get the final reply.
                   </div>
                 </div>
               </label>
@@ -364,8 +362,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Full</div>
                   <div className="text-xs text-muted-foreground">
-                    Stream complete tool results (file contents, listings,
-                    command output) to the sender's watch view.
+                    Stream complete tool results to the sender's watch view.
                   </div>
                 </div>
               </label>

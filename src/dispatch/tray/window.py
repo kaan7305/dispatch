@@ -12,6 +12,7 @@ from AppKit import (
     NSApplicationActivationPolicyAccessory,
     NSBackingStoreBuffered,
     NSMakeRect,
+    NSMakeSize,
     NSMenu,
     NSMenuItem,
     NSURL,
@@ -21,11 +22,53 @@ from AppKit import (
     NSWindowStyleMaskMiniaturizable,
     NSWindowStyleMaskResizable,
     NSWindowStyleMaskTitled,
+    NSWorkspace,
 )
+from Foundation import NSObject
 from WebKit import WKWebView
 
 # Strong references — prevents Python GC from destroying live windows.
 _open_windows: list[NSWindow] = []
+_delegates: list[NSObject] = []
+
+# Windows can't shrink below a usable layout (search bar + sidebar + detail).
+_MIN_WIDTH, _MIN_HEIGHT = 860, 560
+
+# WKNavigationActionPolicy values (not exported by every pyobjc build).
+_POLICY_CANCEL, _POLICY_ALLOW = 0, 1
+
+
+def _is_local(url) -> bool:
+    host = str(url.host() or "")
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+class _WebDelegate(NSObject):
+    """Routes anything that isn't the local app to the system browser.
+
+    - Normal link clicks to external hosts: cancel the in-webview navigation
+      and hand the URL to NSWorkspace (otherwise the SPA gets replaced by the
+      external page — or, for sites refusing to load in a webview, nothing).
+    - target=_blank / window.open: WKWebView silently drops these without a
+      UI delegate; open them externally and return no new web view.
+    """
+
+    def webView_decidePolicyForNavigationAction_decisionHandler_(self, _webview, action, handler):
+        url = action.request().URL()
+        scheme = str(url.scheme() or "").lower() if url is not None else ""
+        if url is not None and scheme in ("http", "https") and not _is_local(url):
+            NSWorkspace.sharedWorkspace().openURL_(url)
+            handler(_POLICY_CANCEL)
+            return
+        handler(_POLICY_ALLOW)
+
+    def webView_createWebViewWithConfiguration_forNavigationAction_windowFeatures_(
+        self, _webview, _config, action, _features
+    ):
+        url = action.request().URL()
+        if url is not None:
+            NSWorkspace.sharedWorkspace().openURL_(url)
+        return None
 
 _STYLE = (
     NSWindowStyleMaskTitled
@@ -109,8 +152,13 @@ def open_native_window(url: str, title: str = "Dispatch", width: int = 1000, hei
         )
         win.setTitle_(title)
         win.setReleasedWhenClosed_(False)
+        win.setContentMinSize_(NSMakeSize(_MIN_WIDTH, _MIN_HEIGHT))
 
         web = WKWebView.alloc().initWithFrame_(web_frame)
+        delegate = _WebDelegate.alloc().init()
+        _delegates.append(delegate)
+        web.setNavigationDelegate_(delegate)
+        web.setUIDelegate_(delegate)
         web.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
 
         win.setContentView_(web)
