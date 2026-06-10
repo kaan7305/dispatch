@@ -35,10 +35,13 @@ export default function Inbox() {
   });
 
   const rows = useMemo(() => {
-    if (tab === "inbox") {
-      return (inbox.data ?? []).filter((e) => statusMatches(e.status, filter));
-    }
-    return (sent.data ?? []).filter((d) => statusMatches(d.status, filter));
+    const list =
+      tab === "inbox"
+        ? (inbox.data ?? []).filter((e) => statusMatches(e.status, filter))
+        : (sent.data ?? []).filter((d) => statusMatches(d.status, filter));
+    // Newest first, regardless of the order the daemon/broker returned —
+    // ISO-8601 timestamps compare correctly as strings.
+    return [...list].sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [tab, filter, inbox.data, sent.data]);
 
   return (

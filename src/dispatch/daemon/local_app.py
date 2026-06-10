@@ -406,7 +406,15 @@ def make_app(
 
     @app.get("/api/inbox", dependencies=[Depends(require_local_token)])
     async def inbox() -> list[dict]:
-        return [_entry_summary(e) for e in local_state.entries.values()]
+        # Newest first. entries is keyed by arrival: broker-seeded history goes
+        # in newest→oldest at startup, then live dispatches get appended after
+        # it — so raw dict order would bury a brand-new dispatch at the bottom.
+        ordered = sorted(
+            local_state.entries.values(),
+            key=lambda e: e.payload.created_at,
+            reverse=True,
+        )
+        return [_entry_summary(e) for e in ordered]
 
     @app.get("/api/dispatch/{dispatch_id}", dependencies=[Depends(require_local_token)])
     async def dispatch_detail(dispatch_id: UUID):
