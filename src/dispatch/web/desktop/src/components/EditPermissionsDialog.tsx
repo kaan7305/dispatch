@@ -71,6 +71,9 @@ export function EditPermissionsDialog({ edge, children }: Props) {
   // approvals). Shown here so they can be revoked — removing one means that tool
   // prompts again on the next dispatch.
   const [autoTools, setAutoTools] = useState<string[]>(edge.scopes.auto_tools ?? []);
+  const [resultVisibility, setResultVisibility] = useState<"full" | "redacted">(
+    edge.scopes.result_visibility ?? "redacted",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const qc = useQueryClient();
@@ -106,8 +109,9 @@ export function EditPermissionsDialog({ edge, children }: Props) {
       ),
     );
     setAutoTools(edge.scopes.auto_tools ?? []);
+    setResultVisibility(edge.scopes.result_visibility ?? "redacted");
     setError(null);
-  }, [open, edge.scopes.tools, edge.scopes.approval, edge.scopes.auto_tools, grantedMcp, parsed]);
+  }, [open, edge.scopes.tools, edge.scopes.approval, edge.scopes.auto_tools, edge.scopes.result_visibility, grantedMcp, parsed]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -130,6 +134,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
         mcp,
         approval,
         auto_tools: autoTools,
+        result_visibility: resultVisibility,
       };
       return api.updateTrust(edge.trust_link_id, next);
     },
@@ -320,6 +325,47 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                   <div className="text-xs text-muted-foreground">
                     Run within scope without per-tool prompts. Top-level Accept/Reject
                     still applies.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Tool results the sender sees
+            </div>
+            <div className="space-y-1.5">
+              <label className="flex items-start gap-3 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/40">
+                <input
+                  type="radio"
+                  name="result_visibility"
+                  checked={resultVisibility === "redacted"}
+                  onChange={() => setResultVisibility("redacted")}
+                  className="mt-0.5 size-4 accent-foreground"
+                />
+                <div>
+                  <div className="text-sm font-medium">Redacted</div>
+                  <div className="text-xs text-muted-foreground">
+                    The sender's live view shows each tool call and whether it
+                    succeeded, but not the result contents — your files never
+                    leave this machine. They still get the final reply.
+                  </div>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/40">
+                <input
+                  type="radio"
+                  name="result_visibility"
+                  checked={resultVisibility === "full"}
+                  onChange={() => setResultVisibility("full")}
+                  className="mt-0.5 size-4 accent-foreground"
+                />
+                <div>
+                  <div className="text-sm font-medium">Full</div>
+                  <div className="text-xs text-muted-foreground">
+                    Stream complete tool results (file contents, listings,
+                    command output) to the sender's watch view.
                   </div>
                 </div>
               </label>

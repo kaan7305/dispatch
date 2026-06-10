@@ -186,6 +186,7 @@ async def run_dispatch(
     allowed_tools: list[str] | None = None,
     can_use_tool: CanUseTool | None = None,
     system_prompt: str | None = None,
+    extra_system_prompt: str | None = None,
     mcp_servers: dict[str, Any] | None = None,
     skills: list[str] | str | None = None,
     model: str | None = None,
@@ -202,7 +203,10 @@ async def run_dispatch(
     (script use) the in-scope tools are auto-accepted.
 
     `system_prompt` overrides the default delegated-task framing (e.g. a
-    workflow attaching context-specific instructions). `mcp_servers` exposes
+    workflow attaching context-specific instructions); `extra_system_prompt`
+    is appended after the framing + scope notice — advisory context like
+    learned machine memory, which must never displace the framing or the
+    scope notice. `mcp_servers` exposes
     the recipient's own MCP servers to the task so a dispatch can use the
     recipient's powerful tools; the caller's `can_use_tool` still gates every
     call against the edge scope and withholds the dispatch control plane.
@@ -223,9 +227,13 @@ async def run_dispatch(
     # Whatever framing we use (default or a workflow override), always state the
     # tool scope explicitly so the agent knows its limits before it acts and
     # won't burn turns probing for a way around a tool it wasn't granted.
+    # `extra_system_prompt` is appended on top — advisory context (e.g. learned
+    # machine memory) that supplements the framing instead of replacing it.
     effective_system_prompt = (
         (system_prompt or DELEGATED_TASK_SYSTEM_PROMPT) + _scope_notice(in_scope, disallowed)
     )
+    if extra_system_prompt:
+        effective_system_prompt += "\n\n" + extra_system_prompt
 
     if can_use_tool is not None:
         sdk_allowed_tools: list[str] = []   # nothing auto-approved

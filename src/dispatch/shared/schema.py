@@ -133,6 +133,38 @@ class DeviceEnrollRequest(BaseModel):
     public_key: str = Field(..., description="Ed25519 public key, base64-encoded")
 
 
+class SyncScope(BaseModel):
+    """Standing permission for a sender to pull READ-ONLY *activity digests* of
+    this machine's Claude Code sessions (the `dispatch sync` feature).
+
+    Deliberately separate from the dispatch tool scope above: a sync never runs
+    sender-authored free text — the recipient's daemon runs a FIXED, read-only
+    digest template — so it can be auto-approved without granting the sender any
+    arbitrary execution. A sender's request (see SyncRequest) may only ever
+    NARROW this grant (a shorter window, a subset of projects); it can never
+    widen `roots`, which is why roots live here (recipient-controlled) and not
+    in the request. Dispatch metadata isn't covered by the Ed25519 signature, so
+    this recipient-side clamp is what bounds a tampered request.
+
+    Granting dispatch does NOT grant sync — `Scopes.sync` stays None until the
+    trustor explicitly enables it (`dispatch sync-grant`).
+    """
+
+    enabled: bool = False
+    # Directories whose Claude Code transcripts are readable. The agent is
+    # confined to these; `..` escapes are rejected on the recipient side.
+    roots: list[str] = Field(default_factory=lambda: ["~/.claude/projects"])
+    # Allowlist of project names (the URL-encoded cwd dirs under `roots`).
+    # [] = every project under `roots`.
+    project_allow: list[str] = Field(default_factory=list)
+    # Cap on how far back a single request may look. A request asking for more
+    # is clamped to this.
+    window_hours: int = Field(default=24, ge=1, le=24 * 30)
+    # Run unattended (no per-sync Accept gate) — the point of sync. When False,
+    # each sync still waits for the recipient's Accept like a normal dispatch.
+    auto: bool = True
+
+
 class Scopes(BaseModel):
     """Per-trust-edge permissions. New edges default to least privilege:
     read-only tools, no MCP, manual approval of every tool call.
@@ -166,8 +198,18 @@ class Scopes(BaseModel):
     # longer need a human Allow. Grown by the recipient picking "Always allow
     # this tool" on a live approval; never widens reachability on its own.
     auto_tools: list[str] = Field(default_factory=list)
+    # What the SENDER's watch view sees of tool results. The agent itself and
+    # the recipient's local UI always see full results — this only gates what
+    # leaves the recipient's machine for the broker/sender. "redacted" (the
+    # default) replaces each tool result's content with a size/status stub;
+    # the sender still sees every tool call, each approval decision, and the
+    # final reply. "full" streams result contents verbatim.
+    result_visibility: Literal["full", "redacted"] = "redacted"
     max_dispatches_per_day: int = Field(default=50, ge=1, le=10000)
     expires_at: Optional[datetime] = None
+    # Read-only activity-digest access for `dispatch sync`. None => not granted
+    # (the default). Syncs ride this same edge and count against the daily limit.
+    sync: Optional[SyncScope] = None
 
     @field_validator("tools")
     @classmethod
@@ -176,6 +218,29 @@ class Scopes(BaseModel):
         if unknown:
             raise ValueError(f"unknown tools: {unknown}; valid: {list(VALID_TOOLS)}")
         return value
+
+
+# Fixed task string a `dispatch sync` rides on. The recipient daemon detects
+# metadata['sync'] and IGNORES this as instructions (it runs the digest
+# template instead); it's a non-empty sentinel only so the signed envelope —
+# which requires a non-empty `task` and covers it — is meaningful in logs.
+SYNC_TASK_SENTINEL = "[dispatch:sync] read-only Claude Code activity digest request"
+
+
+class SyncRequest(BaseModel):
+    """Rides on DispatchPayload.metadata['sync'] to mark a dispatch as a
+    read-only activity-digest pull rather than a free-text task.
+
+    SECURITY: dispatch metadata is NOT covered by the Ed25519 signature (only
+    the task + addressing are), so every field here is sender/broker-supplied
+    and untrusted. The recipient daemon only ever lets it NARROW the edge's
+    SyncScope — window is clamped, projects are intersected with the allowlist,
+    and `roots` come from the SyncScope, never from here.
+    """
+
+    window_hours: int = Field(default=24, ge=1, le=24 * 30)
+    projects: list[str] = Field(default_factory=list)
+    focus: str = Field(default="", max_length=500)
 
 
 class InvitationCreateRequest(BaseModel):

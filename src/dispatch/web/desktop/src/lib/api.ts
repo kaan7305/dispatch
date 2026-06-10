@@ -104,12 +104,12 @@ export const api = {
       : request<InboxEntry[]>("/api/inbox"),
   dispatchDetail: (id: string) =>
     request<InboxEntry & { events: DispatchEvent[] }>(`/api/dispatch/${id}`),
-  decide: (id: string, decision: "accept" | "reject") =>
+  decide: (id: string, decision: "accept" | "reject", cwd?: string) =>
     isBroker
       ? redirectToLocal("Approving a dispatch")
       : request<{ status: string }>(`/api/dispatch/${id}/decision`, {
           method: "POST",
-          body: JSON.stringify({ decision }),
+          body: JSON.stringify(cwd ? { decision, cwd } : { decision }),
         }),
   decideTool: (
     dispatchId: string,
@@ -309,6 +309,9 @@ export interface Scopes {
   // like "Bash" or full MCP tool like "mcp__notion__notion-move-pages"). Grown
   // JIT from live approvals; spread through edits so it isn't wiped on save.
   auto_tools?: string[];
+  // What the sender's watch view sees of tool results. "redacted" (default)
+  // sends size/status stubs; contents never leave the recipient's machine.
+  result_visibility?: "full" | "redacted";
   max_dispatches_per_day?: number;
   expires_at?: string | null;
 }

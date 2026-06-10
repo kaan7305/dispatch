@@ -512,6 +512,33 @@ class Store:
             )
             return [dict(r) for r in rows]
 
+    async def list_device_keys(self, user_id: str) -> list[dict]:
+        """Active devices' public keys for this user — the roster a runner daemon
+        verifies remote tool-approval signatures against (phone-as-approver)."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT device_id, public_key, status
+                FROM devices WHERE user_id = $1 AND status = 'active'
+                ORDER BY created_at
+                """,
+                user_id,
+            )
+            return [dict(r) for r in rows]
+
+    async def device_belongs_to(self, user_id: str, device_id: UUID) -> bool:
+        """True iff this device is an active device of this user."""
+        async with self.pool.acquire() as conn:
+            return bool(
+                await conn.fetchval(
+                    """
+                    SELECT 1 FROM devices
+                    WHERE device_id = $1 AND user_id = $2 AND status = 'active'
+                    """,
+                    device_id, user_id,
+                )
+            )
+
     async def revoke_device(self, user_id: str, device_id: UUID) -> bool:
         """Mark a device revoked. Returns False if it isn't this user's device."""
         async with self.pool.acquire() as conn:

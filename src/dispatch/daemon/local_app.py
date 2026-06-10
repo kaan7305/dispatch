@@ -260,6 +260,10 @@ def _entry_summary(entry: InboxEntry) -> dict:
 
 class _Decision(BaseModel):
     decision: str
+    # Optional accept-time working directory: the recipient pins where the
+    # agent runs ("this is about Yuni → ~/Desktop/Yuni") instead of letting it
+    # cold-start-search the filesystem. Ignored for tool-level decisions.
+    cwd: Optional[str] = None
 
 
 class _Compose(BaseModel):
@@ -435,10 +439,16 @@ def make_app(
     async def dispatch_decision(dispatch_id: UUID, body: _Decision) -> dict:
         if body.decision not in ("accept", "reject"):
             raise HTTPException(status_code=400, detail="decision must be accept|reject")
+        cwd = body.cwd or None
+        if cwd and body.decision == "accept":
+            if not Path(cwd).expanduser().resolve().is_dir():
+                raise HTTPException(
+                    status_code=400, detail=f"cwd is not a directory: {cwd}"
+                )
         fut = daemon_state.pending_decisions.get(str(dispatch_id))
         if fut is None or fut.done():
             raise HTTPException(status_code=409, detail="no pending decision for that dispatch")
-        fut.set_result(body.decision)
+        fut.set_result({"decision": body.decision, "cwd": cwd})
         return {"status": "ok"}
 
     @app.post(

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Check, Clock, Infinity as InfinityIcon, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -9,7 +9,7 @@ import { initials, relativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/StatusBadge";
-import { EventStream } from "@/components/EventStream";
+import { EventStream, Markdown } from "@/components/EventStream";
 
 export default function DispatchDetail() {
   const { id = "" } = useParams();
@@ -61,6 +61,21 @@ interface AnyDispatch {
   scopes?: InboxEntry["scopes"];
   pending_tools?: InboxEntry["pending_tools"];
   events?: DispatchEvent[];
+  reply?: string | null;
+}
+
+/** The consumable answer: the broker derives `reply` server-side; for local
+ *  (live) entries fall back to the last agent_text in the trace. */
+function replyOf(entry: AnyDispatch): string | null {
+  if (typeof entry.reply === "string" && entry.reply.trim()) return entry.reply;
+  let reply: string | null = null;
+  for (const e of entry.events ?? []) {
+    if (e.type === "agent_text") {
+      const text = e.data["text"];
+      if (typeof text === "string" && text.trim()) reply = text;
+    }
+  }
+  return reply;
 }
 
 function DetailBody({
@@ -69,6 +84,7 @@ function DetailBody({
   const session = useQuery({ queryKey: ["session"], queryFn: () => api.session() });
   const me = session.data?.user_id ?? "";
   const isRecipient = !!entry.recipient_id && entry.recipient_id === me;
+  const reply = replyOf(entry);
   const decisionPending = entry.status === "pending" || entry.status === "delivered";
   const cancellable = !(
     entry.status === "completed" ||
@@ -97,20 +113,53 @@ function DetailBody({
           <Header entry={entry} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
           {isRecipient && <PendingTools entry={entry} />}
+          {reply && (
+            <Section title="Reply">
+              <div className="rounded-lg border bg-card p-4">
+                <Markdown text={reply} />
+              </div>
+            </Section>
+          )}
           {entry.scopes && (
             <Section title="Scope">
               <ScopeSummary scopes={entry.scopes} />
             </Section>
           )}
-          <Section title="Activity">
-            <EventStream
-              events={entry.events ?? []}
-              viewerRole={isRecipient ? "recipient" : "watcher"}
-              status={entry.status}
-            />
-          </Section>
+          <CollapsibleActivity
+            entry={entry}
+            isRecipient={isRecipient}
+            defaultOpen={!reply}
+          />
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The full event trace. Collapsed by default once there's a reply to read —
+ *  the trace is the audit trail, not the answer. */
+function CollapsibleActivity({
+  entry, isRecipient, defaultOpen,
+}: { entry: AnyDispatch; isRecipient: boolean; defaultOpen: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const count = entry.events?.length ?? 0;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2 hover:text-foreground"
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        Activity{count > 0 ? ` (${count})` : ""}
+      </button>
+      {open && (
+        <EventStream
+          events={entry.events ?? []}
+          viewerRole={isRecipient ? "recipient" : "watcher"}
+          status={entry.status}
+        />
+      )}
     </div>
   );
 }
@@ -180,9 +229,10 @@ function Header({ entry }: { entry: AnyDispatch }) {
 function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [cwd, setCwd] = useState("");
   const decide = useMutation({
     mutationFn: (decision: "accept" | "reject") =>
-      api.decide(entry.dispatch_id, decision),
+      api.decide(entry.dispatch_id, decision, decision === "accept" ? cwd.trim() || undefined : undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dispatch", entry.dispatch_id] });
       qc.invalidateQueries({ queryKey: ["inbox"] });
@@ -214,6 +264,23 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
           >
             <Check className="size-4" /> Accept
           </Button>
+        </div>
+      </div>
+      <div className="mt-3 space-y-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          Run in directory <span className="font-normal">(optional)</span>
+        </label>
+        <input
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="e.g. ~/Desktop/Yuni — skips the agent's filesystem search"
+          spellCheck={false}
+          className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <div className="text-[11px] text-muted-foreground">
+          If the task is about a specific project, pinning its directory saves
+          the agent from searching your disk. It's added to the path allowlist
+          for this run.
         </div>
       </div>
       {error && (
@@ -353,6 +420,13 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       <Row label="Approval">
         <Badge variant={approval === "manual" ? "warning" : "muted"}>
           {approval === "manual" ? "Manual — every tool call" : "Auto — no per-tool prompts"}
+        </Badge>
+      </Row>
+      <Row label="Results">
+        <Badge variant="muted">
+          {(scopes.result_visibility ?? "redacted") === "full"
+            ? "Full — sender sees tool result contents"
+            : "Redacted — sender sees call + status only"}
         </Badge>
       </Row>
     </div>
