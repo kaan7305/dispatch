@@ -385,6 +385,24 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     report["broker_reachable"] = broker_ok
     report["signed_in"] = bool(config.get("token"))
 
+    # 3. Code-version drift (the "split-version" gotcha): the daemon caches the
+    # commit it started on (`running_commit`); `dispatch update` rewrites the
+    # on-disk marker. If they differ, the daemon is executing OLD code and needs
+    # a reload — the main cause of mid-run weirdness.
+    running_commit = (session.get("running_commit") or "").strip()
+    try:
+        installed_commit = _UPDATE_MARKER.read_text().strip()
+    except OSError:
+        installed_commit = ""
+    report["running_commit"] = running_commit
+    report["installed_commit"] = installed_commit
+    # None = can't tell (daemon down, or a commit is unknown); else True if stale.
+    code_stale = (
+        running_commit != installed_commit
+        if (daemon_up and running_commit and installed_commit) else None
+    )
+    report["code_stale"] = code_stale
+
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
@@ -400,11 +418,22 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
               + ("online — ready to receive dispatches" if report["broker_connected"]
                  else "NOT connected — dispatches won't arrive until it reconnects"))
         print(f"      signed in as   {report['user_id'] or '(unknown)'}")
+        if code_stale is None:
+            short = (running_commit or "unknown")[:7]
+            print(f"  - code version       daemon {short}  (can't compare to installed)")
+        elif code_stale:
+            print(f"  {mark(False)} code version       daemon {running_commit[:7]}  ≠ "
+                  f"installed {installed_commit[:7]}  — daemon on OLD code")
+            print("                       reload the ⬡ Dispatch tray (or restart `dispatch tray`)")
+        else:
+            print(f"  {mark(True)} code version       daemon {running_commit[:7]}  (matches installed)")
     print(f"  {mark(broker_ok)} broker reachable   {report['broker_url']}")
     if not config.get("token"):
         print("  ✗ not signed in     — run `dispatch login`")
-    # Exit non-zero if the daemon isn't fully online, so scripts can gate on it.
-    return 0 if (daemon_up and report["broker_connected"]) else 1
+    # Exit non-zero if the daemon isn't fully online OR is running stale code, so
+    # scripts (and humans) can gate on a fully-healthy, up-to-date daemon.
+    healthy = daemon_up and report["broker_connected"] and not code_stale
+    return 0 if healthy else 1
 
 
 def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
