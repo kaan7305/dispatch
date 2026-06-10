@@ -15,7 +15,7 @@ interface Props {
   children: React.ReactNode;
 }
 
-const ALL_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "Bash"] as const;
+const ALL_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "Write", "Edit", "Bash"] as const;
 
 /** The grant pattern for one tool on a server: `mcp__<server>__<tool>`. */
 function toolGrant(server: string, tool: string): string {
