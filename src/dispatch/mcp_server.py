@@ -23,9 +23,14 @@ Why this shape (vs. the old per-session daemon):
   - **Cross-session visibility for free.** Every session reads the same daemon
     inbox, so what one terminal accepts is visible in another.
   - **Security layers unchanged.** Layer 2 (signature + TOFU pin) and the
-    executor run in the daemon. Layer 3 (human approval) is surfaced here via
-    `ctx.elicit` and resolved against the daemon — the daemon, not the broker,
-    holds the approval futures, so the broker still can't fabricate consent.
+    executor run in the daemon. Layer 3 (human approval) is surfaced per
+    _approval_ui: 'picker' (default) hands each gated call to the host agent
+    as `approval_needed` and the human answers via AskUserQuestion (numbered
+    options, arrow + Enter, no form chrome); 'form' asks inline via
+    `ctx.elicit` (numbered single-select, deterministic on any client), with
+    the picker hand-off as fallback. Every decision is resolved against the
+    daemon — the daemon, not the broker, holds the approval futures, so the
+    broker still can't fabricate consent.
 
 The dispatched task itself runs in the daemon's confined executor (a fresh
 ClaudeSDKClient with `setting_sources=[]`); it never inherits this session's
@@ -64,6 +69,19 @@ DAEMON_POLL_S = 0.5
 _TERMINAL = {"completed", "failed", "denied", "cancelled", "expired"}
 _SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
 _LOGIN_HINT = "not signed in — run `dispatch login` in a terminal, then restart this session."
+
+
+def _approval_ui() -> str:
+    """Which surface asks the human to approve a gated tool call.
+      'picker' (default) — hand every approval to the HOST agent as
+        approval_needed; it asks via its native picker (AskUserQuestion in
+        Claude Code: numbered options, arrow + Enter, no form chrome).
+      'form' — ask inline via MCP elicitation (the client's form, numbered
+        single-select but with its fixed Accept/Decline footer). Deterministic
+        on any client; use on machines whose agent won't relay the picker.
+    Set via DISPATCH_APPROVAL_UI or `approval_ui` in ~/.dispatch/config.json."""
+    value = os.environ.get("DISPATCH_APPROVAL_UI") or _load_config().get("approval_ui") or "picker"
+    return "form" if str(value).lower() == "form" else "picker"
 
 
 # ----------------------------------------------------------------------------
@@ -217,127 +235,39 @@ mcp = FastMCP("dispatch", lifespan=_lifespan)
 
 
 class _Approve(BaseModel):
-    # Single-select → the client renders an arrow-key choose-one prompt.
-    #   Allow                        — just this one call
-    #   Deny                         — refuse this one call
-    #   Always allow this tool       — persist onto the edge; never ask again
-    #   Allow this tool this session — in-memory for the rest of this run
-    #   Allow the rest of this dispatch — auto-allow every later call in THIS run
+    # Single-select → the client renders an arrow-key choose-one prompt inside
+    # the elicitation form. The form's chrome (header, field label, Accept/
+    # Decline footer) is hardcoded client-side; the labels below are all we
+    # control, so they are numbered, padded into aligned columns, and described
+    # to read like the host's native AskUserQuestion picker. 1–4 mirror the
+    # approval_needed relay's choices; 5 also cancels the run, so every intent
+    # is expressible from the list without reaching for the footer buttons.
     decision: Literal[
-        "Allow",
-        "Deny",
-        "Always allow this tool",
-        "Allow this tool this session",
-        "Allow the rest of this dispatch",
+        "1. Allow once             — just this call",
+        "2. Always allow this tool — never ask for it again on this edge",
+        "3. Allow for this session — skip prompts for this tool this run",
+        "4. Deny                   — refuse this call",
+        "5. Decline the dispatch   — deny this call and cancel the whole run",
     ]
 
 
-# Built-in tools the invite picker can grant (mirrors executor.ALL_TOOLS).
+# Built-in tools an edge can grant (mirrors executor.ALL_TOOLS).
 _ALL_TOOLS = ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
-_READONLY_TOOLS = ["Read", "Glob", "Grep"]
-_RW_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit"]
 
-# Built-in tool tiers, shown as a single-select (arrow-key) prompt. "Allow all"
-# is the only tier that also grants every MCP server (and so skips the per-server
-# question). Order matters: the first entry is what the client highlights, which
-# we exploit to "pre-select" the current tier when editing an existing edge.
-_TIER_ALLOW_ALL = "Allow all — every tool + all my MCP servers"
-_TIER_READONLY = "Read-only — Read, Glob, Grep"
-_TIER_RW = "Read + Write/Edit (no Bash)"
-_TIER_CUSTOM = "Custom — use the tools/paths I passed"
-_TIERS = [_TIER_ALLOW_ALL, _TIER_READONLY, _TIER_RW, _TIER_CUSTOM]
-
-
-class _ToolGrant(BaseModel):
-    # Built-in file tools only; MCP servers are a separate question below so the
-    # two are orthogonal (e.g. read-only files yet allowed to use one MCP).
-    grant: Literal[
-        "Allow all — every tool + all my MCP servers",
-        "Read-only — Read, Glob, Grep",
-        "Read + Write/Edit (no Bash)",
-        "Custom — use the tools/paths I passed",
-    ]
-
-
-def _tier_of(scope_tools: list[str], scope_mcp: list[str]) -> str:
-    """Which tier an existing edge's scopes correspond to — so editing can
-    pre-select it. Anything that isn't a clean preset reads as Custom."""
-    tools = set(scope_tools or [])
-    if "*" in (scope_mcp or []) and tools == set(_ALL_TOOLS):
-        return _TIER_ALLOW_ALL
-    if tools == set(_READONLY_TOOLS):
-        return _TIER_READONLY
-    if tools == set(_RW_TOOLS):
-        return _TIER_RW
-    return _TIER_CUSTOM
-
-
-# Per-server Allow/Don't, as STATIC enum models. Single-select Literals are the
-# only elicitation shape Claude Code reliably renders (same as _Approve) — a
-# dynamically-built create_model() schema silently fails to render, and a
-# boolean checkbox conflates "accept the prompt" with "check the box" so an
-# accepted-but-untoggled box reads as False. Two classes only differ in which
-# option is listed first, i.e. which the client highlights as the default — we
-# pick the one matching the current grant so editing is effectively pre-filled.
-class _ServerGrantDenyFirst(BaseModel):
-    allow: Literal["Don't allow", "Allow"]
-
-
-class _ServerGrantAllowFirst(BaseModel):
-    allow: Literal["Allow", "Don't allow"]
-
-
-async def _elicit_tier(ctx: Context, message: str, default: str | None = None) -> str | None:
-    """Single-select tier prompt using the STATIC _ToolGrant enum (a dynamic
-    create_model Literal does not render in Claude Code). `default` can't reorder
-    a static Literal, so when editing we surface the current tier in the message
-    text instead. Returns the chosen tier string, or None if unavailable."""
-    if default:
-        message = f"{message}\n(Currently: {default})"
-    try:
-        res = await ctx.elicit(message=message, schema=_ToolGrant)
-    except Exception:
-        return None
-    return res.data.grant if isinstance(res, AcceptedElicitation) else None
-
-
-async def _pick_mcp_servers(
-    ctx: Context, names: list[str], granted: list[str] | None = None
-) -> list[str]:
-    """The MCP-server question: which servers this sender may use. Asks ONE
-    single-select Allow/Don't per server (static enum — renders reliably, and
-    the choice IS the value so there's no accept-vs-toggle ambiguity).
-
-    Candidates = installed servers UNION already-granted names, so a grant for a
-    server you've since uninstalled is still re-confirmed (and preserved), never
-    silently dropped. On decline/unavailable for any server we keep its current
-    grant state. Returns the chosen server names."""
-    granted_set = set(granted or [])
-    candidates = sorted(set(names) | granted_set)
-    chosen: list[str] = []
-    for name in candidates:
-        currently = name in granted_set
-        installed = name in names
-        msg = f"Allow {_server_label(name)} for this sender?"
-        if not installed:
-            msg += "\n(not currently installed on this machine)"
-        schema = _ServerGrantAllowFirst if currently else _ServerGrantDenyFirst
-        try:
-            res = await ctx.elicit(message=msg, schema=schema)
-        except Exception:
-            if currently:
-                chosen.append(name)  # can't ask → keep what they had
-            continue
-        if isinstance(res, AcceptedElicitation):
-            if res.data.allow == "Allow":
-                chosen.append(name)
-        elif currently:
-            chosen.append(name)  # declined the prompt → keep existing grant
-    return chosen
-
-
-def _server_label(server: str) -> str:
-    return f"MCP server '{server}'"
+# The scope menu the HOST agent shows the human (via its native picker) before
+# accepting an invite or editing an edge. Kept here so every error payload that
+# asks the agent to go ask the human spells out the exact same choices.
+_SCOPE_MENU = (
+    "Ask the human to choose what this sender's agent may do on this machine "
+    "(use your native picker, e.g. AskUserQuestion — never plain chat text): "
+    "1. Read-only — tools='Read,Glob,Grep' (safest); "
+    "2. Read + Write/Edit — tools='Read,Glob,Grep,Write,Edit' (no shell); "
+    "3. Allow all — tools='Read,Glob,Grep,Write,Edit,Bash' + mcp_servers='*' "
+    "(Bash = full shell — grant deliberately); "
+    "4. Custom — the exact tools they list. "
+    "Then re-call with the chosen `tools` (and `mcp_servers`) spelled out. "
+    "A trust scope is never invented on the human's behalf."
+)
 
 
 async def _installed_server_names() -> list[str]:
@@ -347,59 +277,31 @@ async def _installed_server_names() -> list[str]:
     return [s["name"] for s in servers if isinstance(s, dict) and s.get("name")]
 
 
-async def _installed_server_names() -> list[str]:
-    servers = await _local_call("GET", "/api/mcp/servers")
-    if not isinstance(servers, list):
+def _parse_tools(tools: str) -> tuple[list[str], dict | None]:
+    """Parse + validate the comma-separated `tools` param. Returns
+    (tool_list, None) or ([], error_payload)."""
+    parsed = [t.strip() for t in tools.split(",") if t.strip()]
+    bad = [t for t in parsed if t not in _ALL_TOOLS]
+    if bad:
+        return [], {
+            "error": "unknown_tools",
+            "detail": f"unknown tools {bad}; valid: {','.join(_ALL_TOOLS)}",
+        }
+    return parsed, None
+
+
+def _parse_mcp(mcp_servers: str, *, keep: list[str] | None = None) -> list[str]:
+    """Parse the `mcp_servers` param: '*' → all servers, 'none' → none,
+    comma-separated names → those, '' → `keep` (the current grant, so an edit
+    that only changes tools doesn't silently wipe MCP access)."""
+    value = mcp_servers.strip()
+    if value == "*":
+        return ["*"]
+    if value.lower() == "none":
         return []
-    return [s["name"] for s in servers if isinstance(s, dict) and s.get("name")]
-
-
-async def _elicit_scopes(
-    ctx: Context,
-    message: str,
-    *,
-    current_tools: list[str] | None = None,
-    current_mcp: list[str] | None = None,
-    passed_tools: list[str] | None = None,
-) -> tuple[list[str], list[str]] | None:
-    """Run the two-question scope picker (built-in tool tier + MCP servers) and
-    return (scope_tools, scope_mcp). Shared by invite-accept and edit.
-
-    When `current_*` is supplied (editing) the tier is pre-selected and the
-    servers pre-checked. `passed_tools` pre-fills the Custom tier on accept.
-
-    Returns None when no scope could be determined — the human wasn't asked
-    (the picker didn't render or was declined) AND there's nothing explicit to
-    honor (no `current_tools`, no `passed_tools`). The caller MUST treat this as
-    "abort, the trustor has to choose" rather than granting a default: a trust
-    scope is never invented on the human's behalf."""
-    current_tools = current_tools or []
-    current_mcp = current_mcp or []
-    default_tier = (
-        _tier_of(current_tools, current_mcp) if (current_tools or current_mcp) else None
-    )
-    grant = await _elicit_tier(ctx, message, default=default_tier)
-    if grant and grant.startswith("Allow all"):
-        # The only tier that also grants every MCP server → skip Q2.
-        return list(_ALL_TOOLS), ["*"]
-    if grant and grant.startswith("Read-only"):
-        scope_tools = list(_READONLY_TOOLS)
-    elif grant and grant.startswith("Read + Write"):
-        scope_tools = list(_RW_TOOLS)
-    elif grant and grant.startswith("Custom"):
-        scope_tools = list(passed_tools or current_tools or _READONLY_TOOLS)
-    elif current_tools or passed_tools:
-        # No interactive choice (picker unavailable or declined), but an explicit
-        # scope already exists — the current grant when editing, or tools the
-        # caller passed when accepting. Honor that; it's a real human choice.
-        scope_tools = list(current_tools or passed_tools)
-    else:
-        # Picker unavailable AND nothing explicit to fall back to. Do NOT invent
-        # a default grant — signal the caller to abort and make the human choose.
-        return None
-    granted = [m for m in current_mcp if m != "*"]
-    scope_mcp = await _pick_mcp_servers(ctx, await _installed_server_names(), granted=granted)
-    return scope_tools, scope_mcp
+    if not value:
+        return list(keep or [])
+    return [s.strip() for s in value.split(",") if s.strip()]
 
 
 def _require_link() -> _Link:
@@ -477,13 +379,34 @@ async def _do_status(dispatch_id: str) -> dict:
     return result
 
 
+def _fmt_tool_call(tool: str, tool_input: Any) -> str:
+    """Human-first headline for a pending tool call, picker-style:
+    'Read\\n   /path/to/file (limit: 80)' instead of a raw input dict. The
+    primary argument (path/command/pattern/url) goes on its own indented line;
+    any remaining arguments trail in parentheses."""
+    if not isinstance(tool_input, dict):
+        return f"{tool}: {tool_input}"
+    rest = dict(tool_input)
+    primary = next(
+        (rest.pop(k) for k in ("file_path", "path", "command", "pattern", "url")
+         if k in rest),
+        None,
+    )
+    extras = ", ".join(f"{k}: {v}" for k, v in rest.items())
+    if primary is None:
+        return f"{tool} ({extras})" if extras else tool
+    headline = f"{tool}\n   {primary}"
+    return f"{headline} ({extras})" if extras else headline
+
+
 def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict) -> dict:
-    """Payload returned to the HOST agent when this session can't render an
-    inline elicitation prompt. The pending tool call is handed to the main
-    agent to relay to the human in chat — exactly like a Bash permission
-    prompt — instead of cancelling the run or silently denying. The run stays
-    paused on the daemon's approval future (which auto-denies after ~120s,
-    see TOOL_APPROVAL_TIMEOUT_S in dispatch.daemon.main)."""
+    """The approval hand-off to the HOST agent: the pending tool call is given
+    to the main agent to ask the human via its native picker (AskUserQuestion
+    in Claude Code) — the same surface as a Bash permission prompt: numbered
+    options, arrow + Enter, no form chrome. This is the default approval UI
+    ('picker' mode) and the fallback when 'form' mode can't render elicitation.
+    The run stays paused on the daemon's approval future (which auto-denies
+    after ~120s, see TOOL_APPROVAL_TIMEOUT_S in dispatch.daemon.main)."""
     return {
         "status": "approval_needed",
         "dispatch_id": dispatch_id,
@@ -493,21 +416,22 @@ def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict)
         "input": info.get("input"),
         "answer_within_seconds": 120,
         "detail": (
-            "This session can't render inline approval prompts, so this pending "
-            "tool call is handed to you instead. ASK THE USER NOW via the "
-            "AskUserQuestion tool (the native numbered picker — do NOT ask in "
-            "plain chat text): question = the sender, the tool, and its input "
-            "verbatim, plus one line saying what the call does; options = "
-            f"'Allow once' / 'Always allow {info.get('tool')}' / 'Allow for "
-            "this session' / 'Deny', in that order, each with a one-line "
-            "description of its effect. Never decide on their behalf. Then "
-            "relay their choice with dispatch_act(action='approve' or 'deny', "
-            "dispatch_id=…, request_id=…, grant='once'|'always'|'session') — "
-            "'Allow once'→approve/once, 'Always allow'→approve/always, 'this "
-            "session'→approve/session, 'Deny'→deny. That call resumes watching "
-            "the run and returns either the next approval_needed (ask again, "
-            "same format) or the final result. The daemon auto-denies this "
-            "call if no decision arrives within ~120s, so ask immediately."
+            "A gated tool call is awaiting the human's decision — it is handed "
+            "to you to relay. ASK THE USER NOW via the "
+            "AskUserQuestion tool (the native numbered picker — do "
+            "NOT ask in plain chat text): question = the sender, the tool, and "
+            "its input verbatim, plus one line saying what the call does; "
+            f"options = 'Allow once' / 'Always allow {info.get('tool')}' / "
+            "'Allow for this session' / 'Deny', in that order, each with a "
+            "one-line description of its effect. Never decide on their behalf. "
+            "Then relay their choice with dispatch_act(action='approve' or "
+            "'deny', dispatch_id=…, request_id=…, "
+            "grant='once'|'always'|'session') — 'Allow once'→approve/once, "
+            "'Always allow'→approve/always, 'this session'→approve/session, "
+            "'Deny'→deny. That call resumes watching the run and returns "
+            "either the next approval_needed (ask again, same format) or the "
+            "final result. The daemon auto-denies this call if no decision "
+            "arrives within ~120s, so ask immediately."
         ),
     }
 
@@ -516,15 +440,17 @@ async def _supervise(
     dispatch_id: str, ctx: Context, already_handled: set[str] | None = None
 ) -> dict:
     """Watch a running dispatch to completion, gating each pending tool call on
-    the human (Layer 3). When the session can render elicitation, the prompt is
-    inline (arrow-key Allow/Deny). When it can't, the pending call is returned
-    as an `approval_needed` payload so the host agent asks the user in chat and
+    the human (Layer 3). In 'picker' mode (default, see _approval_ui) each
+    pending call is returned as an `approval_needed` payload so the host agent
+    asks the user via AskUserQuestion (arrow + Enter, no form chrome) and
     relays the decision via dispatch_act(approve/deny) — which re-enters this
-    loop until the next gate or the final result. `already_handled` carries
-    request ids whose decision was just posted, so the brief window before the
-    daemon pops them from pending_tools can't surface them twice."""
+    loop until the next gate or the final result. In 'form' mode the prompt is
+    inline MCP elicitation — a numbered single-select — with the same
+    approval_needed hand-off as fallback when elicitation can't render.
+    `already_handled` carries request ids whose decision was just posted, so
+    the brief window before the daemon pops them from pending_tools can't
+    surface them twice."""
     handled: set[str] = set(already_handled or ())
-    auto_allow = False  # set once the human picks "Allow the rest of this dispatch"
     waited = 0.0
     status: Optional[str] = None
     events = 0
@@ -537,45 +463,51 @@ async def _supervise(
             for request_id, info in (detail.get("pending_tools") or {}).items():
                 if request_id in handled:
                     continue
-                if auto_allow:
-                    decision = "allow"
-                else:
-                    msg = (
-                        f"Dispatch {dispatch_id[:8]}… from {sender} wants to run:\n"
-                        f"  {info.get('tool')}: {info.get('input')}"
+                if _approval_ui() == "picker":
+                    # Default: the host agent asks via its native picker
+                    # (arrow + Enter, no form chrome) and relays the answer
+                    # through dispatch_act(approve/deny).
+                    return _approval_needed(dispatch_id, sender, request_id, info)
+                msg = (
+                    f"❓ Approval — {sender} wants to run "
+                    f"{_fmt_tool_call(info.get('tool', '?'), info.get('input'))}\n"
+                    f"(dispatch {dispatch_id[:8]}… · pick 1-5, then Accept)"
+                )
+                try:
+                    res = await ctx.elicit(message=msg, schema=_Approve)
+                except Exception as exc:
+                    # Elicitation is unavailable in this session (e.g. a
+                    # non-interactive surface). Do NOT silently deny, and do
+                    # NOT cancel the run — hand the approval to the host
+                    # agent so the human is asked via its native picker.
+                    # The run keeps waiting on the daemon's future meanwhile.
+                    print(
+                        f"dispatch-mcp: elicitation unavailable ({exc!r}); "
+                        "relaying approval to the host agent",
+                        file=sys.stderr,
                     )
-                    try:
-                        res = await ctx.elicit(message=msg, schema=_Approve)
-                    except Exception as exc:
-                        # Elicitation is unavailable in this session (e.g. a
-                        # non-interactive surface). Do NOT silently deny, and do
-                        # NOT cancel the run — hand the approval to the host
-                        # agent so the human is asked via its native picker.
-                        # The run keeps waiting on the daemon's future meanwhile.
-                        print(
-                            f"dispatch-mcp: elicitation unavailable ({exc!r}); "
-                            "relaying approval to the host agent",
-                            file=sys.stderr,
-                        )
-                        return _approval_needed(dispatch_id, sender, request_id, info)
-                    choice = res.data.decision if isinstance(res, AcceptedElicitation) else "Deny"
-                    if choice == "Allow the rest of this dispatch":
-                        auto_allow = True
-                        decision = "allow"
-                    elif choice == "Always allow this tool":
-                        # Persist onto the edge AND skip future prompts for it.
-                        decision = "always"
-                    elif choice == "Allow this tool this session":
-                        decision = "session"
-                    elif choice == "Allow":
-                        decision = "allow"
-                    else:
-                        decision = "deny"
+                    return _approval_needed(dispatch_id, sender, request_id, info)
+                choice = res.data.decision if isinstance(res, AcceptedElicitation) else ""
+                if choice.startswith("1."):
+                    decision = "allow"
+                elif choice.startswith("2."):
+                    decision = "always"
+                elif choice.startswith("3."):
+                    decision = "session"
+                else:
+                    # "4. Deny", "5. Decline", a declined prompt, or anything
+                    # unexpected.
+                    decision = "deny"
                 handled.add(request_id)
                 await _local_call(
                     "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
                     json={"decision": decision},
                 )
+                if choice.startswith("5."):
+                    # Declining the dispatch: the denied call alone wouldn't stop
+                    # the run, so cancel it too; the loop then sees the terminal
+                    # status and returns.
+                    await _local_call("POST", f"/api/dispatch/{dispatch_id}/cancel")
             if status in _TERMINAL:
                 break
         await asyncio.sleep(0.25)
@@ -595,8 +527,9 @@ async def _supervise(
 async def _run_accept(dispatch_id: str, ctx: Context) -> dict:
     """Accept + supervise the daemon's confined run to completion, asking the
     human for each tool call on a manual edge. The run executes in the DAEMON's
-    executor; we relay its pending approvals here (inline elicitation, or an
-    approval_needed hand-off to the host agent when elicitation can't render)."""
+    executor; we relay its pending approvals here (inline elicitation styled
+    like the native picker, or an approval_needed hand-off to the host agent
+    when elicitation can't render)."""
     accept = await _local_call(
         "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "accept"},
     )
@@ -657,19 +590,19 @@ async def dispatch_act(
     grant: Literal["once", "always", "session"] = "once",
 ) -> dict:
     """Act on an inbound or in-flight dispatch.
-      accept  — accept AND run it in the sandboxed dp-agent; BLOCKS until done,
-                rendering an inline approval prompt for each tool call on a
-                manual edge. This is the ONLY interactive way to accept — never
-                tell the user to run the `dispatch accept` CLI instead (that is
-                fire-and-forget with no prompt attached and silently times out).
-                You MUST NOT perform the task yourself — accepting *is* running it.
-                If this session can't render inline prompts, accept returns
-                status='approval_needed' with one pending tool call: ask the
-                user via the AskUserQuestion tool (native numbered picker;
-                options Allow once / Always allow this tool / Allow for this
-                session / Deny — never plain chat text) and relay via
-                approve/deny below — the run waits, but auto-denies that
-                call after ~120s, so ask immediately.
+      accept  — accept AND run it in the sandboxed dp-agent. This is the ONLY
+                interactive way to accept — never tell the user to run the
+                `dispatch accept` CLI instead (that is fire-and-forget with no
+                prompt attached and silently times out). You MUST NOT perform
+                the task yourself — accepting *is* running it. On a manual
+                edge each gated tool call comes back as
+                status='approval_needed' (or, in 'form' approval-UI mode,
+                prompts inline and blocks): ask the user via the
+                AskUserQuestion tool (native numbered picker; options Allow
+                once / Always allow this tool / Allow for this session / Deny
+                — never plain chat text) and relay via approve/deny below —
+                the run waits, but auto-denies that call after ~120s, so ask
+                immediately.
       decline — reject an inbound dispatch; it never runs.
       cancel  — cancel an in-flight dispatch (either party).
       approve / deny — relay the human's allow/deny for one pending tool call
@@ -703,9 +636,9 @@ async def dispatch_act(
             )
             if isinstance(r, dict) and r.get("error"):
                 return {"status": "error", "detail": r.get("detail")}
-            # Keep watching the run so the chat-relay loop continues: the next
-            # gated tool call comes back as approval_needed (or prompts inline),
-            # and a finished run returns its final status.
+            # Keep watching the run so the relay loop continues: the next gated
+            # tool call prompts inline (or comes back as approval_needed), and
+            # a finished run returns its final status.
             return await _supervise(dispatch_id, ctx, already_handled={request_id})
         return {"status": "error", "detail": f"unknown action: {action}"}
     except _Dormant:
@@ -734,10 +667,10 @@ async def dispatch_send(
 @mcp.tool()
 async def dispatch_invite(
     action: Literal["send", "list", "accept", "decline"],
-    ctx: Context,
     to_email: str = "",
     token: str = "",
     tools: str = "",
+    mcp_servers: str = "",
     paths: str = "",
     approval: Literal["manual", "auto"] = "manual",
     max_dispatches_per_day: int = 50,
@@ -747,11 +680,13 @@ async def dispatch_invite(
                 your scopes). Grants you nothing on its own.
       list    — list invitations you've sent / received (each has a token).
       accept  — accept invite `token`, creating an edge that lets the INVITER
-                dispatch to your machine. This PROMPTS the human to pick what the
-                sender may use (Allow all / read-only / etc.) via an inline
-                chooser — you do not need to pass `tools`. Passing `tools`
-                (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash) + `paths`
-                pre-fills the "Custom" choice.
+                dispatch to your machine. `tools` is REQUIRED (comma-separated
+                ⊆ Read,Glob,Grep,Write,Edit,Bash): ask the human which scope to
+                grant — via the AskUserQuestion picker, never plain chat — and
+                pass their choice explicitly. Without `tools` this returns
+                scope_choice_required instead of inventing a default.
+                `mcp_servers` = '*' (all), 'none', or comma-separated server
+                names (default: none). `paths` restricts to directories.
       decline — decline invite `token`; no edge is created.
     """
     try:
@@ -764,33 +699,21 @@ async def dispatch_invite(
         if action == "accept":
             if not token:
                 return {"error": "token required for action='accept'"}
-            passed_tools = [t.strip() for t in tools.split(",") if t.strip()]
-            scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
-            # Two-question picker: built-in tool tier, then which MCP servers.
-            picked = await _elicit_scopes(
-                ctx,
-                "Accept invite and let this sender dispatch to your machine.\n"
-                "What built-in tools may their tasks use?",
-                passed_tools=passed_tools,
-            )
-            if picked is None:
-                # The scope picker couldn't be shown and no `tools` were passed.
-                # Refuse to accept with a silent default — the human must choose.
+            scope_tools, err = _parse_tools(tools)
+            if err:
+                return err
+            if not scope_tools:
+                # No scope given — the human must choose; never grant a default.
                 return {
                     "error": "scope_choice_required",
-                    "detail": (
-                        "Couldn't show the tool-scope picker and no `tools` were "
-                        "given, so there is nothing to grant. Dispatch will not "
-                        "apply a default scope on its own. Re-run accept with an "
-                        "explicit `tools` — a subset of Read,Glob,Grep,Write,Edit,"
-                        "Bash — to choose what this sender's agent may do on your "
-                        "machine (Bash = full shell; grant deliberately)."
-                    ),
+                    "installed_mcp_servers": await _installed_server_names(),
+                    "detail": _SCOPE_MENU,
                 }
-            scope_tools, scope_mcp = picked
+            scope_paths = [p.strip() for p in paths.split(",") if p.strip()]
             scopes: dict[str, Any] = {
-                "tools": scope_tools, "mcp": scope_mcp, "paths": scope_paths,
-                "approval": approval, "max_dispatches_per_day": max_dispatches_per_day,
+                "tools": scope_tools, "mcp": _parse_mcp(mcp_servers),
+                "paths": scope_paths, "approval": approval,
+                "max_dispatches_per_day": max_dispatches_per_day,
             }
             return await _local_call("POST", f"/api/invitations/{token}/accept", json={"scopes": scopes})
         if action == "decline":
@@ -852,9 +775,10 @@ async def _resolve_editable_edge(
 @mcp.tool()
 async def dispatch_trust(
     action: Literal["revoke", "edit"],
-    ctx: Context,
     trust_link_id: str = "",
     peer: str = "",
+    tools: str = "",
+    mcp_servers: str = "",
 ) -> Any:
     """Revoke or edit an existing trust edge — one where someone can dispatch to
     YOU (you're the trustor who set their scopes).
@@ -866,13 +790,16 @@ async def dispatch_trust(
 
       revoke — delete the edge: that sender can no longer dispatch to you, and
                any in-flight dispatch on the edge is cancelled immediately.
-      edit   — re-pick this sender's tool + MCP-server scopes via the same
-               inline prompts as accepting an invite, PRE-FILLED with their
-               current grants (the current tool tier is highlighted, the MCP
-               servers they already have are pre-checked). A grant for a server
-               you've since uninstalled is preserved, not silently dropped.
-               Takes effect on their NEXT dispatch; anything in flight keeps the
-               scope it started with (revoke to stop those too).
+      edit   — set this sender's tool + MCP-server scopes. `tools` is REQUIRED
+               (comma-separated ⊆ Read,Glob,Grep,Write,Edit,Bash): ask the
+               human which scope to grant — via the AskUserQuestion picker,
+               pre-filled with the edge's current grants — and pass their
+               choice explicitly. Without `tools` this returns the current
+               scopes (scope_choice_required) instead of changing anything.
+               `mcp_servers` = '*' (all), 'none', comma-separated names, or
+               omit to KEEP the current MCP grants. Paths/approval/limits are
+               untouched. Takes effect on their NEXT dispatch; anything in
+               flight keeps the scope it started with (revoke to stop those).
     """
     try:
         edge, err = await _resolve_editable_edge(trust_link_id, peer)
@@ -881,30 +808,27 @@ async def dispatch_trust(
         tlid = edge["trust_link_id"]
         if action == "revoke":
             return await _local_call("DELETE", f"/api/trust/{tlid}")
-        # edit — pre-fill the picker from the edge's current scopes.
+        # edit
         cur = edge.get("scopes") or {}
-        picked = await _elicit_scopes(
-            ctx,
-            f"Edit what {edge.get('peer', 'this sender')} may use when dispatching "
-            f"to you:",
-            current_tools=cur.get("tools") or [],
-            current_mcp=cur.get("mcp") or [],
-        )
-        if picked is None:
-            # Picker unavailable and the edge had no tools to keep — don't invent
-            # a scope; leave the edge unchanged and tell the human to choose.
+        scope_tools, terr = _parse_tools(tools)
+        if terr:
+            return terr
+        if not scope_tools:
+            # No scope given — show the human the current grant and let them
+            # choose; the edge stays unchanged. Never pick on their behalf.
             return {
                 "error": "scope_choice_required",
-                "detail": (
-                    "Couldn't show the tool-scope picker, so the edge is "
-                    "unchanged. Re-run from an interactive session to choose the "
-                    "scope."
-                ),
+                "peer": edge.get("peer"),
+                "current_scopes": cur,
+                "installed_mcp_servers": await _installed_server_names(),
+                "detail": _SCOPE_MENU,
             }
-        scope_tools, scope_mcp = picked
         # Only the tool/MCP permissions change; keep paths/approval/limits intact.
         new_scopes = dict(cur)
-        new_scopes.update({"tools": scope_tools, "mcp": scope_mcp})
+        new_scopes.update({
+            "tools": scope_tools,
+            "mcp": _parse_mcp(mcp_servers, keep=cur.get("mcp") or []),
+        })
         return await _local_call(
             "PATCH", f"/api/trust/{tlid}", json={"scopes": new_scopes}
         )

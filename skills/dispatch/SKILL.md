@@ -86,14 +86,18 @@ turn. **Minimize round-trips:**
 
 **Critical — how accepting works (do not skip this):** `dispatch_act(action="accept", dispatch_id=…)`
 **runs the task in a sandboxed dp-agent** (confined to the trust edge's tools +
-paths) and **blocks until it finishes**, prompting you inline for each tool call
-on a `manual` edge. In a session where the inline prompt can't render, accept
-instead returns `status: "approval_needed"` with one pending tool call — **ask
-the user immediately via the AskUserQuestion tool** (the native numbered
-picker, never plain chat text; options Allow once / Always allow this tool /
-Allow for this session / Deny; the daemon auto-denies after ~120s) and relay with
+paths). On a `manual` edge each gated tool call comes back as
+`status: "approval_needed"` with one pending tool call — **ask the user
+immediately via the AskUserQuestion tool**
+(the native numbered picker, never plain chat text; options Allow once /
+Always allow this tool / Allow for this session / Deny; the daemon auto-denies
+after ~120s) and relay with
 `dispatch_act(action="approve"|"deny", dispatch_id=…, request_id=…, grant=…)`,
-which resumes the watch and returns the next gate or the final result.
+which resumes the watch and returns the next gate or the final result. (With
+`approval_ui: form` in `~/.dispatch/config.json` or `DISPATCH_APPROVAL_UI=form`,
+accept instead blocks and prompts inline via MCP elicitation — numbered
+options in the client's form — and `approval_needed` only appears when that
+form can't render.)
 **You must NOT perform the dispatched task yourself.** Your
 only actions on an inbound dispatch are `dispatch_act` with `accept`/`decline`
 (and answering/relaying the approval prompts). After accept returns a terminal
@@ -201,10 +205,11 @@ machine. You establish an edge with an invitation:
    After they pick, map the choice to explicit tools and accept with them
    **spelled out** — never rely on a silent default:
    - **MCP:** `dispatch_invite(action="accept", token=…, tools="<chosen>",
-     approval=…, paths=…)` — always pass `tools` so the inline picker isn't the
-     only thing standing between the user and a default. (1→`Read,Glob,Grep`,
-     2→`Read,Glob,Grep,Write,Edit`, 3→`Read,Glob,Grep,Write,Edit,Bash`,
-     4→whatever they listed.)
+     mcp_servers=…, approval=…, paths=…)` — `tools` is **required** (accept
+     without it returns `scope_choice_required` instead of granting a default).
+     (1→`Read,Glob,Grep`, 2→`Read,Glob,Grep,Write,Edit`,
+     3→`Read,Glob,Grep,Write,Edit,Bash` + `mcp_servers="*"`, 4→whatever they
+     listed.) `mcp_servers` = `*`, `none` (default), or comma-separated names.
    - **CLI:** `dispatch accept-invitation <token> --tools <chosen> [--approval …]
      [--paths …]` — `--tools` is **required** (the CLI now refuses to accept
      without it, by design — so the human always chooses).
@@ -212,7 +217,10 @@ machine. You establish an edge with an invitation:
      `dispatch decline-invitation <token>`.
 4. As the trustor you can change what you grant later (you'll show as
    `can_edit_scopes: true` on that edge in `dispatch contacts`). Edit it the
-   same way — show the menu, let the human pick.
+   same way — show the menu, let the human pick, then
+   `dispatch_trust(action="edit", peer=…, tools="<chosen>", mcp_servers=…)`
+   (omit `mcp_servers` to keep the current MCP grants; calling without `tools`
+   returns the current scopes so you can pre-fill the menu).
 
 ## Sender workflow
 
@@ -260,23 +268,26 @@ machine. You establish an edge with an invitation:
 2. If **accept**: ALWAYS call **`dispatch_act(action="accept", dispatch_id=…)`**
    (MCP) — this is the **only** way to accept interactively. **Accepting *is*
    running the task** — it executes in the sandboxed dp-agent, confined to the
-   edge's tools and paths, and the call **blocks until that finishes, rendering
-   an inline approval prompt (arrow-key Allow / Deny / Always / …) for every
-   tool call on a `manual` edge**.
+   edge's tools and paths. On a `manual` edge the call pauses at **every** tool
+   call and hands it to you as `approval_needed` (step 3) — you ask the human
+   via the AskUserQuestion picker and relay the answer. (In `form` approval-UI
+   mode it instead blocks and prompts inline — numbered Allow once / Always /
+   Session / Deny / Decline-the-dispatch options in the client's elicitation
+   form.)
    **Do NOT tell the user to run `dispatch accept <id>` in a terminal**, and do
    NOT end your turn with a "paste this command" hand-off: the CLI `dispatch
    accept` is fire-and-forget with **no approval prompt attached**, so on a
    manual edge it silently waits and auto-denies every call after a timeout. The
-   eliciting MCP tool is the only interactive accept; the CLI exists for
+   MCP tool is the only interactive accept; the CLI exists for
    headless/daemon-mode use (where approvals go to the web UI or a phone).
    **You MUST NOT perform the task yourself** either. After accepting: do not
    announce "now creating/sending …", do not call Bash/Write/Edit or any tool to
    carry the task out, and do not re-do it — the sandbox already did. Your job is
    only to report the result the call returns. (Doing it yourself would run it
    *unconfined*, with no scope and no approval — exactly what must not happen.)
-3. **Picker-relay fallback (`approval_needed`).** In a session that can't render
-   inline elicitation prompts, `dispatch_act(action="accept")` does NOT cancel
-   the run — it returns `status: "approval_needed"` with ONE pending tool call
+3. **Picker relay (`approval_needed`) — the approval loop.**
+   `dispatch_act(action="accept")` returns `status: "approval_needed"` with ONE
+   pending tool call
    (`request_id`, `tool`, `input`). The sandboxed run is paused waiting on that
    decision. **Immediately** ask via the **AskUserQuestion tool** — the native
    numbered picker, exactly like a Bash permission prompt; never a plain-text
@@ -293,9 +304,8 @@ machine. You establish an edge with an invitation:
    result. Repeat until terminal.
 4. If **decline**: run `dispatch decline <id>`.
 5. **Accepting is NOT blanket approval.** On a `manual` edge *every* tool call
-   pauses for a separate human allow/deny. With `dispatch_act(action="accept")`
-   these are surfaced **inline as you go** — the blocking call prompts you for
-   each one (or hands them to you via `approval_needed`, step 3); you never
+   pauses for a separate human allow/deny, handed to you one at a time via
+   `approval_needed` (step 3) — or prompted inline in `form` mode; you never
    auto-approve. Only an
    `approval: auto` edge runs tool calls without prompts (still confined to the
    edge's tools + paths). `dispatch approvals` + `dispatch approve/deny`, and the
