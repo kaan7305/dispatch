@@ -44,6 +44,7 @@ tray = [
   "rumps>=0.4; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
   "pyobjc-framework-WebKit>=10.0; sys_platform == 'darwin'",
+  "pyobjc-framework-UserNotifications>=10.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

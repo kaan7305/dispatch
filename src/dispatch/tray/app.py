@@ -27,6 +27,7 @@ import rumps
 from AppKit import NSAppleEventManager, NSObject
 from Foundation import NSURL  # type: ignore  # noqa: F401
 
+from dispatch.tray import notify
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window
 
@@ -126,8 +127,16 @@ class DispatchTrayApp(rumps.App):
             rumps.MenuItem("Quit",         callback=self.quit_app),
         ]
 
+        # Clicking a dispatch notification opens the window on that dispatch.
+        notify.setup(on_click=self._on_notification_click)
+
         rumps.Timer(self._on_startup, 0.3).start()
         rumps.Timer(self._check_for_update, 15.0).start()
+
+    def _on_notification_click(self, dispatch_id: str | None) -> None:
+        self._on_main(
+            lambda: self._open_inbox_when_ready(attempts=20, dispatch_id=dispatch_id)
+        )
 
     # ------------------------------------------------------------------
     # Startup
@@ -257,10 +266,11 @@ class DispatchTrayApp(rumps.App):
             elif state == "disconnected":
                 self._set_status(ICON_BUSY, "Reconnecting…")
 
-        def on_notification(title: str, subtitle: str, message: str) -> None:
-            self._on_main(lambda: rumps.notification(
-                title=title, subtitle=subtitle, message=message,
-            ))
+        def on_notification(
+            title: str, subtitle: str, message: str, dispatch_id: str | None = None
+        ) -> None:
+            # notify.send is thread-safe — no main-thread bounce needed.
+            notify.send(title, subtitle, message, dispatch_id=dispatch_id)
 
         # Called by the web UI sign-out endpoint so the tray immediately
         # reflects the signed-out state and stops the broker WS.
@@ -296,10 +306,10 @@ class DispatchTrayApp(rumps.App):
                     # and drop in-memory credentials so the tray reflects it.
                     self.config = Config.load()
                     self._set_status(ICON_ERROR, "Signed out at broker")
-                    self._on_main(lambda: rumps.notification(
-                        title="Dispatch — signed out",
-                        subtitle="You signed out at the broker.",
-                        message="Open Broker to sign in again.",
+                    self._on_main(lambda: notify.send(
+                        "Dispatch — signed out",
+                        "You signed out at the broker.",
+                        "Open Broker to sign in again.",
                     ))
                     return
                 if rc == 0:
@@ -366,17 +376,17 @@ class DispatchTrayApp(rumps.App):
         cur = self._status_item.title or ""
         if "update" not in cur.lower():
             self._status_item.title = f"{cur}  ·  update ready — Reload"
-        rumps.notification(
-            title="Dispatch — update installed",
-            subtitle="Running on the old code until you reload.",
-            message="Click ⬡ Dispatch → “Reload to apply update”.",
+        notify.send(
+            "Dispatch — update installed",
+            "Running on the old code until you reload.",
+            "Click ⬡ Dispatch → “Reload to apply update”.",
         )
 
     def _reload_for_update(self, _item: rumps.MenuItem) -> None:
         if not self._update_pending:
-            rumps.notification(
-                title="Dispatch", subtitle="Already up to date.",
-                message="No newer code has been installed since this tray started.",
+            notify.send(
+                "Dispatch", "Already up to date.",
+                "No newer code has been installed since this tray started.",
             )
             return
         self._reexec()
@@ -422,10 +432,11 @@ class DispatchTrayApp(rumps.App):
             return
         self._open_inbox_when_ready(attempts=20)
 
-    def _open_inbox_when_ready(self, attempts: int) -> None:
+    def _open_inbox_when_ready(self, attempts: int, dispatch_id: str | None = None) -> None:
         """Poll the local server every 0.5s and open the inbox window as
         soon as it answers. If it never comes up (daemon failed to start),
-        show a clear alert instead of a blank window."""
+        show a clear alert instead of a blank window. With dispatch_id the
+        window deep-links onto that dispatch's detail view."""
         import urllib.request as _ur
         port = self.config.local_port
 
@@ -451,7 +462,14 @@ class DispatchTrayApp(rumps.App):
             timer.stop()
             from dispatch.daemon.local_app import read_local_token
             token = read_local_token()
-            suffix = f"#t={token}" if token else ""
+            # Fragment params the SPA's bootstrap consumes: t = local token,
+            # d = dispatch to deep-link onto.
+            parts = []
+            if token:
+                parts.append(f"t={token}")
+            if dispatch_id:
+                parts.append(f"d={dispatch_id}")
+            suffix = f"#{'&'.join(parts)}" if parts else ""
             open_native_window(
                 f"http://127.0.0.1:{port}/{suffix}",
                 title="Dispatch",
@@ -514,10 +532,10 @@ class DispatchTrayApp(rumps.App):
 
         invite_msg = ("Open Inbox → People to accept it." if pending_invite else
                       "Click the menu bar icon → Open Inbox.")
-        rumps.notification(
-            title="Dispatch is configured",
-            subtitle="Signed in. Daemon starting…",
-            message=invite_msg,
+        notify.send(
+            "Dispatch is configured",
+            "Signed in. Daemon starting…",
+            invite_msg,
         )
 
     def show_account(self, _: rumps.MenuItem) -> None:

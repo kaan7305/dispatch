@@ -17,12 +17,19 @@ export function bootstrapToken(): string {
     // from the URL here.
     return getToken();
   }
+  // The tray stamps launch params into the fragment: #t=<token>&d=<dispatch>.
+  // (The legacy bare form "#t=xyz" parses identically.) `d` is a deep-link
+  // target — a clicked notification lands directly on that dispatch.
   const params = new URLSearchParams(location.search);
-  let t = params.get("t");
-  if (!t && location.hash.startsWith("#t=")) t = location.hash.slice(3);
-  if (t) {
-    sessionStorage.setItem(LOCAL_KEY, t);
-    history.replaceState({}, "", location.pathname);
+  const hashParams = new URLSearchParams(location.hash.slice(1));
+  const t = params.get("t") ?? hashParams.get("t");
+  const deepLink = hashParams.get("d");
+  if (t) sessionStorage.setItem(LOCAL_KEY, t);
+  if (t || deepLink) {
+    history.replaceState(
+      {}, "",
+      deepLink ? `/dispatch/${encodeURIComponent(deepLink)}` : location.pathname,
+    );
   }
   return sessionStorage.getItem(LOCAL_KEY) ?? "";
 }
