@@ -4,6 +4,21 @@ export function initials(email: string): string {
   return (local[0] ?? "?").toUpperCase();
 }
 
+/** Flatten markdown to plain prose for line-clamped list previews — strips
+ *  the syntax (#, **, `, [..](..)) instead of rendering it, since block
+ *  elements would fight the two-line clamp. */
+export function plainPreview(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ")            // fenced code blocks
+    .replace(/^#{1,6}\s+/gm, "")                 // heading markers
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, "")     // list markers
+    .replace(/^\s*>\s?/gm, "")                   // blockquote markers
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")   // links/images → label
+    .replace(/(\*\*|__|\*|_|~~|`)/g, "")         // emphasis / inline code
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 export function relativeTime(iso: string): string {

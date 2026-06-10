@@ -251,6 +251,7 @@ def _entry_summary(entry: InboxEntry) -> dict:
         "sender_id": p.sender_id,
         "recipient_id": p.recipient_id,
         "task": p.task,
+        "metadata": p.metadata,
         "created_at": p.created_at.isoformat(),
         "expires_at": p.expires_at.isoformat(),
         "status": entry.status.value,

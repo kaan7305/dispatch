@@ -4,7 +4,7 @@ import { Check, X } from "lucide-react";
 
 import { api, type DispatchStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { initials, relativeTime } from "@/lib/format";
+import { initials, plainPreview, relativeTime } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -59,7 +59,7 @@ export function DispatchRow({
           <StatusBadge status={status} />
           {hint && <Badge variant="outline">{hint}</Badge>}
         </div>
-        <div className="mt-1 text-sm leading-snug line-clamp-2">{task}</div>
+        <div className="mt-1 text-sm leading-snug line-clamp-2">{plainPreview(task)}</div>
         <div className="mt-1 text-xs text-muted-foreground">
           {relativeTime(createdAt)}
         </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, RotateCcw, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -56,6 +56,7 @@ interface AnyDispatch {
   sender_id: string;
   recipient_id?: string;
   task: string;
+  metadata?: Record<string, unknown> | null;
   status: InboxEntry["status"];
   created_at: string;
   scopes?: InboxEntry["scopes"];
@@ -105,15 +106,16 @@ function DetailBody({
   const session = useQuery({ queryKey: ["session"], queryFn: () => api.session() });
   const me = session.data?.user_id ?? "";
   const isRecipient = !!entry.recipient_id && entry.recipient_id === me;
+  const isSender = !!me && entry.sender_id === me;
   const reply = replyOf(entry);
   const decisionPending = entry.status === "pending" || entry.status === "delivered";
-  const cancellable = !(
+  const terminal =
     entry.status === "completed" ||
     entry.status === "failed" ||
     entry.status === "denied" ||
     entry.status === "expired" ||
-    entry.status === "cancelled"
-  );
+    entry.status === "cancelled";
+  const [resendOpen, setResendOpen] = useState(false);
 
   return (
     <div className="h-full flex flex-col">
@@ -123,15 +125,25 @@ function DetailBody({
         </Button>
         <StatusBadge status={entry.status} />
         <RunStats entry={entry} />
-        {cancellable && (
+        {!terminal && (
           <div className="ml-auto">
             <CancelButton dispatchId={entry.dispatch_id} />
+          </div>
+        )}
+        {terminal && isSender && (
+          <div className="ml-auto">
+            <Button variant="outline" size="sm" onClick={() => setResendOpen((o) => !o)}>
+              <RotateCcw className="size-4" /> Resend
+            </Button>
           </div>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
+          {resendOpen && (
+            <ResendPanel entry={entry} me={me} onClose={() => setResendOpen(false)} />
+          )}
           <Header entry={entry} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
           {isRecipient && <PendingTools entry={entry} />}
@@ -202,6 +214,74 @@ function CollapsibleActivity({
   );
 }
 
+/** Compose a fresh dispatch from a finished one — same recipient, task
+ *  prefilled but editable (the usual reason to resend is that the first run
+ *  missed the mark). The copy carries `resend_of` in metadata so the chain
+ *  is traceable; everything else goes through the normal compose path, so
+ *  trust, rate limits and signing all apply as usual. */
+function ResendPanel({
+  entry, me, onClose,
+}: { entry: AnyDispatch; me: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [task, setTask] = useState(entry.task);
+  const [error, setError] = useState<string | null>(null);
+  // recipient_id is always present on broker-served details; the only entry
+  // without one is a locally-witnessed loopback, where the recipient is us.
+  const recipient = entry.recipient_id ?? me;
+  const { resend_of: _prior, ...carried } = entry.metadata ?? {};
+
+  const resend = useMutation({
+    mutationFn: () =>
+      api.compose({
+        recipient_id: recipient,
+        task: task.trim(),
+        metadata: { ...carried, resend_of: entry.dispatch_id },
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["sent"] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      const newId =
+        "dispatch_id" in res ? res.dispatch_id : res.dispatches[0]?.dispatch_id;
+      onClose();
+      if (newId) navigate(`/dispatch/${newId}`);
+    },
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+  });
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div>
+        <div className="font-medium">Resend to {recipient}</div>
+        <div className="text-sm text-muted-foreground mt-0.5">
+          Sends a new dispatch with the same task. Edit it first if the last
+          run didn't come back the way you wanted.
+        </div>
+      </div>
+      <textarea
+        value={task}
+        onChange={(e) => setTask(e.target.value)}
+        rows={5}
+        spellCheck={false}
+        className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+      />
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose} disabled={resend.isPending}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => resend.mutate()}
+          disabled={resend.isPending || !task.trim()}
+        >
+          {resend.isPending ? "Sending…" : "Send again"}
+        </Button>
+      </div>
+      {error && <div className="text-xs text-destructive">{error}</div>}
+    </div>
+  );
+}
+
 function CancelButton({ dispatchId }: { dispatchId: string }) {
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
@@ -256,9 +336,9 @@ function Header({ entry }: { entry: AnyDispatch }) {
         <div className="text-xs text-muted-foreground">
           Sent {relativeTime(entry.created_at)}
         </div>
-        <p className="mt-3 text-base leading-relaxed whitespace-pre-wrap">
-          {entry.task}
-        </p>
+        <div className="mt-3">
+          <Markdown text={entry.task} />
+        </div>
       </div>
     </div>
   );

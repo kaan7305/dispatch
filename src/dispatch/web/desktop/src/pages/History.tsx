@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 
 import { api, type DispatchSummary } from "@/lib/api";
-import { initials, relativeTime } from "@/lib/format";
+import { initials, plainPreview, relativeTime } from "@/lib/format";
 import { SegmentedTabs } from "@/components/SegmentedTabs";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +80,7 @@ function HistoryRow({
           <span className="font-semibold">{peer}</span>
           <StatusBadge status={row.status} />
         </div>
-        <div className="mt-1 text-sm leading-snug line-clamp-2">{row.task}</div>
+        <div className="mt-1 text-sm leading-snug line-clamp-2">{plainPreview(row.task)}</div>
         <div className="mt-1 text-xs text-muted-foreground">
           Started {relativeTime(row.created_at)}
         </div>

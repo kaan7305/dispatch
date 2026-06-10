@@ -368,7 +368,9 @@ export interface McpServerTools {
 export interface InboxEntry {
   dispatch_id: string;
   sender_id: string;
+  recipient_id?: string;
   task: string;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   expires_at: string;
   status: DispatchStatus;
