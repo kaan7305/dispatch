@@ -12,6 +12,8 @@ from AppKit import (
     NSApplicationActivationPolicyAccessory,
     NSBackingStoreBuffered,
     NSMakeRect,
+    NSMenu,
+    NSMenuItem,
     NSURL,
     NSURLRequest,
     NSWindow,
@@ -31,6 +33,37 @@ _STYLE = (
     | NSWindowStyleMaskResizable
     | NSWindowStyleMaskMiniaturizable
 )
+
+
+def _install_edit_menu() -> None:
+    """Accessory apps have no main menu, so Cmd+C/V/X/A never reach the
+    web view. Install a minimal Edit menu bound to the standard selectors."""
+    main_menu = NSApp.mainMenu()
+    if main_menu is None:
+        main_menu = NSMenu.alloc().init()
+        # The first item of a main menu is always treated as the app menu.
+        main_menu.addItem_(
+            NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Dispatch", None, "")
+        )
+        NSApp.setMainMenu_(main_menu)
+    if main_menu.itemWithTitle_("Edit") is not None:
+        return
+
+    edit_menu = NSMenu.alloc().initWithTitle_("Edit")
+    for title, action, key in (
+        ("Undo", "undo:", "z"),
+        ("Redo", "redo:", "Z"),
+        ("Cut", "cut:", "x"),
+        ("Copy", "copy:", "c"),
+        ("Paste", "paste:", "v"),
+        ("Select All", "selectAll:", "a"),
+    ):
+        edit_menu.addItem_(
+            NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, key)
+        )
+    edit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Edit", None, "")
+    edit_item.setSubmenu_(edit_menu)
+    main_menu.addItem_(edit_item)
 
 
 def _find_open_window(title: str) -> NSWindow | None:
@@ -55,6 +88,7 @@ def open_native_window(url: str, title: str = "Dispatch", width: int = 1000, hei
     existing window with the same title if one is already open. Main
     thread only."""
     try:
+        _install_edit_menu()
         existing = _find_open_window(title)
         if existing is not None:
             # Navigate to the current URL so a fresh token or a rebuilt dist
