@@ -143,6 +143,20 @@ export const api = {
     }),
   revokeTrust: (id: string) =>
     request<{ status: string }>(`/api/trust/${id}`, { method: "DELETE" }),
+  // Learned context (cross-dispatch memory) for an incoming edge. Daemon-local
+  // — the entries live on this machine, so in broker mode we degrade to an
+  // "unavailable" stub instead of a request that can't be served.
+  edgeMemory: (id: string): Promise<EdgeMemory> =>
+    isBroker
+      ? Promise.resolve({ trust_link_id: id, bucket: "", entries: [], shared_with: [], unavailable: true })
+      : request<EdgeMemory>(`/api/trust/${id}/memory`),
+  forgetEdgeMemory: (id: string) =>
+    request<{ status: string }>(`/api/trust/${id}/memory`, { method: "DELETE" }),
+  forgetEdgeMemoryEntry: (id: string, path: string) =>
+    request<{ status: string }>(
+      `/api/trust/${id}/memory/entry?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" },
+    ),
   // Installed MCP servers exposable to senders — feeds the edit-permissions
   // picker. This is a daemon-local capability: the broker neither has the route
   // nor should know your full install inventory, so in broker mode (or if the
@@ -297,6 +311,24 @@ export type DispatchStatus =
   | "failed"
   | "expired"
   | "cancelled";
+
+export interface MemoryEntry {
+  path: string;
+  kind?: string;
+  first_seen?: string;
+  last_seen?: string;
+  hits?: number;
+}
+
+export interface EdgeMemory {
+  trust_link_id: string;
+  bucket: string;
+  entries: MemoryEntry[];
+  // Other incoming edges with the identical capability envelope — they share
+  // this memory bucket.
+  shared_with: string[];
+  unavailable?: boolean;
+}
 
 export interface Scopes {
   tools?: string[];

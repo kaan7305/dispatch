@@ -32,7 +32,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from dispatch.daemon.identity import dispatch_home
-from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus
+from dispatch.daemon import memory as run_memory
+from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus, Scopes
 
 logger = logging.getLogger("dispatch.daemon.local")
 
@@ -544,6 +545,80 @@ def make_app(
     @app.delete("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def revoke_trust(trust_link_id: str) -> Response:
         return await _broker_request("DELETE", f"/trust/{trust_link_id}")
+
+    # ── Learned context (cross-dispatch memory) ─────────────────────────
+    # Memory lives on THIS machine, keyed by capability bucket — but the UI
+    # navigates by trust edge. These endpoints resolve edge → scope → bucket
+    # (the edge comes from the broker; the bucket math + entries are local).
+    # Only incoming edges resolve: for an outgoing edge the memory is on the
+    # peer's machine, not here.
+
+    async def _incoming_edge(trust_link_id: str) -> dict:
+        if not local_state.broker_token:
+            raise HTTPException(status_code=503, detail="broker token unavailable")
+        url = f"{local_state.broker_url.rstrip('/')}/trust"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                resp = await client.get(
+                    url, headers={"Authorization": f"Bearer {local_state.broker_token}"},
+                )
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="trust lookup failed")
+        edges = (resp.json() or {}).get("trust", [])
+        edge = next(
+            (e for e in edges if e.get("trust_link_id") == trust_link_id), None,
+        )
+        if edge is None:
+            raise HTTPException(status_code=404, detail="unknown trust edge")
+        if edge.get("direction") != "incoming":
+            raise HTTPException(
+                status_code=409,
+                detail="memory for an outgoing edge lives on the peer's machine",
+            )
+        return {"edge": edge, "all": edges}
+
+    @app.get("/api/trust/{trust_link_id}/memory", dependencies=[Depends(require_local_token)])
+    async def edge_memory(trust_link_id: str) -> dict:
+        resolved = await _incoming_edge(trust_link_id)
+        scope = Scopes(**(resolved["edge"].get("scopes") or {}))
+        bucket = run_memory.capability_bucket(scope)
+        # Same-bucket peers: other incoming edges whose capability envelope is
+        # identical — they read/write this same memory. Surfaced so "forget"
+        # is an informed decision.
+        shared_with = sorted({
+            e.get("peer", "?")
+            for e in resolved["all"]
+            if e.get("direction") == "incoming"
+            and e.get("trust_link_id") != trust_link_id
+            and run_memory.capability_bucket(Scopes(**(e.get("scopes") or {}))) == bucket
+        })
+        return {
+            "trust_link_id": trust_link_id,
+            "bucket": bucket,
+            "entries": run_memory.load_entries(bucket),
+            "shared_with": shared_with,
+        }
+
+    @app.delete("/api/trust/{trust_link_id}/memory", dependencies=[Depends(require_local_token)])
+    async def forget_edge_memory(trust_link_id: str) -> dict:
+        resolved = await _incoming_edge(trust_link_id)
+        scope = Scopes(**(resolved["edge"].get("scopes") or {}))
+        run_memory.clear_bucket(run_memory.capability_bucket(scope))
+        return {"status": "ok"}
+
+    @app.delete(
+        "/api/trust/{trust_link_id}/memory/entry",
+        dependencies=[Depends(require_local_token)],
+    )
+    async def forget_edge_memory_entry(trust_link_id: str, path: str) -> dict:
+        resolved = await _incoming_edge(trust_link_id)
+        scope = Scopes(**(resolved["edge"].get("scopes") or {}))
+        removed = run_memory.remove_entry(run_memory.capability_bucket(scope), path)
+        if not removed:
+            raise HTTPException(status_code=404, detail="no such remembered path")
+        return {"status": "ok"}
 
     @app.post("/api/invitations", dependencies=[Depends(require_local_token)])
     async def create_invitation(body: _Invite) -> Response:

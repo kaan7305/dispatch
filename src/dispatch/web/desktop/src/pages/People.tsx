@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Settings, Trash2, UserPlus, X } from "lucide-react";
+import { Brain, Check, Settings, Trash2, UserPlus, X } from "lucide-react";
 
 import { api, type Invitation, type Scopes, type TrustEdge } from "@/lib/api";
 import { initials } from "@/lib/format";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { InviteDialog } from "@/components/InviteDialog";
 import { EditPermissionsDialog } from "@/components/EditPermissionsDialog";
+import { EdgeMemoryDialog } from "@/components/EdgeMemoryDialog";
 import { SegmentedTabs } from "@/components/SegmentedTabs";
 
 type Tab = "all" | "send" | "receive";
@@ -257,6 +258,13 @@ function PersonRow({
               <Settings className="size-4" /> Edit permissions
             </Button>
           </EditPermissionsDialog>
+        )}
+        {row.incoming && (tab === "all" || tab === "receive") && (
+          <EdgeMemoryDialog edge={row.incoming}>
+            <Button variant="ghost" size="sm" className="whitespace-nowrap">
+              <Brain className="size-4" /> Learned context
+            </Button>
+          </EdgeMemoryDialog>
         )}
         <Button
           variant="ghost"

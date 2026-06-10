@@ -92,6 +92,29 @@ def test_harvest_counts_hits_and_records_pinned_cwd(tmp_path, monkeypatch):
     assert str(pinned) in entries
 
 
+def test_remove_entry_and_clear_bucket(tmp_path, monkeypatch):
+    monkeypatch.setattr(memory, "MEMORY_DIR", tmp_path / "mem")
+    repo = _git_repo(tmp_path, "yuni")
+    other = _git_repo(tmp_path, "other")
+
+    h = memory.RunHarvester()
+    for i, r in enumerate((repo, other)):
+        h.observe({"type": "tool_use",
+                   "data": {"id": f"t{i}", "name": "Glob",
+                            "input": {"path": str(r), "pattern": "*"}}})
+        h.observe({"type": "tool_result",
+                   "data": {"tool_use_id": f"t{i}", "content": "ok", "is_error": False}})
+    h.finish("b")
+
+    assert memory.remove_entry("b", str(repo)) is True
+    assert memory.remove_entry("b", str(repo)) is False  # already gone
+    assert {e["path"] for e in memory.load_entries("b")} == {str(other)}
+
+    memory.clear_bucket("b")
+    assert memory.load_entries("b") == []
+    memory.clear_bucket("b")  # idempotent on a missing file
+
+
 # ---------------- injection ----------------
 
 def test_prompt_filters_dead_and_out_of_scope_paths(tmp_path):

@@ -87,6 +87,24 @@ def _save_entries(bucket: str, entries: list[dict[str, Any]]) -> None:
         logger.warning("could not persist dispatch memory for bucket %s", bucket)
 
 
+def remove_entry(bucket: str, path: str) -> bool:
+    """Forget one remembered directory. True if it was present."""
+    entries = load_entries(bucket)
+    kept = [e for e in entries if e.get("path") != path]
+    if len(kept) == len(entries):
+        return False
+    _save_entries(bucket, kept)
+    return True
+
+
+def clear_bucket(bucket: str) -> None:
+    """Forget everything learned for this capability bucket."""
+    try:
+        _bucket_file(bucket).unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not clear dispatch memory bucket %s", bucket)
+
+
 def repo_root(path: Path) -> Path | None:
     """Walk up from `path` to the enclosing git repo root, if any. Bounded,
     and never returns the home directory or filesystem root themselves."""
