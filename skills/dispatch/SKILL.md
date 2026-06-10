@@ -89,8 +89,9 @@ turn. **Minimize round-trips:**
 paths) and **blocks until it finishes**, prompting you inline for each tool call
 on a `manual` edge. In a session where the inline prompt can't render, accept
 instead returns `status: "approval_needed"` with one pending tool call — **ask
-the user in chat immediately** (Allow / Deny, like a Bash permission prompt;
-the daemon auto-denies after ~120s) and relay with
+the user immediately via the AskUserQuestion tool** (the native numbered
+picker, never plain chat text; options Allow once / Always allow this tool /
+Allow for this session / Deny; the daemon auto-denies after ~120s) and relay with
 `dispatch_act(action="approve"|"deny", dispatch_id=…, request_id=…, grant=…)`,
 which resumes the watch and returns the next gate or the final result.
 **You must NOT perform the dispatched task yourself.** Your
@@ -273,18 +274,23 @@ machine. You establish an edge with an invitation:
    carry the task out, and do not re-do it — the sandbox already did. Your job is
    only to report the result the call returns. (Doing it yourself would run it
    *unconfined*, with no scope and no approval — exactly what must not happen.)
-3. **Chat-relay fallback (`approval_needed`).** In a session that can't render
+3. **Picker-relay fallback (`approval_needed`).** In a session that can't render
    inline elicitation prompts, `dispatch_act(action="accept")` does NOT cancel
    the run — it returns `status: "approval_needed"` with ONE pending tool call
    (`request_id`, `tool`, `input`). The sandboxed run is paused waiting on that
-   decision. Treat it exactly like a Bash permission prompt: **immediately**
-   show the user the tool + input verbatim and ask **Allow / Always allow this
-   tool / Allow for this session / Deny** — never decide for them, and never
-   end your turn without asking (the daemon auto-denies the call after ~120s).
-   Relay their answer with `dispatch_act(action="approve"|"deny",
-   dispatch_id=…, request_id=…, grant="once"|"always"|"session")`. That call
-   posts the decision and keeps watching the run, returning either the **next**
-   `approval_needed` (ask again) or the final result. Repeat until terminal.
+   decision. **Immediately** ask via the **AskUserQuestion tool** — the native
+   numbered picker, exactly like a Bash permission prompt; never a plain-text
+   chat question. Question = sender + tool + input verbatim, plus one line on
+   what the call does. Options, in this order, each with a one-line description
+   of its effect: **Allow once / Always allow <tool> / Allow for this session /
+   Deny**. Never decide for them, and never end your turn without asking (the
+   daemon auto-denies the call after ~120s). Relay their answer with
+   `dispatch_act(action="approve"|"deny", dispatch_id=…, request_id=…,
+   grant="once"|"always"|"session")` — Allow once→`approve`/`once`, Always
+   allow→`approve`/`always`, this session→`approve`/`session`, Deny→`deny`.
+   That call posts the decision and keeps watching the run, returning either
+   the **next** `approval_needed` (ask again, same format) or the final
+   result. Repeat until terminal.
 4. If **decline**: run `dispatch decline <id>`.
 5. **Accepting is NOT blanket approval.** On a `manual` edge *every* tool call
    pauses for a separate human allow/deny. With `dispatch_act(action="accept")`

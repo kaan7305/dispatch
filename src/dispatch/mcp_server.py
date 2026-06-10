@@ -494,15 +494,20 @@ def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict)
         "answer_within_seconds": 120,
         "detail": (
             "This session can't render inline approval prompts, so this pending "
-            "tool call is handed to you instead. ASK THE USER NOW — show the "
-            "tool and its input verbatim and offer: Allow once / Always allow "
-            "this tool / Allow for this session / Deny. Never decide on their "
-            "behalf. Then relay their choice with dispatch_act(action='approve' "
-            "or 'deny', dispatch_id=…, request_id=…, grant='once'|'always'|"
-            "'session'). That call resumes watching the run and returns either "
-            "the next approval_needed or the final result. The daemon "
-            "auto-denies this call if no decision arrives within ~120s, so ask "
-            "immediately."
+            "tool call is handed to you instead. ASK THE USER NOW via the "
+            "AskUserQuestion tool (the native numbered picker — do NOT ask in "
+            "plain chat text): question = the sender, the tool, and its input "
+            "verbatim, plus one line saying what the call does; options = "
+            f"'Allow once' / 'Always allow {info.get('tool')}' / 'Allow for "
+            "this session' / 'Deny', in that order, each with a one-line "
+            "description of its effect. Never decide on their behalf. Then "
+            "relay their choice with dispatch_act(action='approve' or 'deny', "
+            "dispatch_id=…, request_id=…, grant='once'|'always'|'session') — "
+            "'Allow once'→approve/once, 'Always allow'→approve/always, 'this "
+            "session'→approve/session, 'Deny'→deny. That call resumes watching "
+            "the run and returns either the next approval_needed (ask again, "
+            "same format) or the final result. The daemon auto-denies this "
+            "call if no decision arrives within ~120s, so ask immediately."
         ),
     }
 
@@ -541,12 +546,17 @@ async def _supervise(
                     )
                     try:
                         res = await ctx.elicit(message=msg, schema=_Approve)
-                    except Exception:
+                    except Exception as exc:
                         # Elicitation is unavailable in this session (e.g. a
                         # non-interactive surface). Do NOT silently deny, and do
                         # NOT cancel the run — hand the approval to the host
-                        # agent so the human is asked in chat. The run keeps
-                        # waiting on the daemon's future meanwhile.
+                        # agent so the human is asked via its native picker.
+                        # The run keeps waiting on the daemon's future meanwhile.
+                        print(
+                            f"dispatch-mcp: elicitation unavailable ({exc!r}); "
+                            "relaying approval to the host agent",
+                            file=sys.stderr,
+                        )
                         return _approval_needed(dispatch_id, sender, request_id, info)
                     choice = res.data.decision if isinstance(res, AcceptedElicitation) else "Deny"
                     if choice == "Allow the rest of this dispatch":
@@ -655,9 +665,11 @@ async def dispatch_act(
                 You MUST NOT perform the task yourself — accepting *is* running it.
                 If this session can't render inline prompts, accept returns
                 status='approval_needed' with one pending tool call: ask the
-                user in chat (Allow/Deny, like a Bash permission prompt) and
-                relay via approve/deny below — the run waits, but auto-denies
-                that call after ~120s, so ask immediately.
+                user via the AskUserQuestion tool (native numbered picker;
+                options Allow once / Always allow this tool / Allow for this
+                session / Deny — never plain chat text) and relay via
+                approve/deny below — the run waits, but auto-denies that
+                call after ~120s, so ask immediately.
       decline — reject an inbound dispatch; it never runs.
       cancel  — cancel an in-flight dispatch (either party).
       approve / deny — relay the human's allow/deny for one pending tool call
