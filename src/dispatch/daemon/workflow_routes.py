@@ -21,6 +21,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
+from dispatch.daemon.broker_http import broker_request
+
 logger = logging.getLogger("dispatch.daemon.workflow_routes")
 
 
@@ -31,6 +33,7 @@ def make_router(
     local_token: str,
     broker_url: str,
     broker_token_getter=None,
+    http_client: Optional[httpx.AsyncClient] = None,
 ):
     """Build the FastAPI router exposing /api/workflows* + /api/runs/*.
 
@@ -38,6 +41,10 @@ def make_router(
     token at request time. If omitted, we fall back to local_state.broker_token
     on every request — that's the value local_app.py also reads, so the
     two stay in sync.
+
+    http_client: the pooled broker client owned by local_app.make_app
+    (closed in its lifespan). Without one, each request falls back to a
+    throwaway client.
     """
     router = APIRouter()
 
@@ -71,15 +78,20 @@ def make_router(
         if not token:
             raise HTTPException(status_code=503, detail="broker token unavailable")
         url = f"{broker_url.rstrip('/')}{path}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                resp = await client.request(
-                    method, url,
-                    json=json_body, params=params,
-                    headers={"Authorization": f"Bearer {token}"},
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            if http_client is not None:
+                resp = await broker_request(
+                    http_client, method, url,
+                    json_body=json_body, params=params, headers=headers,
                 )
-            except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
+            else:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.request(
+                        method, url, json=json_body, params=params, headers=headers,
+                    )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
         return Response(
             content=resp.content,
             status_code=resp.status_code,

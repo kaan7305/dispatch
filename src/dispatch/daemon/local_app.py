@@ -20,6 +20,7 @@ import logging
 import secrets
 import sys as _sys
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -31,6 +32,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from dispatch.daemon.broker_http import broker_request, make_broker_client
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon import memory as run_memory
 from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus, Scopes
@@ -316,7 +318,22 @@ def make_app(
     we stash it on app.state so handle_broker can find it via the
     process-shared LocalServer handle.
     """
-    app = FastAPI(title="Dispatch (local)")
+    # One pooled broker client per app instance (closure-scoped, not module
+    # level: connections bind to the event loop they were opened on, and a
+    # fresh app from a respawn/test gets a fresh loop). Connections open
+    # lazily, so creating it before the loop runs is fine.
+    broker_client = make_broker_client()
+
+    @asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            # A LocalServer.stop()/respawn cycle would otherwise leak a
+            # connection pool per iteration.
+            await broker_client.aclose()
+
+    app = FastAPI(title="Dispatch (local)", lifespan=_lifespan)
     app.state.workflow_engine = workflow_engine
 
     def require_local_token(request: Request) -> None:
@@ -514,13 +531,13 @@ def make_app(
         headers: dict[str, str] = {}
         if require_auth:
             headers["Authorization"] = f"Bearer {local_state.broker_token}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                resp = await client.request(
-                    method, url, json=json_body, params=params, headers=headers,
-                )
-            except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
+        try:
+            resp = await broker_request(
+                broker_client, method, url,
+                json_body=json_body, params=params, headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
         return Response(
             content=resp.content,
             status_code=resp.status_code,
@@ -558,13 +575,13 @@ def make_app(
         if not local_state.broker_token:
             raise HTTPException(status_code=503, detail="broker token unavailable")
         url = f"{local_state.broker_url.rstrip('/')}/trust"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                resp = await client.get(
-                    url, headers={"Authorization": f"Bearer {local_state.broker_token}"},
-                )
-            except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
+        try:
+            resp = await broker_request(
+                broker_client, "GET", url,
+                headers={"Authorization": f"Bearer {local_state.broker_token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
         if resp.status_code != 200:
             raise HTTPException(status_code=resp.status_code, detail="trust lookup failed")
         edges = (resp.json() or {}).get("trust", [])
@@ -789,6 +806,7 @@ def make_app(
                 daemon_state,
                 local_token,
                 local_state.broker_url,
+                http_client=broker_client,
             )
         )
 
