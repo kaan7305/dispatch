@@ -439,6 +439,7 @@ async def run_session(
         on_signout=on_signout,
         on_recheck=on_recheck,
         running_commit=running_commit,
+        workspace=workspace,
     )
     local_port = int(_load_config().get("local_port") or args.local_port or 8001)
     print(f"[daemon] evicting any process on port {local_port}", flush=True)

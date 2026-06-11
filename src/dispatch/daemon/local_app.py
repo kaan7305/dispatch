@@ -26,9 +26,13 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from uuid import UUID
 
+import base64
+import mimetypes
+import re
+
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,6 +40,7 @@ from dispatch.daemon.broker_http import broker_request, make_broker_client
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon import memory as run_memory
 from dispatch.shared.schema import (
+    ATTACHMENT_NAME_RE,
     DispatchEvent,
     DispatchPayload,
     DispatchStatus,
@@ -116,6 +121,9 @@ class LocalState:
     broker_url: str = ""
     broker_token: str = ""   # Dispatch JWT — used by the proxy handlers, never returned to the SPA
     broker_connected: bool = False   # is the daemon's broker WS up right now?
+    # Agent working dir; attachments materialize under <workspace>/attachments/.
+    # Lets the local API serve attachment files back to the recipient's UI.
+    workspace: Optional[Path] = None
     # Commit this daemon process is running (read from ~/.dispatch/installed_commit
     # at startup). `dispatch update` compares it against the commit it just
     # installed to tell whether this still-running process is on stale code.
@@ -471,6 +479,60 @@ def make_app(
         if entry is not None and (is_live or entry.events):
             return {**_entry_summary(entry), "events": entry.events}
         return await _broker_request("GET", f"/dispatch/{dispatch_id}")
+
+    @app.get(
+        "/api/dispatch/{dispatch_id}/attachment/{name}",
+        dependencies=[Depends(require_local_token)],
+    )
+    async def dispatch_attachment(dispatch_id: UUID, name: str):
+        """Serve one of a dispatch's attachment files to the recipient's UI.
+
+        Bytes come from one of two places, disk first:
+          1. <workspace>/attachments/<id8>/<name> — written when the dispatch
+             ran (survives a daemon restart).
+          2. the in-memory entry's base64 — covers a just-arrived dispatch the
+             recipient hasn't accepted yet (no disk copy exists).
+
+        `name` must match ATTACHMENT_NAME_RE (no separators / leading dot), and
+        we additionally flatten with Path(name).name, so a crafted filename
+        can't escape the per-dispatch directory.
+        """
+        if not re.fullmatch(ATTACHMENT_NAME_RE, name):
+            raise HTTPException(status_code=400, detail="invalid attachment name")
+        safe = Path(name).name
+
+        if local_state.workspace is not None:
+            path = local_state.workspace / "attachments" / str(dispatch_id)[:8] / safe
+            try:
+                resolved = path.resolve()
+                root = (local_state.workspace / "attachments").resolve()
+                resolved.relative_to(root)  # raises if path escaped the root
+                if resolved.is_file():
+                    return FileResponse(
+                        resolved,
+                        media_type=mimetypes.guess_type(safe)[0] or "application/octet-stream",
+                        filename=safe,
+                    )
+            except (OSError, ValueError):
+                pass  # fall through to the in-memory copy
+
+        entry = local_state.entries.get(dispatch_id)
+        atts = (entry.payload.metadata or {}).get("attachments") if entry else None
+        for a in atts or []:
+            if isinstance(a, dict) and Path(str(a.get("name") or "")).name == safe:
+                content_b64 = a.get("content_b64")
+                if not content_b64:
+                    break  # manifest-only (seeded from broker) — bytes are gone
+                try:
+                    raw = base64.b64decode(content_b64)
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=500, detail="attachment decode failed")
+                return Response(
+                    content=raw,
+                    media_type=mimetypes.guess_type(safe)[0] or "application/octet-stream",
+                    headers={"Content-Disposition": f'inline; filename="{safe}"'},
+                )
+        raise HTTPException(status_code=404, detail="attachment not available")
 
     @app.post("/api/dispatch/{dispatch_id}/decision", dependencies=[Depends(require_local_token)])
     async def dispatch_decision(dispatch_id: UUID, body: _Decision) -> dict:
@@ -842,13 +904,25 @@ class _SPAStaticFiles(StaticFiles):
     """Serve index.html for unknown non-API paths so client-side routes
     (e.g. /dispatch/<id> deep links) survive a reload instead of 404ing.
     API routes are registered on the app before this mount, so they never
-    reach here."""
+    reach here.
+
+    Starlette's StaticFiles signals a missing file by RAISING
+    HTTPException(404) (not by returning a 404 response), so the rewrite to
+    index.html has to happen in an except clause, not on the return value."""
 
     async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        if response.status_code == 404 and "." not in path.rsplit("/", 1)[-1]:
-            return await super().get_response("index.html", scope)
-        return response
+        # StaticFiles raises STARLETTE's HTTPException, of which fastapi's is a
+        # subclass — so we must catch the Starlette base, not fastapi's, or the
+        # 404 sails straight past.
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # Only rewrite extension-less paths (real routes) to index.html;
+            # a missing /assets/foo.js should still 404 as itself.
+            if exc.status_code == 404 and "." not in path.rsplit("/", 1)[-1]:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @dataclass

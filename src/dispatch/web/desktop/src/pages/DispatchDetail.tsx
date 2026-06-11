@@ -145,7 +145,7 @@ function DetailBody({
             <ResendPanel entry={entry} me={me} onClose={() => setResendOpen(false)} />
           )}
           <Header entry={entry} />
-          <RichPayload metadata={entry.metadata} />
+          <RichPayload metadata={entry.metadata} dispatchId={entry.dispatch_id} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
           {isRecipient && <PendingTools entry={entry} />}
           {reply && (
@@ -175,7 +175,11 @@ function DetailBody({
  *  (metadata.context / metadata.attachments — both signature-bound). Detail
  *  responses carry only the attachment manifest; the bytes live on the
  *  recipient's machine, written into the run workspace. */
-function RichPayload({ metadata }: { metadata?: Record<string, unknown> | null }) {
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
+
+function RichPayload({
+  metadata, dispatchId,
+}: { metadata?: Record<string, unknown> | null; dispatchId: string }) {
   const ctx = (metadata?.["context"] ?? null) as
     | { project?: string; deliverable?: string; links?: string[]; background?: string }
     | null;
@@ -213,21 +217,63 @@ function RichPayload({ metadata }: { metadata?: Record<string, unknown> | null }
         </details>
       )}
       {!!attachments?.length && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           <span className="text-muted-foreground">Attachments:</span>
           {attachments.map((a, i) => (
-            <div key={i} className="flex items-center gap-2 font-mono text-xs">
-              <Paperclip className="size-3.5 shrink-0" />
-              {a.name}
-              {typeof a.size === "number" && (
-                <span className="text-muted-foreground">{formatBytes(a.size)}</span>
-              )}
-            </div>
+            <Attachment key={i} dispatchId={dispatchId} name={a.name} size={a.size} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/** One attachment row. Images render an inline thumbnail (click to open full
+ *  size in a new tab); everything else is a download link. In broker mode the
+ *  bytes aren't reachable (they live on the recipient's machine), so it falls
+ *  back to the old name + size line. */
+function Attachment({
+  dispatchId, name, size,
+}: { dispatchId: string; name?: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!name) return null;
+  const url = api.attachmentUrl(dispatchId, name);
+  const isImage = IMAGE_EXT.test(name);
+  const sizeLabel = typeof size === "number" ? formatBytes(size) : null;
+
+  if (url && isImage && !failed) {
+    return (
+      <div className="space-y-1">
+        <a href={url} target="_blank" rel="noreferrer" className="block">
+          <img
+            src={url}
+            alt={name}
+            onError={() => setFailed(true)}
+            className="max-h-80 rounded-md border object-contain"
+          />
+        </a>
+        <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+          <Paperclip className="size-3.5 shrink-0" />
+          {name}
+          {sizeLabel && <span>{sizeLabel}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  const row = (
+    <div className="flex items-center gap-2 font-mono text-xs">
+      <Paperclip className="size-3.5 shrink-0" />
+      {name}
+      {sizeLabel && <span className="text-muted-foreground">{sizeLabel}</span>}
+    </div>
+  );
+  // With a URL, make the row a download link; without one (broker mode), plain.
+  return url ? (
+    <a href={url} download={name} target="_blank" rel="noreferrer" className="block hover:underline">
+      {row}
+    </a>
+  ) : row;
 }
 
 function formatBytes(n: number): string {

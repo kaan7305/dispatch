@@ -126,6 +126,17 @@ export const api = {
     request<{ status: string }>(`/api/dispatch/${dispatchId}/cancel`, {
       method: "POST",
     }),
+  // Direct URL for an attachment file, for <img src> / download links. The
+  // bytes live on the recipient's daemon, so this only works in local mode;
+  // <img>/<a> can't send an Authorization header, so the local token rides as
+  // the ?t= query param the daemon also accepts. Null in broker mode (the
+  // broker never holds attachment bytes — they stay on the recipient machine).
+  attachmentUrl: (dispatchId: string, name: string): string | null => {
+    if (isBroker) return null;
+    const t = getToken();
+    const q = t ? `?t=${encodeURIComponent(t)}` : "";
+    return `/api/dispatch/${dispatchId}/attachment/${encodeURIComponent(name)}${q}`;
+  },
 
   // ── Broker proxy ────────────────────────────────────────────────────
   compose: (body: ComposeRequest) =>
