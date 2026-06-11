@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -71,7 +73,12 @@ from dispatch.shared.schema import (
     SyncRequest,
     SyncScope,
 )
-from dispatch.shared.signing import canonical_approval_bytes, canonical_dispatch_bytes
+from dispatch.shared.signing import (
+    attachment_manifest,
+    canonical_approval_bytes,
+    canonical_context,
+    canonical_dispatch_bytes,
+)
 
 # Tool arguments that name a filesystem path, by tool. The daemon checks
 # these against the trust edge's path allowlist. (Bash commands can embed
@@ -740,6 +747,49 @@ def _mcp_tool_allowed(tool_name: str, patterns: list[str]) -> bool:
     return False
 
 
+def _verify_attachment_blobs(metadata: dict | None) -> tuple[bool, str]:
+    """Decode every attachment blob and check it against its manifest entry
+    (which verify_inbound has already bound into the signature). Returns
+    (ok, reason). No attachments → trivially ok."""
+    atts = (metadata or {}).get("attachments")
+    if not atts:
+        return True, ""
+    if not isinstance(atts, list):
+        return False, "attachments metadata is not a list"
+    for a in atts:
+        if not isinstance(a, dict):
+            return False, "malformed attachment entry"
+        name = a.get("name")
+        try:
+            blob = base64.b64decode(a.get("content_b64") or "", validate=True)
+        except Exception:
+            return False, f"attachment {name!r}: undecodable content"
+        if len(blob) != a.get("size"):
+            return False, f"attachment {name!r}: size mismatch"
+        if hashlib.sha256(blob).hexdigest() != a.get("sha256"):
+            return False, f"attachment {name!r}: sha256 mismatch (corrupted or tampered)"
+    return True, ""
+
+
+def _materialize_attachments(payload: DispatchPayload, workspace: Path) -> list[Path]:
+    """Write the dispatch's (already verified) attachments into
+    `<workspace>/attachments/<dispatch_id[:8]>/` and return their paths.
+    Filenames were validated against ATTACHMENT_NAME_RE (no separators or
+    leading dots), and Path(name).name re-flattens defensively."""
+    atts = (payload.metadata or {}).get("attachments")
+    if not atts:
+        return []
+    target = workspace / "attachments" / str(payload.dispatch_id)[:8]
+    target.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for a in atts:
+        name = Path(str(a.get("name") or "file")).name
+        dest = target / name
+        dest.write_bytes(base64.b64decode(a.get("content_b64") or ""))
+        paths.append(dest)
+    return paths
+
+
 def verify_inbound(
     payload: DispatchPayload,
     signing: dict | None,
@@ -805,7 +855,10 @@ def verify_inbound(
     elif pinned != pubkey_b64:
         return False, "sender device public key changed (possible key-swap)"
 
-    # Signature over the canonical payload.
+    # Signature over the canonical payload. Rich-payload fields (context +
+    # attachment manifest) are derived from the payload's metadata with the
+    # same shared helpers the broker used when building the sign_request, so
+    # any in-flight tampering of either breaks verification here.
     canonical = canonical_dispatch_bytes(
         instruction=payload.task,
         sender_device=sender_device,
@@ -813,6 +866,8 @@ def verify_inbound(
         target_device=target_device,
         nonce=nonce,
         created_at=created_at,
+        context=canonical_context(payload.metadata),
+        attachments=attachment_manifest(payload.metadata),
     )
     if not crypto.verify(
         crypto.b64decode(pins[sender_device]),
@@ -820,6 +875,13 @@ def verify_inbound(
         crypto.b64decode(signature_b64),
     ):
         return False, "invalid signature"
+
+    # Attachment bytes aren't covered by the signature directly — the manifest
+    # is. Re-hash every decoded blob against its (now signature-verified)
+    # manifest entry, so a swapped blob is rejected before it touches disk.
+    ok_blobs, blob_reason = _verify_attachment_blobs(payload.metadata)
+    if not ok_blobs:
+        return False, blob_reason
 
     if state.nonce_store is not None:
         state.nonce_store.record(sender_device, nonce, datetime.now(timezone.utc).timestamp())
@@ -1019,6 +1081,8 @@ async def handle_broker(
                     target_device=msg.get("target_device"),
                     nonce=msg["nonce"],
                     created_at=msg["created_at"],
+                    context=msg.get("context"),
+                    attachments=msg.get("attachments"),
                 )
                 signature = crypto.sign(private_key, canonical)
                 await ws.send(
@@ -1450,8 +1514,15 @@ async def process_dispatch(
     if run_cwd is None:
         # In a thread: the first call may scan the filesystem (the index
         # cache refresh), which must not stall the daemon's event loop.
+        # A sender-supplied project hint (metadata.context.project, covered
+        # by the dispatch signature) joins the match text — it's often a
+        # better index key than anything in the task prose.
+        ctx = canonical_context(payload.metadata) or {}
+        resolve_text = payload.task
+        if ctx.get("project"):
+            resolve_text = f"{payload.task}\n{ctx['project']}"
         run_cwd = await asyncio.to_thread(
-            machine_index.resolve_cwd, payload.task, list(scope.paths or [])
+            machine_index.resolve_cwd, resolve_text, list(scope.paths or [])
         )
         if run_cwd is not None:
             logger.info(
@@ -1798,6 +1869,25 @@ async def process_dispatch(
         await send_status(payload.dispatch_id, final)
         return
 
+    # Attachments were hash-verified against the signed manifest at delivery
+    # (verify_inbound); write them under the workspace — always inside the
+    # agent's allowed dirs — and hand the executor their absolute paths.
+    try:
+        attachment_paths = await asyncio.to_thread(
+            _materialize_attachments, payload, workspace
+        )
+    except Exception as exc:
+        logger.exception("failed to write dispatch attachments")
+        await send_event(
+            payload.dispatch_id,
+            {
+                "type": "error",
+                "data": {"message": f"could not write attachments: {exc}", "exception": type(exc).__name__},
+            },
+        )
+        await send_status(payload.dispatch_id, DispatchStatus.failed)
+        return
+
     try:
         async for event in run_dispatch(
             payload,
@@ -1807,6 +1897,7 @@ async def process_dispatch(
             extra_system_prompt=memory_context,
             mcp_servers=mcp_pool or None,
             skills="all",   # Skills are inert without tools; the tool scope is the sandbox.
+            attachment_paths=[str(p) for p in attachment_paths],
         ):
             harvester.observe(event)
             await send_event(payload.dispatch_id, event)

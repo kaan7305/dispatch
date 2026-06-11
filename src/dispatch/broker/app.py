@@ -54,9 +54,13 @@ from dispatch.shared.identity import (
     IdentityError, issue_token, verify_token, verify_token_with_iat,
 )
 from dispatch.shared.schema import (
+    ATTACHMENTS_MAX_COUNT,
+    ATTACHMENTS_MAX_TOTAL_BYTES,
     AcceptInvitationRequest,
     ClerkExchangeRequest,
     DeviceEnrollRequest,
+    DispatchAttachment,
+    DispatchContext,
     DispatchCreateRequest,
     DispatchEvent,
     DispatchPayload,
@@ -66,9 +70,11 @@ from dispatch.shared.schema import (
     PhoneUpdateRequest,
     Scopes,
     TrustScopesUpdate,
+    public_metadata,
     reply_from_events,
     utcnow,
 )
+from dispatch.shared.signing import attachment_manifest, canonical_context
 
 INVITATION_TTL_DAYS = 7
 
@@ -518,12 +524,16 @@ async def _request_signature(
     recipient_user: str,
     nonce: str,
     created_at: str,
+    metadata: Optional[dict] = None,
 ) -> bytes:
     """Ask the sender's daemon to sign the canonical dispatch payload.
 
     The broker never holds a signing key — it only relays the fields and
     receives the signature. Returns the raw signature bytes; raises on
-    timeout or daemon failure.
+    timeout or daemon failure. Rich-payload fields (context + attachment
+    manifest) are derived from `metadata` here with the same shared helpers
+    the recipient daemon verifies with, so all three parties agree on the
+    signed bytes.
     """
     request_id = secrets.token_urlsafe(16)
     loop = asyncio.get_running_loop()
@@ -541,6 +551,8 @@ async def _request_signature(
                     "target_device": None,
                     "nonce": nonce,
                     "created_at": created_at,
+                    "context": canonical_context(metadata),
+                    "attachments": attachment_manifest(metadata),
                 }
             )
         )
@@ -576,6 +588,44 @@ async def _build_new_dispatch(stored: StoredDispatch) -> dict:
         if link:
             msg["scopes"] = link["scopes"] or {}
     return msg
+
+
+def _validate_rich_metadata(metadata: dict) -> None:
+    """Validate sender-supplied context/attachments at compose time, before
+    any signing or storage. Raises HTTPException(422) with a readable reason.
+    Hash *correctness* (blob matches sha256) is the recipient daemon's check;
+    here we enforce shape and size caps so a bad dispatch fails fast and the
+    broker never stores an oversized envelope."""
+    ctx = metadata.get("context")
+    if ctx is not None:
+        try:
+            DispatchContext(**ctx)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"bad context: {exc}")
+    atts = metadata.get("attachments")
+    if atts is None:
+        return
+    if not isinstance(atts, list) or len(atts) > ATTACHMENTS_MAX_COUNT:
+        raise HTTPException(
+            status_code=422,
+            detail=f"attachments must be a list of at most {ATTACHMENTS_MAX_COUNT} files",
+        )
+    total = 0
+    names: set[str] = set()
+    for a in atts:
+        try:
+            att = DispatchAttachment(**a)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"bad attachment: {exc}")
+        if att.name in names:
+            raise HTTPException(status_code=422, detail=f"duplicate attachment name: {att.name}")
+        names.add(att.name)
+        total += att.size
+    if total > ATTACHMENTS_MAX_TOTAL_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"attachments exceed {ATTACHMENTS_MAX_TOTAL_BYTES // (1024*1024)} MB total",
+        )
 
 
 class _DispatchFailed(Exception):
@@ -671,6 +721,7 @@ async def _drain_signature_queue(
                 recipient_user=stored.payload.recipient_id,
                 nonce=stored.nonce,
                 created_at=stored.payload.created_at.isoformat(),
+                metadata=stored.payload.metadata,
             )
         except Exception:
             logger.exception("deferred signing failed; re-queueing %s", str(did)[:8])
@@ -757,6 +808,7 @@ async def _create_one_dispatch(
             recipient_user=recipient,
             nonce=nonce,
             created_at=payload.created_at.isoformat(),
+            metadata=payload.metadata,
         )
     except Exception as exc:
         logger.warning("signature request failed for %s: %s", recipient, exc)
@@ -786,6 +838,7 @@ async def create_dispatch(
     req: DispatchCreateRequest, sender: str = Depends(authed_user)
 ) -> dict:
     recipients = req.normalized_recipients()
+    _validate_rich_metadata(req.metadata or {})
 
     # Signing happens on the sender's device. One daemon, one device, many
     # recipients — each gets its own nonce + signature via the same WS.
@@ -854,7 +907,7 @@ async def get_dispatch(
         "status": stored.status.value,
         "created_at": stored.payload.created_at.isoformat(),
         "expires_at": stored.payload.expires_at.isoformat(),
-        "metadata": stored.payload.metadata,
+        "metadata": public_metadata(stored.payload.metadata),
         "scopes": scopes,
         # The agent's final message — the consumable answer, derived from the
         # event trace (last agent_text before done). None until it has spoken.

@@ -18,6 +18,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch")
 
+# Rich-payload caps. The task and any attachments travel inside the dispatch
+# envelope (broker DB row + one WS frame), so these bound a single dispatch's
+# wire size. Attachment bytes are base64 in metadata; the *manifest*
+# (name/size/sha256) is covered by the Ed25519 signature — see signing.py.
+TASK_MAX_CHARS = 100_000
+ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024           # one file
+ATTACHMENTS_MAX_TOTAL_BYTES = 250 * 1024 * 1024  # whole dispatch (50 × 5 MB)
+ATTACHMENTS_MAX_COUNT = 50
+ATTACHMENT_NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$"
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -36,16 +46,68 @@ class DispatchStatus(str, enum.Enum):
     cancelled = "cancelled"    # trust edge revoked while in-flight
 
 
+class DispatchAttachment(BaseModel):
+    """One file riding on `DispatchPayload.metadata["attachments"]`.
+
+    The bytes travel base64 in `content_b64`; integrity comes from the
+    manifest entry (name/size/sha256) being bound into the dispatch
+    signature, and the recipient daemon re-hashing the decoded bytes
+    against `sha256` before the file ever touches disk.
+    """
+
+    name: str = Field(..., pattern=ATTACHMENT_NAME_RE)
+    content_b64: str = Field(..., min_length=1)
+    sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    size: int = Field(..., ge=1, le=ATTACHMENT_MAX_BYTES)
+
+
+class DispatchContext(BaseModel):
+    """Structured sender context riding on `metadata["context"]`.
+
+    All fields optional; empties are dropped from the canonical (signed)
+    form. `background` is free prose — typically the sending agent's
+    summary of its own session, so the recipient agent doesn't start cold.
+    """
+
+    project: str = Field(default="", max_length=200)
+    links: list[str] = Field(default_factory=list, max_length=10)
+    deliverable: str = Field(default="", max_length=2000)
+    background: str = Field(default="", max_length=20_000)
+
+    @field_validator("links")
+    @classmethod
+    def _link_lengths(cls, v: list[str]) -> list[str]:
+        bad = [l for l in v if len(l) > 500]
+        if bad:
+            raise ValueError("links must each be <= 500 chars")
+        return v
+
+
 class DispatchPayload(BaseModel):
     """The signed-over, cross-party dispatch envelope."""
 
     dispatch_id: UUID = Field(default_factory=uuid4)
     sender_id: str = Field(..., min_length=1, max_length=64)
     recipient_id: str = Field(..., min_length=1, max_length=64)
-    task: str = Field(..., min_length=1)
+    task: str = Field(..., min_length=1, max_length=TASK_MAX_CHARS)
     created_at: datetime = Field(default_factory=utcnow)
     expires_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def public_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Metadata as exposed in list/detail API responses: attachment *bytes*
+    are dropped (a detail fetch shouldn't drag megabytes of base64), keeping
+    only the manifest fields the UI renders. Everything else passes through."""
+    md = dict(metadata or {})
+    atts = md.get("attachments")
+    if isinstance(atts, list):
+        md["attachments"] = [
+            {k: a.get(k) for k in ("name", "size", "sha256")}
+            for a in atts
+            if isinstance(a, dict)
+        ]
+    return md
 
 
 class DispatchCreateRequest(BaseModel):
@@ -58,7 +120,7 @@ class DispatchCreateRequest(BaseModel):
 
     recipient_id: Optional[str] = Field(default=None, max_length=64)
     recipient_ids: Optional[list[str]] = Field(default=None, max_length=50)
-    task: str = Field(..., min_length=1)
+    task: str = Field(..., min_length=1, max_length=TASK_MAX_CHARS)
     # Async/offline delivery: a dispatch may wait for a long-offline recipient,
     # so the lifetime defaults to a day and may run up to 30 days. The ceiling
     # MUST stay <= the recipient daemon's nonce-retention horizon

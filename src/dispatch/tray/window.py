@@ -15,6 +15,8 @@ from AppKit import (
     NSMakeSize,
     NSMenu,
     NSMenuItem,
+    NSModalResponseOK,
+    NSOpenPanel,
     NSURL,
     NSURLRequest,
     NSWindow,
@@ -69,6 +71,29 @@ class _WebDelegate(NSObject):
         if url is not None:
             NSWorkspace.sharedWorkspace().openURL_(url)
         return None
+
+    def webView_runOpenPanelWithParameters_initiatedByFrame_completionHandler_(
+        self, webview, params, _frame, handler
+    ):
+        # Without this method WKWebView silently ignores <input type="file">
+        # clicks, so the SPA's attach button appears dead.
+        panel = NSOpenPanel.openPanel()
+        panel.setCanChooseFiles_(True)
+        try:
+            panel.setCanChooseDirectories_(bool(params.allowsDirectories()))
+            panel.setAllowsMultipleSelection_(bool(params.allowsMultipleSelection()))
+        except Exception:
+            panel.setCanChooseDirectories_(False)
+            panel.setAllowsMultipleSelection_(True)
+
+        def _done(result):
+            handler(panel.URLs() if result == NSModalResponseOK else None)
+
+        window = webview.window()
+        if window is not None:
+            panel.beginSheetModalForWindow_completionHandler_(window, _done)
+        else:
+            _done(panel.runModal())
 
 _STYLE = (
     NSWindowStyleMaskTitled

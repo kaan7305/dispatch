@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronRight, Paperclip, X } from "lucide-react";
 
 import { ApiError, api, type ComposeFanOutResult } from "@/lib/api";
+import { addFiles, formatBytes, type Attachment } from "@/lib/attachments";
 
 import { Button } from "./ui/button";
 import {
@@ -19,6 +20,41 @@ export function ComposeDialog({ children }: Props) {
   const [task, setTask]       = useState("");
   const [error, setError]     = useState<string | null>(null);
   const [partial, setPartial] = useState<ComposeFanOutResult["failures"]>([]);
+
+  // Rich payload: attachments + structured context (metadata.attachments /
+  // metadata.context). Both end up bound into the dispatch signature.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [ctxOpen, setCtxOpen]         = useState(false);
+  const [project, setProject]         = useState("");
+  const [deliverable, setDeliverable] = useState("");
+  const [links, setLinks]             = useState("");
+  const [background, setBackground]   = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  function buildMetadata(): Record<string, unknown> | undefined {
+    const metadata: Record<string, unknown> = {};
+    if (attachments.length) metadata.attachments = attachments;
+    const linkList = links.split(/\s+/).map((l) => l.trim()).filter(Boolean);
+    const context: Record<string, unknown> = {};
+    if (project.trim()) context.project = project.trim();
+    if (deliverable.trim()) context.deliverable = deliverable.trim();
+    if (background.trim()) context.background = background.trim();
+    if (linkList.length) context.links = linkList;
+    if (Object.keys(context).length) metadata.context = context;
+    return Object.keys(metadata).length ? metadata : undefined;
+  }
+
+  async function onPickFiles(list: FileList | null) {
+    if (!list?.length) return;
+    try {
+      setAttachments(await addFiles(attachments, Array.from(list)));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
 
   const qc = useQueryClient();
   const trust = useQuery({
@@ -41,6 +77,7 @@ export function ComposeDialog({ children }: Props) {
       api.compose({
         recipient_ids: recipients,
         task: task.trim(),
+        metadata: buildMetadata(),
       }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["sent"] });
@@ -67,6 +104,12 @@ export function ComposeDialog({ children }: Props) {
     setTask("");
     setError(null);
     setPartial([]);
+    setAttachments([]);
+    setCtxOpen(false);
+    setProject("");
+    setDeliverable("");
+    setLinks("");
+    setBackground("");
   }
 
   function addRecipient(value: string) {
@@ -182,6 +225,87 @@ export function ComposeDialog({ children }: Props) {
               placeholder="What should their agent do?"
               className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => onPickFiles(e.target.files)}
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInput.current?.click()}
+              >
+                <Paperclip className="size-3.5" /> Attach files
+              </Button>
+              {attachments.map((a) => (
+                <span
+                  key={a.name}
+                  className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-mono"
+                >
+                  {a.name}
+                  <span className="text-muted-foreground">{formatBytes(a.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((as) => as.filter((x) => x.name !== a.name))}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Files travel with the task and land verified in the recipient
+              agent's workspace. Max 50 files, 5 MB each.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setCtxOpen((o) => !o)}
+              className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+            >
+              {ctxOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+              Context (optional)
+            </button>
+            {ctxOpen && (
+              <div className="space-y-2 rounded-md border bg-background/60 p-3">
+                <input
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                  placeholder="Project or repo name — helps their agent start in the right directory"
+                  className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <input
+                  value={deliverable}
+                  onChange={(e) => setDeliverable(e.target.value)}
+                  placeholder="Expected deliverable — what does done look like?"
+                  className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <input
+                  value={links}
+                  onChange={(e) => setLinks(e.target.value)}
+                  placeholder="Reference links, space-separated"
+                  className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <textarea
+                  rows={3}
+                  value={background}
+                  onChange={(e) => setBackground(e.target.value)}
+                  placeholder="Background their agent needs but the task doesn't say — decisions made, current state, constraints"
+                  className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+                />
+              </div>
+            )}
           </div>
 
           {error && (

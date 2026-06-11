@@ -30,6 +30,7 @@ from claude_agent_sdk import (
 )
 
 from dispatch.shared.schema import DispatchEvent, DispatchPayload
+from dispatch.shared.signing import canonical_context
 
 # Every built-in tool the agent could have. Anything not in the caller's
 # `allowed_tools` is sent to the SDK as a disallowed tool — the agent
@@ -115,6 +116,39 @@ def _scope_notice(in_scope: list[str], disallowed: list[str]) -> str:
     return notice
 
 
+def _rich_payload_trailer(
+    payload: DispatchPayload, attachment_paths: list[str] | None
+) -> str:
+    """Sender-authored context + attachment locations, appended to the task
+    query. Everything here is covered by the dispatch signature (context
+    directly; attachments via the signed manifest the daemon verified), so
+    it carries the same trust as the task text itself."""
+    parts: list[str] = []
+    ctx = canonical_context(payload.metadata) or {}
+    if ctx:
+        lines = ["--- Context from the sender ---"]
+        if ctx.get("project"):
+            lines.append(f"Project: {ctx['project']}")
+        if ctx.get("deliverable"):
+            lines.append(f"Expected deliverable: {ctx['deliverable']}")
+        if ctx.get("links"):
+            lines.append("Reference links:")
+            lines.extend(f"  - {l}" for l in ctx["links"])
+        if ctx.get("background"):
+            lines.append(f"Background (sender's session summary):\n{ctx['background']}")
+        parts.append("\n".join(lines))
+    if attachment_paths:
+        lines = [
+            "--- Attached files (sent with this task, integrity-verified, "
+            "already saved locally) ---"
+        ]
+        lines.extend(f"  {p}" for p in attachment_paths)
+        parts.append("\n".join(lines))
+    if not parts:
+        return ""
+    return "\n\n" + "\n\n".join(parts)
+
+
 def _truncate(text: str) -> tuple[str, bool]:
     if len(text) <= TOOL_RESULT_TRUNCATE_BYTES:
         return text, False
@@ -190,6 +224,7 @@ async def run_dispatch(
     mcp_servers: dict[str, Any] | None = None,
     skills: list[str] | str | None = None,
     model: str | None = None,
+    attachment_paths: list[str] | None = None,
 ) -> AsyncIterator[DispatchEvent]:
     """Run one dispatch.
 
@@ -220,6 +255,10 @@ async def run_dispatch(
     discover them (this also exposes the recipient's CLAUDE.md to the task);
     `strict_mcp_config` still keeps MCP explicit and the dispatch control plane
     is still withheld in `can_use_tool`. Omit/None → no skills (isolated base).
+
+    `attachment_paths` are files the daemon already materialized from the
+    dispatch's verified attachments; their locations (plus any sender context
+    in metadata) are appended to the task query as a trailer.
     """
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
@@ -274,9 +313,13 @@ async def run_dispatch(
 
     expected_mcp = set((mcp_servers or {}).keys())
 
+    # The query is the signed task plus any rich-payload trailer (sender
+    # context + verified attachment locations) — same author, same trust.
+    query_text = payload.task + _rich_payload_trailer(payload, attachment_paths)
+
     async with ClaudeSDKClient(options=options) as client:
         try:
-            await client.query(payload.task)
+            await client.query(query_text)
             mcp_checked = not expected_mcp  # nothing scoped → nothing to check
             async for message in client.receive_response():
                 # Fast-fail: the CLI's init event reports each MCP server's

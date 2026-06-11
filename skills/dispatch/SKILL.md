@@ -39,7 +39,17 @@ session and exposes **four** `dispatch_*` MCP tools:
 - **`dispatch_act(action, dispatch_id, [request_id], [grant])`** — `action` ∈
   accept | decline | cancel | approve | deny. `grant` ∈ once | always | session
   qualifies an approve.
-- **`dispatch_send(recipient, task, …)`** — send a dispatch.
+- **`dispatch_send(recipient, task, …)`** — send a dispatch. Beyond the task
+  text it can carry rich payload (all bound into the dispatch signature):
+  `files` (local paths to attach — specs, screenshots, data; ≤50 files,
+  ≤5 MB each — delivered verified into the recipient agent's workspace),
+  `project` (repo/project name hint so their daemon starts the agent in the
+  right directory), `links` (reference URLs), `deliverable` (what "done"
+  looks like), and `background` (free prose). Use `background` whenever the
+  task grows out of the current session: summarize the relevant decisions and
+  state for a stranger, so the recipient's agent doesn't start cold. Don't
+  ask the user's permission to include context/files the task obviously
+  needs — that's part of "just send it".
 - **`dispatch_invite(action, …)`** — `action` ∈ send | list | accept | decline
   (invitations / trust establishment).
 

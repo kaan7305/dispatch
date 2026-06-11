@@ -32,7 +32,9 @@ export const DialogContent = React.forwardRef<
         // `transform` via the enter keyframe, which clobbers the
         // -translate-x/y-1/2 centering mid-animation and makes the dialog
         // appear to fly in from a corner. Dialogs just appear.
-        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg rounded-lg",
+        // max-h + overflow keep tall dialogs (compose with attachments/context)
+        // inside the window instead of pushing the title and footer offscreen.
+        "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg rounded-lg max-h-[calc(100vh-3rem)] overflow-y-auto",
         className,
       )}
       {...props}

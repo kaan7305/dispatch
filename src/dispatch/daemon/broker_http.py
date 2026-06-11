@@ -47,6 +47,7 @@ async def broker_request(
     json_body: Any = None,
     params: Optional[dict[str, Any]] = None,
     headers: Optional[dict[str, str]] = None,
+    timeout: Optional[float] = None,
 ) -> httpx.Response:
     """One proxied request on the shared pool.
 
@@ -57,13 +58,17 @@ async def broker_request(
     idempotent methods goes out on a fresh connection. Raises
     httpx.HTTPError on failure (callers map it to a 502).
     """
+    # httpx.USE_CLIENT_DEFAULT, not None — timeout=None means "no timeout".
+    per_request = timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT
     try:
         return await client.request(
             method, url, json=json_body, params=params, headers=headers,
+            timeout=per_request,
         )
     except httpx.RemoteProtocolError:
         if method.upper() not in _IDEMPOTENT:
             raise
         return await client.request(
             method, url, json=json_body, params=params, headers=headers,
+            timeout=per_request,
         )

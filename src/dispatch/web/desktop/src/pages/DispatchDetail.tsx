@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, Paperclip, RotateCcw, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -145,6 +145,7 @@ function DetailBody({
             <ResendPanel entry={entry} me={me} onClose={() => setResendOpen(false)} />
           )}
           <Header entry={entry} />
+          <RichPayload metadata={entry.metadata} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
           {isRecipient && <PendingTools entry={entry} />}
           {reply && (
@@ -168,6 +169,71 @@ function DetailBody({
       </div>
     </div>
   );
+}
+
+/** Structured sender context + attachment manifest riding on the dispatch
+ *  (metadata.context / metadata.attachments — both signature-bound). Detail
+ *  responses carry only the attachment manifest; the bytes live on the
+ *  recipient's machine, written into the run workspace. */
+function RichPayload({ metadata }: { metadata?: Record<string, unknown> | null }) {
+  const ctx = (metadata?.["context"] ?? null) as
+    | { project?: string; deliverable?: string; links?: string[]; background?: string }
+    | null;
+  const attachments = (metadata?.["attachments"] ?? null) as
+    | { name?: string; size?: number }[]
+    | null;
+  const hasCtx = !!ctx && !!(ctx.project || ctx.deliverable || ctx.links?.length || ctx.background);
+  if (!hasCtx && !attachments?.length) return null;
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3 text-sm">
+      {ctx?.project && (
+        <div><span className="text-muted-foreground">Project:</span> {ctx.project}</div>
+      )}
+      {ctx?.deliverable && (
+        <div><span className="text-muted-foreground">Deliverable:</span> {ctx.deliverable}</div>
+      )}
+      {!!ctx?.links?.length && (
+        <div className="space-y-0.5">
+          <span className="text-muted-foreground">Links:</span>
+          {ctx.links.map((l) => (
+            <a key={l} href={l} target="_blank" rel="noreferrer" className="block underline break-all">
+              {l}
+            </a>
+          ))}
+        </div>
+      )}
+      {ctx?.background && (
+        <details>
+          <summary className="cursor-pointer text-muted-foreground">
+            Background from the sender's session
+          </summary>
+          <div className="mt-2">
+            <Markdown text={ctx.background} />
+          </div>
+        </details>
+      )}
+      {!!attachments?.length && (
+        <div className="space-y-1">
+          <span className="text-muted-foreground">Attachments:</span>
+          {attachments.map((a, i) => (
+            <div key={i} className="flex items-center gap-2 font-mono text-xs">
+              <Paperclip className="size-3.5 shrink-0" />
+              {a.name}
+              {typeof a.size === "number" && (
+                <span className="text-muted-foreground">{formatBytes(a.size)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** "took 3m 12s · 7 tool calls" for finished runs. */
@@ -229,7 +295,10 @@ function ResendPanel({
   // recipient_id is always present on broker-served details; the only entry
   // without one is a locally-witnessed loopback, where the recipient is us.
   const recipient = entry.recipient_id ?? me;
-  const { resend_of: _prior, ...carried } = entry.metadata ?? {};
+  // Attachments can't be carried over: detail responses hold only the
+  // manifest (bytes are stripped server-side), and the broker rejects
+  // manifest-only attachment entries at compose.
+  const { resend_of: _prior, attachments: _atts, ...carried } = entry.metadata ?? {};
 
   const resend = useMutation({
     mutationFn: () =>

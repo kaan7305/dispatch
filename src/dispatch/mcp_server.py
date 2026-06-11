@@ -40,6 +40,8 @@ runs — only where the broker socket and approval futures live.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import logging
 import os
 import shutil
@@ -47,6 +49,7 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import UUID
 
@@ -59,7 +62,13 @@ from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon.local_app import read_local_token
 from dispatch.daemon.connlock import ConnectionLock
 from dispatch.daemon.main import _load_config
-from dispatch.shared.schema import SYNC_TASK_SENTINEL, reply_from_events
+from dispatch.shared.schema import (
+    ATTACHMENT_MAX_BYTES,
+    ATTACHMENTS_MAX_COUNT,
+    ATTACHMENTS_MAX_TOTAL_BYTES,
+    SYNC_TASK_SENTINEL,
+    reply_from_events,
+)
 
 logger = logging.getLogger("dispatch.mcp")
 
@@ -669,19 +678,99 @@ async def dispatch_act(
         return {"status": "error", "detail": _LOGIN_HINT}
 
 
+def _build_attachments(files: list[str]) -> list[dict] | str:
+    """Read local files into dispatch attachments (base64 + sha256 manifest
+    fields). Returns the list, or an error string describing the first
+    problem — caps mirror the broker's so a bad send fails before leaving
+    the machine."""
+    if len(files) > ATTACHMENTS_MAX_COUNT:
+        return f"too many files (max {ATTACHMENTS_MAX_COUNT})"
+    out: list[dict] = []
+    names: set[str] = set()
+    total = 0
+    for f in files:
+        p = Path(f).expanduser()
+        if not p.is_file():
+            return f"not a file: {f}"
+        data = p.read_bytes()
+        if not data:
+            return f"empty file: {f}"
+        if len(data) > ATTACHMENT_MAX_BYTES:
+            return f"{p.name} exceeds {ATTACHMENT_MAX_BYTES // (1024*1024)} MB"
+        total += len(data)
+        if total > ATTACHMENTS_MAX_TOTAL_BYTES:
+            return f"attachments exceed {ATTACHMENTS_MAX_TOTAL_BYTES // (1024*1024)} MB total"
+        # Keep names unique and manifest-safe; the schema regex forbids
+        # separators and leading dots, so normalize the basename to it.
+        name = "".join(c if c.isalnum() or c in "._ -" else "_" for c in p.name).lstrip(".") or "file"
+        base = name
+        i = 2
+        while name in names:
+            name = f"{i}_{base}"
+            i += 1
+        names.add(name)
+        out.append(
+            {
+                "name": name,
+                "content_b64": base64.b64encode(data).decode("ascii"),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+            }
+        )
+    return out
+
+
 @mcp.tool()
 async def dispatch_send(
-    recipient: str, task: str, expires_in_seconds: int = 3600
+    recipient: str,
+    task: str,
+    expires_in_seconds: int = 3600,
+    files: Optional[list[str]] = None,
+    project: str = "",
+    links: Optional[list[str]] = None,
+    deliverable: str = "",
+    background: str = "",
 ) -> dict:
     """Send a dispatch to a trusted contact. The verbatim `task` runs on their
     machine across an accepted, scoped trust edge. Returns the dispatch_id
     (track with dispatch_read(what='status')). Where the task runs is the
     RECIPIENT's choice at accept time — there is no sender-side cwd.
+
+    Beyond the task text, a dispatch can carry (all signature-protected):
+    - `files`: local file paths to attach (specs, screenshots, data — max 50
+      files / 5 MB each). They arrive verified in the
+      recipient agent's workspace.
+    - `project`: a short project/repo name hint — helps the recipient's
+      daemon start the agent in the right directory.
+    - `links`: reference URLs the task relies on.
+    - `deliverable`: one or two sentences on what "done" looks like.
+    - `background`: context the recipient agent needs but the task text
+      doesn't carry — when the dispatch grows out of your current session,
+      summarize the relevant decisions/state here so their agent doesn't
+      start cold. Write it for a stranger: no session-internal shorthand.
     """
+    metadata: dict = {}
+    if files:
+        atts = _build_attachments(files)
+        if isinstance(atts, str):
+            return {"status": "error", "detail": f"attachment error: {atts}"}
+        metadata["attachments"] = atts
+    context = {
+        k: v
+        for k, v in (
+            ("project", project.strip()),
+            ("deliverable", deliverable.strip()),
+            ("background", background.strip()),
+            ("links", [l for l in (links or []) if l.strip()]),
+        )
+        if v
+    }
+    if context:
+        metadata["context"] = context
     try:
         body = {
             "recipient_id": recipient, "task": task,
-            "expires_in_seconds": expires_in_seconds, "metadata": {},
+            "expires_in_seconds": expires_in_seconds, "metadata": metadata,
         }
         return await _local_call("POST", "/api/compose", json=body)
     except _Dormant:

@@ -35,7 +35,13 @@ from pydantic import BaseModel
 from dispatch.daemon.broker_http import broker_request, make_broker_client
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon import memory as run_memory
-from dispatch.shared.schema import DispatchEvent, DispatchPayload, DispatchStatus, Scopes
+from dispatch.shared.schema import (
+    DispatchEvent,
+    DispatchPayload,
+    DispatchStatus,
+    Scopes,
+    public_metadata,
+)
 
 logger = logging.getLogger("dispatch.daemon.local")
 
@@ -101,9 +107,10 @@ class LocalState:
     queued notifications can be scheduled directly.
 
     `notify` is an optional OS-notification callback the tray app supplies.
-    It receives (title, subtitle, message) and is responsible for marshalling
-    to whatever thread the GUI requires. Headless `dispatch-daemon` leaves
-    it None.
+    It receives (title, subtitle, message, dispatch_id=None) — the id lets a
+    clicked notification open onto that dispatch — and is responsible for
+    marshalling to whatever thread the GUI requires. Headless
+    `dispatch-daemon` leaves it None.
     """
     user_id: str = ""
     broker_url: str = ""
@@ -115,7 +122,7 @@ class LocalState:
     running_commit: str = ""
     entries: dict[UUID, InboxEntry] = field(default_factory=dict)
     watchers: list[WebSocket] = field(default_factory=list)
-    notify: Optional[Callable[[str, str, str], None]] = None
+    notify: Optional[Callable[..., None]] = None
     # Called (thread-safely) when the user signs out from the web UI so the
     # tray supervisor can restart the daemon with the new/cleared credentials.
     on_signout: Optional[Callable[[], None]] = None
@@ -160,11 +167,20 @@ class LocalState:
         except Exception:
             pass  # best-effort — a fresh inbox is better than a crash
 
-    def _push_notification(self, title: str, subtitle: str, message: str) -> None:
+    def _push_notification(
+        self, title: str, subtitle: str, message: str,
+        dispatch_id: str | None = None,
+    ) -> None:
         if self.notify is None:
             return
         try:
-            self.notify(title, subtitle, message)
+            self.notify(title, subtitle, message, dispatch_id=dispatch_id)
+        except TypeError:
+            # Older callback signature without dispatch_id.
+            try:
+                self.notify(title, subtitle, message)
+            except Exception:
+                logger.exception("notify callback failed")
         except Exception:
             logger.exception("notify callback failed")
 
@@ -180,6 +196,7 @@ class LocalState:
             "New dispatch",
             f"from {payload.sender_id}",
             payload.task[:140],
+            dispatch_id=str(payload.dispatch_id),
         )
 
     def on_status(self, dispatch_id: UUID, status: DispatchStatus) -> None:
@@ -225,6 +242,7 @@ class LocalState:
             "Permission needed",
             f"{tool} on {entry.payload.sender_id}'s dispatch",
             preview,
+            dispatch_id=str(dispatch_id),
         )
 
     def on_tool_resolved(self, dispatch_id: UUID, request_id: str) -> None:
@@ -253,7 +271,7 @@ def _entry_summary(entry: InboxEntry) -> dict:
         "sender_id": p.sender_id,
         "recipient_id": p.recipient_id,
         "task": p.task,
-        "metadata": p.metadata,
+        "metadata": public_metadata(p.metadata),
         "created_at": p.created_at.isoformat(),
         "expires_at": p.expires_at.isoformat(),
         "status": entry.status.value,
@@ -524,6 +542,7 @@ def make_app(
         json_body: Any = None,
         params: Optional[dict[str, Any]] = None,
         require_auth: bool = True,
+        timeout: float = 30.0,
     ) -> Response:
         if require_auth and not local_state.broker_token:
             raise HTTPException(status_code=503, detail="broker token unavailable")
@@ -535,6 +554,7 @@ def make_app(
             resp = await broker_request(
                 broker_client, method, url,
                 json_body=json_body, params=params, headers=headers,
+                timeout=timeout,
             )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
@@ -546,8 +566,11 @@ def make_app(
 
     @app.post("/api/compose", dependencies=[Depends(require_local_token)])
     async def compose(body: _Compose) -> Response:
+        # Generous timeout: a dispatch may carry up to ~16 MB of attachments
+        # (~21 MB as base64), and the sign round-trip happens inside this call.
         return await _broker_request(
             "POST", "/dispatch", json_body=body.model_dump(exclude_none=True),
+            timeout=120.0,
         )
 
     @app.get("/api/trust", dependencies=[Depends(require_local_token)])
@@ -811,8 +834,21 @@ def make_app(
         )
 
     if STATIC_DIR.exists():
-        app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+        app.mount("/", _SPAStaticFiles(directory=str(STATIC_DIR), html=True), name="static")
     return app
+
+
+class _SPAStaticFiles(StaticFiles):
+    """Serve index.html for unknown non-API paths so client-side routes
+    (e.g. /dispatch/<id> deep links) survive a reload instead of 404ing.
+    API routes are registered on the app before this mount, so they never
+    reach here."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 404 and "." not in path.rsplit("/", 1)[-1]:
+            return await super().get_response("index.html", scope)
+        return response
 
 
 @dataclass
