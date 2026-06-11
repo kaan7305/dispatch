@@ -22,16 +22,26 @@ LABEL = "com.dispatch.tray"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def _executable_path() -> str:
-    """Best guess at the binary to autostart.
+def _program_arguments() -> list[str]:
+    """argv to autostart the tray.
 
-    Frozen (PyInstaller .app): use sys.executable.
-    Editable install: use the `dispatch-tray` script if on PATH.
+    Preferred: the ~/Applications/Dispatch.app wrapper bundle — running
+    inside a registered bundle is what lets UNUserNotificationCenter show
+    the permission prompt and deliver banners (see tray/bundle.py).
+    Frozen (PyInstaller .app): sys.executable.
+    Fallback: the `dispatch-tray` script if on PATH.
     """
     if getattr(sys, "frozen", False):
-        return sys.executable
+        return [sys.executable]
+    try:
+        from dispatch.tray.bundle import bundle_program_arguments
+        args = bundle_program_arguments()
+        if args:
+            return args
+    except Exception:
+        pass  # non-framework python, sandboxed FS, … — use the bare script
     found = shutil.which("dispatch-tray")
-    return found or sys.executable
+    return [found or sys.executable]
 
 
 def is_enabled() -> bool:
@@ -42,7 +52,7 @@ def enable() -> None:
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     plist: dict = {
         "Label": LABEL,
-        "ProgramArguments": [_executable_path()],
+        "ProgramArguments": _program_arguments(),
         "RunAtLoad": True,
         "KeepAlive": False,
         "StandardOutPath": str(Path.home() / ".dispatch" / "tray.log"),
