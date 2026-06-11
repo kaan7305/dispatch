@@ -86,6 +86,33 @@ DELEGATED_TASK_SYSTEM_PROMPT = (
 )
 
 
+# Told to the agent ONLY when Bash is in scope: Dispatch ships a browser
+# controller it can drive through Bash. Without this, agents wrongly conclude
+# they "can't control playback / click / type" and give up — the YouTube
+# "I'm a text-based agent" failure. The helper speaks CDP, so it works on any
+# machine with Chrome and needs no extra setup or OS permission grants.
+BROWSER_CAPABILITY_NOTE = (
+    "\n\nBROWSER CONTROL: you can drive a real Chrome browser through Bash via "
+    "`python -m dispatch.browser <command>` (works on this machine — it ships "
+    "with Dispatch). Use it whenever a task needs a live browser: open pages, "
+    "control video, click, type, read rendered text, screenshot. Do NOT claim "
+    "you cannot interact with web pages or control playback — you can. Commands "
+    "(each prints one JSON line):\n"
+    "  python -m dispatch.browser open <url>\n"
+    "  python -m dispatch.browser video play|pause|toggle      # the page's <video>\n"
+    "  python -m dispatch.browser video seek <fraction 0..1>   # 0.5 = halfway\n"
+    "  python -m dispatch.browser status                       # url, title, video state\n"
+    "  python -m dispatch.browser click '<css-selector>'\n"
+    "  python -m dispatch.browser type '<css-selector>' '<text>'\n"
+    "  python -m dispatch.browser eval '<javascript>'          # returns JSON\n"
+    "  python -m dispatch.browser text [<css-selector>]        # visible text\n"
+    "  python -m dispatch.browser screenshot <path.png>\n"
+    "It opens a dedicated automation window (not signed into the user's "
+    "accounts), reused across commands in this task. If `open` reports no "
+    "browser found, report that Chrome isn't installed — don't improvise."
+)
+
+
 def _scope_notice(in_scope: list[str], disallowed: list[str]) -> str:
     """A hard statement of the agent's tool scope, appended to the system prompt
     so the agent knows its limits UP FRONT instead of discovering them by trying
@@ -271,6 +298,10 @@ async def run_dispatch(
     effective_system_prompt = (
         (system_prompt or DELEGATED_TASK_SYSTEM_PROMPT) + _scope_notice(in_scope, disallowed)
     )
+    # Surface the bundled browser controller only when the agent can actually
+    # invoke it (it runs through Bash). Read-only edges never see it.
+    if "Bash" in in_scope:
+        effective_system_prompt += BROWSER_CAPABILITY_NOTE
     if extra_system_prompt:
         effective_system_prompt += "\n\n" + extra_system_prompt
 

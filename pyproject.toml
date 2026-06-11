@@ -48,10 +48,11 @@ tray = [
 ]
 
 [project.scripts]
-dispatch        = "dispatch.cli:main"
-dispatch-daemon = "dispatch.daemon.main:main"
-dispatch-tray   = "dispatch.tray.app:main"
-dispatch-mcp    = "dispatch.mcp_server:main"
+dispatch         = "dispatch.cli:main"
+dispatch-daemon  = "dispatch.daemon.main:main"
+dispatch-tray    = "dispatch.tray.app:main"
+dispatch-mcp     = "dispatch.mcp_server:main"
+dispatch-browser = "dispatch.browser:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/dispatch"
