@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, Paperclip, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, Paperclip, RotateCcw, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -117,8 +117,33 @@ function DetailBody({
     entry.status === "cancelled";
   const [resendOpen, setResendOpen] = useState(false);
 
+  // "Approval waiting" nudge: pending tool decisions render near the top of the
+  // page, but a live run streams its events into the Activity trace at the
+  // bottom — so a recipient watching events come in won't see a new Allow/Deny
+  // card appear above the fold. Track whether the pending-tools block is on
+  // screen; when it isn't (and there are decisions waiting), float a pill that
+  // jumps to it. Only the recipient can decide, so only they get the nudge.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingRef = useRef<HTMLDivElement>(null);
+  const pendingCount = Object.keys(entry.pending_tools ?? {}).length;
+  const [pendingVisible, setPendingVisible] = useState(true);
+
+  useEffect(() => {
+    if (!isRecipient || pendingCount === 0) return;
+    const target = pendingRef.current;
+    if (!target) return;
+    const obs = new IntersectionObserver(
+      ([e]) => setPendingVisible(e.isIntersecting),
+      { root: scrollRef.current ?? null, threshold: 0.15 },
+    );
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [isRecipient, pendingCount]);
+
+  const showNudge = isRecipient && pendingCount > 0 && !pendingVisible;
+
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       <div className="px-6 py-4 border-b flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="size-4" /> Back
@@ -139,7 +164,7 @@ function DetailBody({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-6">
           {resendOpen && (
             <ResendPanel entry={entry} me={me} onClose={() => setResendOpen(false)} />
@@ -147,7 +172,11 @@ function DetailBody({
           <Header entry={entry} />
           <RichPayload metadata={entry.metadata} dispatchId={entry.dispatch_id} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
-          {isRecipient && <PendingTools entry={entry} />}
+          {isRecipient && (
+            <div ref={pendingRef} className="scroll-mt-4">
+              <PendingTools entry={entry} />
+            </div>
+          )}
           {reply && (
             <Section title="Reply">
               <div className="rounded-lg border bg-card p-4">
@@ -167,7 +196,38 @@ function DetailBody({
           />
         </div>
       </div>
+      {showNudge && (
+        <ApprovalNudge
+          count={pendingCount}
+          onClick={() =>
+            pendingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+        />
+      )}
     </div>
+  );
+}
+
+/** Floating "scroll up to approve" pill. Shown to the recipient when one or
+ *  more tool decisions are waiting but scrolled out of view — the approval
+ *  cards live at the top of the page while a live run's events stream into the
+ *  Activity trace at the bottom, so without this a waiting Allow/Deny is easy
+ *  to miss. Sits at the bottom of the pane (where the eye is during a run) and
+ *  points up to where the decisions are. */
+function ApprovalNudge({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute left-1/2 -translate-x-1/2 bottom-6 z-20 inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900 shadow-lg ring-1 ring-amber-300/50 hover:bg-amber-200"
+    >
+      <span className="relative flex size-2">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
+        <span className="relative inline-flex size-2 rounded-full bg-amber-600" />
+      </span>
+      {count} approval{count === 1 ? "" : "s"} waiting — review
+      <ArrowUp className="size-4" />
+    </button>
   );
 }
 

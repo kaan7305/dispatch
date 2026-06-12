@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
@@ -8,6 +8,11 @@ import { SegmentedTabs } from "@/components/SegmentedTabs";
 
 type Tab = "inbox" | "sent";
 type Filter = "all" | "pending" | "running" | "completed" | "rejected";
+
+// How many rows to render at once. The list is paginated client-side (the
+// daemon/broker return the full set); a "Load more" button reveals the next
+// page so a long history doesn't render hundreds of rows up front.
+const PAGE_SIZE = 30;
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all",       label: "All" },
@@ -44,6 +49,13 @@ export default function Inbox() {
     return [...list].sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [tab, filter, inbox.data, sent.data]);
 
+  // Pagination: reset to the first page whenever the view changes (tab/filter),
+  // so switching tabs doesn't strand you deep in a previous list's pages.
+  const [visible, setVisible] = useState(PAGE_SIZE);
+  useEffect(() => setVisible(PAGE_SIZE), [tab, filter]);
+  const shown = rows.slice(0, visible);
+  const hasMore = rows.length > visible;
+
   return (
     <div className="h-full flex flex-col">
       <div className="px-6 py-5 flex items-center gap-4">
@@ -70,25 +82,41 @@ export default function Inbox() {
             filter={filter}
           />
         ) : (
-          rows.map((row) => (
-            <DispatchRow
-              key={row.dispatch_id}
-              dispatchId={row.dispatch_id}
-              who={tab === "inbox"
-                ? (row as InboxEntry).sender_id
-                : (row as DispatchSummary).recipient_id}
-              task={row.task}
-              createdAt={row.created_at}
-              status={row.status}
-              hint={tab === "inbox" ? statusHint(row as InboxEntry) : undefined}
-              emphasized={
-                tab === "inbox" &&
-                (row.status === "delivered" || row.status === "pending")
-              }
-              showQuickDecision={tab === "inbox"}
-              onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
-            />
-          ))
+          <>
+            {shown.map((row) => (
+              <DispatchRow
+                key={row.dispatch_id}
+                dispatchId={row.dispatch_id}
+                who={tab === "inbox"
+                  ? (row as InboxEntry).sender_id
+                  : (row as DispatchSummary).recipient_id}
+                task={row.task}
+                createdAt={row.created_at}
+                status={row.status}
+                hint={tab === "inbox" ? statusHint(row as InboxEntry) : undefined}
+                emphasized={
+                  tab === "inbox" &&
+                  (row.status === "delivered" || row.status === "pending")
+                }
+                showQuickDecision={tab === "inbox"}
+                onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
+              />
+            ))}
+            {hasMore && (
+              <div className="px-6 py-4 flex items-center justify-center gap-3 text-sm">
+                <span className="text-muted-foreground">
+                  Showing {shown.length} of {rows.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setVisible((v) => v + PAGE_SIZE)}
+                  className="rounded-md border px-3 py-1.5 font-medium hover:bg-muted"
+                >
+                  Load more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
