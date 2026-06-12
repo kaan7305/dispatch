@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronDown, ChevronRight, Mails } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { api, type InboxEntry, type DispatchSummary } from "@/lib/api";
 import { DispatchRow } from "@/components/DispatchRow";
 import { SegmentedTabs } from "@/components/SegmentedTabs";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Badge } from "@/components/ui/badge";
 import { initials, plainPreview, relativeTime } from "@/lib/format";
 
 type Tab = "inbox" | "sent";
@@ -187,23 +186,25 @@ function ConversationGroup({
   const head = members[0]; // newest
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <div className="border-b">
+    <div className="relative border-b">
+      {/* Chevron sits in the row's left padding (absolute), so the avatar lands
+          at the same x as a non-threaded row's avatar. */}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="absolute left-0.5 top-4 z-10 grid place-items-center size-5 rounded hover:bg-muted text-muted-foreground"
+        aria-label={open ? "Collapse thread" : "Expand thread"}
+        aria-expanded={open}
+      >
+        <Chevron className="size-4" />
+      </button>
       <div
         role="button"
         tabIndex={0}
         onClick={() => onOpen(head.dispatch_id)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(head.dispatch_id); }}
-        className="w-full text-left flex items-start gap-3 px-3 py-4 hover:bg-muted/50 cursor-pointer"
+        className="w-full text-left flex items-start gap-4 px-6 py-4 hover:bg-muted/50 cursor-pointer"
       >
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-          className="mt-1 grid place-items-center size-6 rounded hover:bg-muted shrink-0"
-          aria-label={open ? "Collapse thread" : "Expand thread"}
-          aria-expanded={open}
-        >
-          <Chevron className="size-4 text-muted-foreground" />
-        </button>
         <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">
           {initials(whoOf(head))}
         </div>
@@ -211,9 +212,6 @@ function ConversationGroup({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold">{whoOf(head)}</span>
             <StatusBadge status={head.status} />
-            <Badge variant="outline" className="gap-1">
-              <Mails className="size-3" /> {members.length}
-            </Badge>
           </div>
           <div className="mt-1 text-sm leading-snug line-clamp-2">{plainPreview(head.task)}</div>
           <div className="mt-1 text-xs text-muted-foreground">{relativeTime(head.created_at)}</div>
@@ -221,16 +219,13 @@ function ConversationGroup({
       </div>
       {open && (
         <div className="border-t bg-muted/10">
-          {members.map((m, i) => (
+          {members.map((m) => (
             <button
               key={m.dispatch_id}
               type="button"
               onClick={() => onOpen(m.dispatch_id)}
-              className="w-full text-left flex items-start gap-3 pl-12 pr-4 py-3 hover:bg-muted/50 border-b last:border-b-0"
+              className="w-full text-left flex items-start gap-3 pl-16 pr-6 py-3 hover:bg-muted/50 border-b last:border-b-0"
             >
-              <span className="mt-0.5 w-4 shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {members.length - i}
-              </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={m.status} />
