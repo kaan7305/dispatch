@@ -603,12 +603,13 @@ async def dispatch_read(
 
 @mcp.tool()
 async def dispatch_act(
-    action: Literal["accept", "decline", "approve", "deny", "cancel"],
+    action: Literal["accept", "decline", "approve", "deny", "cancel", "reply"],
     dispatch_id: str,
     ctx: Context,
     request_id: str = "",
     grant: Literal["once", "always", "session"] = "once",
     cwd: str = "",
+    message: str = "",
 ) -> dict:
     """Act on an inbound or in-flight dispatch.
       accept  — accept AND run it in the sandboxed dp-agent. This is the ONLY
@@ -633,7 +634,14 @@ async def dispatch_act(
                 only to override that — e.g. the user named a specific
                 directory, or a previous run reported it couldn't find the
                 project.
-      decline — reject an inbound dispatch; it never runs.
+      decline — reject an inbound dispatch; it never runs. Pass `message` to
+                attach a reason the sender sees ("busy this week — try Kaan").
+      reply   — post a human chat note (in `message`) onto the dispatch thread.
+                Works in EITHER direction, at ANY status — a sender asking "any
+                luck?" or a recipient saying "done, but I redacted the secrets".
+                It rides the activity stream but is display-only: it NEVER
+                reaches the running agent, so it can't steer a run. Not a way to
+                send a new task — for follow-up WORK use dispatch_send(parent_id=…).
       cancel  — cancel an in-flight dispatch (either party).
       approve / deny — relay the human's allow/deny for one pending tool call
                 (needs `request_id`, from an approval_needed result or
@@ -650,11 +658,24 @@ async def dispatch_act(
                 cwd=None if cwd.strip().lower() in ("", "none") else cwd,
             )
         if action == "decline":
+            decision: dict = {"decision": "reject"}
+            if message.strip():
+                decision["reason"] = message.strip()
             r = await _local_call(
-                "POST", f"/api/dispatch/{dispatch_id}/decision", json={"decision": "reject"},
+                "POST", f"/api/dispatch/{dispatch_id}/decision", json=decision,
             )
             return {"status": "ok", "dispatch_id": dispatch_id} if not (
                 isinstance(r, dict) and r.get("error")) else {"status": "error", "detail": r.get("detail")}
+        if action == "reply":
+            if not message.strip():
+                return {"status": "error", "detail": "message required for reply"}
+            r = await _local_call(
+                "POST", f"/api/dispatch/{dispatch_id}/message",
+                json={"body": message.strip(), "kind": "note"},
+            )
+            if isinstance(r, dict) and r.get("error"):
+                return {"status": "error", "detail": r.get("detail")}
+            return {"status": "ok", "dispatch_id": dispatch_id}
         if action == "cancel":
             return await _local_call("POST", f"/api/dispatch/{dispatch_id}/cancel")
         if action in ("approve", "deny"):
@@ -730,6 +751,7 @@ async def dispatch_send(
     links: Optional[list[str]] = None,
     deliverable: str = "",
     background: str = "",
+    parent_id: str = "",
 ) -> dict:
     """Send a dispatch to a trusted contact. The verbatim `task` runs on their
     machine across an accepted, scoped trust edge. Returns the dispatch_id
@@ -748,6 +770,12 @@ async def dispatch_send(
       doesn't carry — when the dispatch grows out of your current session,
       summarize the relevant decisions/state here so their agent doesn't
       start cold. Write it for a stranger: no session-internal shorthand.
+    - `parent_id`: makes this a FOLLOW-UP to an earlier dispatch — it's grouped
+      into the same thread, and the parent's working directory + result are
+      inherited as context so the recipient agent continues where the last run
+      left off. Each follow-up is still a fresh, separately-approved dispatch
+      (NOT a resumed session); the recipient is whoever you address now (a
+      follow-up back to the original sender needs an edge in that direction).
     """
     metadata: dict = {}
     if files:
@@ -772,6 +800,8 @@ async def dispatch_send(
             "recipient_id": recipient, "task": task,
             "expires_in_seconds": expires_in_seconds, "metadata": metadata,
         }
+        if parent_id.strip():
+            body["parent_id"] = parent_id.strip()
         return await _local_call("POST", "/api/compose", json=body)
     except _Dormant:
         return {"error": "logged_out", "detail": _LOGIN_HINT}

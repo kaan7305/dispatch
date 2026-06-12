@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, Infinity as InfinityIcon, Paperclip, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, CornerUpLeft, Infinity as InfinityIcon, Paperclip, RotateCcw, Send, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
@@ -116,6 +116,12 @@ function DetailBody({
     entry.status === "expired" ||
     entry.status === "cancelled";
   const [resendOpen, setResendOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  // A follow-up I send goes to the parent's OTHER party (whoever I'm not). Both
+  // parties can spawn one; a recipient's follow-up routes back to the sender
+  // (and needs an edge in that direction, enforced at send like any dispatch).
+  const otherParty = isSender ? entry.recipient_id ?? "" : entry.sender_id;
+  const parentId = (entry.metadata?.["parent_id"] as string | undefined) ?? undefined;
 
   // "Approval waiting" nudge: pending tool decisions render near the top of the
   // page, but a live run streams its events into the Activity trace at the
@@ -155,11 +161,18 @@ function DetailBody({
             <CancelButton dispatchId={entry.dispatch_id} />
           </div>
         )}
-        {terminal && isSender && (
-          <div className="ml-auto">
-            <Button variant="outline" size="sm" onClick={() => setResendOpen((o) => !o)}>
-              <RotateCcw className="size-4" /> Resend
-            </Button>
+        {terminal && (
+          <div className="ml-auto flex items-center gap-2">
+            {otherParty && (
+              <Button variant="outline" size="sm" onClick={() => { setFollowUpOpen((o) => !o); setResendOpen(false); }}>
+                <CornerUpLeft className="size-4" /> Follow up
+              </Button>
+            )}
+            {isSender && (
+              <Button variant="outline" size="sm" onClick={() => { setResendOpen((o) => !o); setFollowUpOpen(false); }}>
+                <RotateCcw className="size-4" /> Resend
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -169,6 +182,10 @@ function DetailBody({
           {resendOpen && (
             <ResendPanel entry={entry} me={me} onClose={() => setResendOpen(false)} />
           )}
+          {followUpOpen && otherParty && (
+            <FollowUpPanel entry={entry} recipient={otherParty} onClose={() => setFollowUpOpen(false)} />
+          )}
+          {parentId && <ParentLink parentId={parentId} />}
           <Header entry={entry} />
           <RichPayload metadata={entry.metadata} dispatchId={entry.dispatch_id} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
@@ -194,6 +211,7 @@ function DetailBody({
             isRecipient={isRecipient}
             defaultOpen={!reply}
           />
+          {(isSender || isRecipient) && <ReplyComposer entry={entry} />}
         </div>
       </div>
       {showNudge && (
@@ -457,6 +475,136 @@ function ResendPanel({
   );
 }
 
+/** "↩ Follow-up of <id>" banner linking back to the parent dispatch. Shown on
+ *  any dispatch that carries metadata.parent_id, so a threaded chain is
+ *  navigable in both directions. */
+function ParentLink({ parentId }: { parentId: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/dispatch/${parentId}`)}
+      className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50/60 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
+    >
+      <CornerUpLeft className="size-3.5" />
+      Follow-up — open the original dispatch
+    </button>
+  );
+}
+
+/** Compose a follow-up: a NEW dispatch threaded onto this one, addressed to the
+ *  other party. It inherits the parent's cwd + result as context server-side
+ *  (the daemon enriches metadata.parent_id at compose), but is a fresh, signed,
+ *  separately-approved dispatch — not a resumed agent session. */
+function FollowUpPanel({
+  entry, recipient, onClose,
+}: { entry: AnyDispatch; recipient: string; onClose: () => void }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [task, setTask] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const send = useMutation({
+    mutationFn: () =>
+      api.compose({
+        recipient_id: recipient,
+        task: task.trim(),
+        metadata: { parent_id: entry.dispatch_id },
+      }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["sent"] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      const newId = "dispatch_id" in res ? res.dispatch_id : res.dispatches[0]?.dispatch_id;
+      onClose();
+      if (newId) navigate(`/dispatch/${newId}`);
+    },
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+  });
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div>
+        <div className="font-medium">Follow up with {recipient}</div>
+        <div className="text-sm text-muted-foreground mt-0.5">
+          Sends a new task on this thread. Their agent inherits this dispatch's
+          working directory and result as context, then runs the new task —
+          still gated by your trust edge and their approval.
+        </div>
+      </div>
+      <textarea
+        value={task}
+        onChange={(e) => setTask(e.target.value)}
+        rows={4}
+        autoFocus
+        spellCheck={false}
+        placeholder="e.g. now add tests for the parser you just wrote"
+        className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+      />
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose} disabled={send.isPending}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={() => send.mutate()} disabled={send.isPending || !task.trim()}>
+          {send.isPending ? "Sending…" : "Send follow-up"}
+        </Button>
+      </div>
+      {error && <div className="text-xs text-destructive">{error}</div>}
+    </div>
+  );
+}
+
+/** Inline composer for a human note on the thread. Posts a display-only message
+ *  that joins the activity stream (both parties + every surface) without ever
+ *  reaching the running agent. Available at any status — you can still say
+ *  "thanks" or ask a question after the run is done. */
+function ReplyComposer({ entry }: { entry: AnyDispatch }) {
+  const qc = useQueryClient();
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const post = useMutation({
+    mutationFn: () => api.postMessage(entry.dispatch_id, body.trim()),
+    onSuccess: () => {
+      setBody("");
+      qc.invalidateQueries({ queryKey: ["dispatch", entry.dispatch_id] });
+    },
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
+  });
+
+  function submit() {
+    if (body.trim() && !post.isPending) post.mutate();
+  }
+
+  return (
+    <div className="border-t pt-4">
+      <div className="flex items-start gap-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter sends; plain Enter keeps a newline.
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          rows={2}
+          spellCheck={false}
+          placeholder="Reply on this thread… (⌘↵ to send)"
+          className="flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+        />
+        <Button size="sm" onClick={submit} disabled={post.isPending || !body.trim()}>
+          <Send className="size-4" /> {post.isPending ? "Sending…" : "Send"}
+        </Button>
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        A note for the other person — it shows in the activity stream but is
+        never given to the agent.
+      </div>
+      {error && <div className="mt-1 text-xs text-destructive">{error}</div>}
+    </div>
+  );
+}
+
 function CancelButton({ dispatchId }: { dispatchId: string }) {
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
@@ -523,9 +671,15 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
+  const [reason, setReason] = useState("");
   const decide = useMutation({
     mutationFn: (decision: "accept" | "reject") =>
-      api.decide(entry.dispatch_id, decision, decision === "accept" ? cwd.trim() || undefined : undefined),
+      api.decide(
+        entry.dispatch_id,
+        decision,
+        decision === "accept" ? cwd.trim() || undefined : undefined,
+        decision === "reject" ? reason.trim() || undefined : undefined,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dispatch", entry.dispatch_id] });
       qc.invalidateQueries({ queryKey: ["inbox"] });
@@ -575,6 +729,17 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
           the agent from searching your disk. It's added to the path allowlist
           for this run.
         </div>
+      </div>
+      <div className="mt-3 space-y-1">
+        <label className="text-xs font-medium text-muted-foreground">
+          Reason if you reject <span className="font-normal">(optional, shown to sender)</span>
+        </label>
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. swamped this week — try next Monday"
+          className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
       </div>
       {error && (
         <div className="mt-3 text-xs text-destructive">{error}</div>

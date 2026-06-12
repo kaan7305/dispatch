@@ -791,6 +791,68 @@ def cmd_send(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0 if dispatches and not failures else 1
 
 
+def cmd_reply(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Post a human chat note onto a dispatch thread (either party, any status).
+    Display-only — it shows in the activity stream but never reaches the agent."""
+    body = (args.message or "").strip()
+    if not body and not sys.stdin.isatty():
+        body = sys.stdin.read().strip()
+    if not body:
+        raise CliError("nothing to say — pass a message or pipe one on stdin.")
+    _request(broker, token, "POST", f"/dispatch/{args.dispatch_id}/messages",
+             json={"body": body, "kind": "note"})
+    _emit(args, {"dispatch_id": args.dispatch_id, "ok": True},
+          f"Replied on {_short(args.dispatch_id)}.")
+    return 0
+
+
+def cmd_followup(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Send a NEW dispatch threaded onto an existing one. It inherits the
+    parent's working directory + result as context, but is a fresh, separately
+    signed + approved dispatch — not a resumed session. Recipient defaults to
+    the parent's other party (override with --to)."""
+    parent = _request(broker, token, "GET", f"/dispatch/{args.dispatch_id}")
+    me = _request(broker, token, "GET", "/me").get("user_id")
+    sender = parent.get("sender_id")
+    recipient = parent.get("recipient_id")
+    # The other party of the parent — a follow-up I send goes to whoever I wasn't.
+    other = recipient if me == sender else sender
+    to = getattr(args, "to", None) or other
+    if not to:
+        raise CliError("could not resolve a recipient; pass --to <user>.")
+    pmeta = parent.get("metadata") or {}
+    thread_id = pmeta.get("thread_id") or parent.get("dispatch_id") or args.dispatch_id
+    metadata: dict[str, Any] = {
+        "parent_id": parent.get("dispatch_id") or args.dispatch_id,
+        "thread_id": thread_id,
+    }
+    if pmeta.get("cwd"):
+        metadata["cwd"] = pmeta["cwd"]
+    bg = (
+        "This is a follow-up to an earlier dispatch.\n\n"
+        f"Original task:\n{parent.get('task', '')}"
+    )
+    prior = (parent.get("reply") or "").strip()
+    if prior:
+        bg += f"\n\nResult of that dispatch:\n{prior[:4000]}"
+    metadata["context"] = {"background": bg}
+    body = {
+        "recipient_id": to,
+        "task": args.task,
+        "expires_in_seconds": args.expires,
+        "metadata": metadata,
+    }
+    result = _request(broker, token, "POST", "/dispatch", json=body)
+    if "dispatch_id" in result:
+        _emit(args, result,
+              f"Follow-up sent to {to}. dispatch_id={result['dispatch_id']} "
+              f"status={result.get('status', '?')}\n"
+              f"  Watch it:  dispatch status {result['dispatch_id']}")
+        return 0
+    _emit(args, result, f"Follow-up result: {json.dumps(result)}")
+    return 0 if result.get("dispatches") else 1
+
+
 def cmd_sent(args: argparse.Namespace, broker: str, token: str) -> int:
     return _list_dispatches(args, broker, token, role="sent", who_key="recipient_id", label="Sent")
 
@@ -829,6 +891,9 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
     print(f"  created: {d.get('created_at')}")
     print(f"  expires: {d.get('expires_at')}")
     print(f"  task:    {d.get('task')}")
+    meta = d.get("metadata") or {}
+    if meta.get("parent_id"):
+        print(f"  follow-up of: {_short(str(meta['parent_id']))}")
     if d.get("reply"):
         print(f"  reply:   {d['reply']}")
     events = d.get("events", [])
@@ -837,6 +902,11 @@ def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
         for e in events:
             etype = e.get("type", "?")
             edata = e.get("data", e)
+            if etype == "message" and isinstance(edata, dict):
+                who = edata.get("author", "?")
+                tag = " (decline reason)" if edata.get("kind") == "decline_reason" else ""
+                print(f"    - 💬 {who}{tag}: {edata.get('body', '')}")
+                continue
             print(f"    - {etype}: {json.dumps(edata) if not isinstance(edata, str) else edata}")
     return 0
 
@@ -1269,6 +1339,9 @@ def _decide_local(args: argparse.Namespace, config: dict, *, decision: str) -> i
     cwd = getattr(args, "cwd", None)
     if decision == "accept" and cwd:
         body["cwd"] = cwd
+    reason = getattr(args, "reason", None)
+    if decision == "reject" and reason:
+        body["reason"] = reason
     _local_request(
         config, "POST", f"/api/dispatch/{target}/decision", json=body
     )
@@ -1646,6 +1719,21 @@ def build_parser() -> argparse.ArgumentParser:
     add("cancel", "Cancel a dispatch (either party).", cmd_cancel).add_argument(
         "dispatch_id", help="Full dispatch id (UUID).")
 
+    p_reply = add("reply", "Post a human note onto a dispatch thread (either party).", cmd_reply)
+    p_reply.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_reply.add_argument("message", nargs="?", default="",
+                         help="The note. Omit to read from stdin.")
+
+    p_follow = add("followup",
+                   "Send a new dispatch threaded onto an existing one (inherits its cwd + result).",
+                   cmd_followup)
+    p_follow.add_argument("dispatch_id", help="Parent dispatch id (UUID).")
+    p_follow.add_argument("task", help="The verbatim task for the follow-up.")
+    p_follow.add_argument("--to", default=None,
+                          help="Recipient user id. Default: the parent's other party.")
+    p_follow.add_argument("--expires", type=int, default=3600,
+                          help="TTL in seconds (60–86400). Default 3600.")
+
     # Local-only commands: resolved by THIS machine's daemon (127.0.0.1), not
     # the broker. They don't need broker creds.
     def add_local(name: str, help: str, func) -> argparse.ArgumentParser:
@@ -1661,8 +1749,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory the agent runs in (skips its filesystem search). "
              "Added to the path allowlist for this run.",
     )
-    add_local("decline", "Decline an inbound dispatch (local daemon).",
-              cmd_decline).add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_decline = add_local("decline", "Decline an inbound dispatch (local daemon).", cmd_decline)
+    p_decline.add_argument("dispatch_id", help="Full dispatch id (UUID).")
+    p_decline.add_argument("--reason", default=None,
+                           help="Optional note to the sender on why you declined.")
     add_local("approvals", "List tool calls awaiting allow/deny on your local daemon.",
               cmd_approvals)
     p_approve = add_local("approve", "Allow a pending tool call (manual-approval edge).", cmd_approve)

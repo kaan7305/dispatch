@@ -755,6 +755,37 @@ class Store:
             return result.endswith(" 1")
 
 
+    # ---------------- account events (trust-layer audit log) -------------
+
+    async def record_account_event(
+        self, actor: str, peer: str, event_type: str, data: dict
+    ) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO account_events (actor, peer, type, data)
+                VALUES ($1, $2, $3, $4)
+                """,
+                actor, peer, event_type, data,
+            )
+
+    async def list_account_events(self, user_id: str, limit: int) -> list[dict]:
+        """Events the user took part in, either side, newest first.
+        Peer is matched case-insensitively: for invitations it's a raw
+        email that may predate the user's registration."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, actor, peer, type, data, created_at
+                FROM account_events
+                WHERE actor = $1 OR LOWER(peer) = LOWER($1)
+                ORDER BY created_at DESC, id DESC
+                LIMIT $2
+                """,
+                user_id, limit,
+            )
+            return [dict(r) for r in rows]
+
     # ---------------- contexts (reusable system_prompt + files) ----------
 
     async def create_context(

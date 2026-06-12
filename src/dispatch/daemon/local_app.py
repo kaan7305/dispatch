@@ -41,11 +41,13 @@ from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon import memory as run_memory
 from dispatch.shared.schema import (
     ATTACHMENT_NAME_RE,
+    MESSAGE_MAX_CHARS,
     DispatchEvent,
     DispatchPayload,
     DispatchStatus,
     Scopes,
     public_metadata,
+    thread_id_of,
 )
 
 logger = logging.getLogger("dispatch.daemon.local")
@@ -234,6 +236,24 @@ class LocalState:
             "data": event,
         })
 
+    def on_message(self, dispatch_id: UUID, event: DispatchEvent) -> None:
+        """A human chat message (from either party) arrived on a thread we hold.
+        Fold it into the event stream like any other event, and — when it came
+        from the OTHER person — surface an OS notification so a reply lands."""
+        self.on_event(dispatch_id, event)
+        data = event.get("data") if isinstance(event, dict) else None
+        author = (data or {}).get("author") if isinstance(data, dict) else None
+        if author and author != self.user_id:
+            body = str((data or {}).get("body") or "")
+            entry = self.entries.get(dispatch_id)
+            sender = entry.payload.sender_id if entry else author
+            self._push_notification(
+                "New reply",
+                f"from {author} on {sender}'s dispatch",
+                body[:140],
+                dispatch_id=str(dispatch_id),
+            )
+
     def on_pending_tool(
         self, dispatch_id: UUID, request_id: str, tool: str, tool_input: dict
     ) -> None:
@@ -272,6 +292,31 @@ class LocalState:
                     pass
 
 
+def _build_followup_metadata(parent: dict, base: dict, parent_id: str) -> dict:
+    """Stamp thread/parent pointers onto a follow-up's metadata and inherit the
+    parent's working directory + prior result as agent context. The pointers are
+    display-only grouping; the inherited background is real signed content so the
+    follow-up agent doesn't start cold."""
+    meta = dict(base)
+    pmeta = parent.get("metadata") or {}
+    meta["parent_id"] = parent_id
+    meta["thread_id"] = thread_id_of(pmeta, parent.get("dispatch_id") or parent_id)
+    if not meta.get("cwd") and pmeta.get("cwd"):
+        meta["cwd"] = pmeta["cwd"]
+    ctx = dict(meta.get("context") or {})
+    if not ctx.get("background"):
+        bg = (
+            "This is a follow-up to an earlier dispatch.\n\n"
+            f"Original task:\n{parent.get('task', '')}"
+        )
+        prior = (parent.get("reply") or "").strip()
+        if prior:
+            bg += f"\n\nResult of that dispatch:\n{prior[:4000]}"
+        ctx["background"] = bg
+        meta["context"] = ctx
+    return meta
+
+
 def _entry_summary(entry: InboxEntry) -> dict:
     p = entry.payload
     return {
@@ -294,6 +339,14 @@ class _Decision(BaseModel):
     # agent runs ("this is about Yuni → ~/Desktop/Yuni") instead of letting it
     # cold-start-search the filesystem. Ignored for tool-level decisions.
     cwd: Optional[str] = None
+    # Optional rejection reason (decision == "reject"): posted to the thread as a
+    # decline_reason message so the sender sees WHY, not just that it was denied.
+    reason: Optional[str] = None
+
+
+class _Message(BaseModel):
+    body: str
+    kind: str = "note"
 
 
 class _Compose(BaseModel):
@@ -302,6 +355,10 @@ class _Compose(BaseModel):
     task: str
     expires_in_seconds: int = 3600
     metadata: dict[str, Any] = {}
+    # When set, this dispatch is a follow-up: the daemon fetches the parent,
+    # stamps thread/parent pointers, and inherits its working directory +
+    # prior result as context before signing/sending.
+    parent_id: Optional[str] = None
 
 
 class _ScopesUpdate(BaseModel):
@@ -547,8 +604,34 @@ def make_app(
         fut = daemon_state.pending_decisions.get(str(dispatch_id))
         if fut is None or fut.done():
             raise HTTPException(status_code=409, detail="no pending decision for that dispatch")
+        # A rejection reason is posted to the thread (best-effort) BEFORE the
+        # deny lands, so the sender's trace reads "<reason>" then "denied".
+        reason = (body.reason or "").strip()
+        if body.decision == "reject" and reason:
+            try:
+                await _broker_request(
+                    "POST", f"/dispatch/{dispatch_id}/messages",
+                    json_body={"body": reason[:MESSAGE_MAX_CHARS], "kind": "decline_reason"},
+                )
+            except Exception:
+                logger.exception("failed to post decline reason")
         fut.set_result({"decision": body.decision, "cwd": cwd})
         return {"status": "ok"}
+
+    @app.post("/api/dispatch/{dispatch_id}/message", dependencies=[Depends(require_local_token)])
+    async def post_dispatch_message(dispatch_id: UUID, body: _Message) -> Response:
+        """Post a human chat message on a dispatch thread. Proxied to the broker,
+        which persists it, fans it to the other party, and pushes it back down to
+        this daemon so the local UI shows it (single source of truth — we don't
+        echo locally)."""
+        text = (body.body or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="empty message")
+        kind = body.kind if body.kind in ("note", "decline_reason") else "note"
+        return await _broker_request(
+            "POST", f"/dispatch/{dispatch_id}/messages",
+            json_body={"body": text[:MESSAGE_MAX_CHARS], "kind": kind},
+        )
 
     @app.post(
         "/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
@@ -630,14 +713,34 @@ def make_app(
     async def compose(body: _Compose) -> Response:
         # Generous timeout: a dispatch may carry up to ~16 MB of attachments
         # (~21 MB as base64), and the sign round-trip happens inside this call.
+        payload = body.model_dump(exclude_none=True)
+        # Follow-up: fetch the parent, stamp thread/parent pointers, and inherit
+        # its cwd + result before sending. `parent_id` is a compose-only field —
+        # it never travels to the broker top-level; it lives in metadata. Accept
+        # it either as a top-level field (MCP) or inside metadata (web UI).
+        parent_id = payload.pop("parent_id", None) or (payload.get("metadata") or {}).get("parent_id")
+        if parent_id:
+            parent_resp = await _broker_request("GET", f"/dispatch/{parent_id}")
+            if parent_resp.status_code != 200:
+                raise HTTPException(status_code=404, detail="parent dispatch not found")
+            try:
+                parent = json.loads(parent_resp.body)
+            except Exception:
+                raise HTTPException(status_code=502, detail="could not read parent dispatch")
+            payload["metadata"] = _build_followup_metadata(
+                parent, dict(payload.get("metadata") or {}), str(parent_id)
+            )
         return await _broker_request(
-            "POST", "/dispatch", json_body=body.model_dump(exclude_none=True),
-            timeout=120.0,
+            "POST", "/dispatch", json_body=payload, timeout=120.0,
         )
 
     @app.get("/api/trust", dependencies=[Depends(require_local_token)])
     async def list_trust() -> Response:
         return await _broker_request("GET", "/trust")
+
+    @app.get("/api/account/events", dependencies=[Depends(require_local_token)])
+    async def list_account_events() -> Response:
+        return await _broker_request("GET", "/account/events")
 
     @app.patch("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def update_trust(trust_link_id: str, body: _ScopesUpdate) -> Response:

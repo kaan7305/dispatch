@@ -1168,6 +1168,20 @@ async def handle_broker(
                 task.cancel()
                 print(f"[daemon] dispatch {str(did)[:8]}… cancelled (trust revoked)")
 
+        elif mtype == "dispatch_message":
+            # A human chat message someone posted on a thread we're party to.
+            # Mirror it into this machine's local UI event stream (the local UI
+            # streams from the daemon, not the broker, so it won't see the
+            # broker's broadcast otherwise). Display-only — never handed to any
+            # running agent.
+            raw_id = msg.get("dispatch_id")
+            event = msg.get("event")
+            if raw_id and isinstance(event, dict) and local_state is not None:
+                try:
+                    local_state.on_message(UUID(raw_id), event)
+                except Exception:
+                    logger.exception("failed to mirror dispatch_message")
+
         elif mtype == "signed_out":
             # The user signed out from the broker's web page. Clear the
             # cached broker JWT from disk and propagate the signal upward

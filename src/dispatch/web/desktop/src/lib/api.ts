@@ -104,12 +104,29 @@ export const api = {
       : request<InboxEntry[]>("/api/inbox"),
   dispatchDetail: (id: string) =>
     request<InboxEntry & { events: DispatchEvent[] }>(`/api/dispatch/${id}`),
-  decide: (id: string, decision: "accept" | "reject", cwd?: string) =>
+  decide: (id: string, decision: "accept" | "reject", cwd?: string, reason?: string) =>
     isBroker
       ? redirectToLocal("Approving a dispatch")
       : request<{ status: string }>(`/api/dispatch/${id}/decision`, {
           method: "POST",
-          body: JSON.stringify(cwd ? { decision, cwd } : { decision }),
+          body: JSON.stringify({
+            decision,
+            ...(cwd ? { cwd } : {}),
+            ...(reason ? { reason } : {}),
+          }),
+        }),
+  // Post a human chat note onto a dispatch thread. Works in either direction
+  // and at any status — display-only, it never reaches the running agent.
+  // Local mode proxies to the broker; broker mode posts directly.
+  postMessage: (id: string, body: string, kind: "note" | "decline_reason" = "note") =>
+    isBroker
+      ? request<{ status: string }>(`/dispatch/${id}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ body, kind }),
+        })
+      : request<{ status: string }>(`/api/dispatch/${id}/message`, {
+          method: "POST",
+          body: JSON.stringify({ body, kind }),
         }),
   decideTool: (
     dispatchId: string,
@@ -215,6 +232,13 @@ export const api = {
     );
     return body.dispatches;
   },
+  // Trust-layer audit log: invitations sent/accepted/declined, permission
+  // (scope) edits, revocations — rendered in the History tab alongside
+  // dispatches. Direction is relative to the viewer.
+  accountEvents: async () => {
+    const body = await request<{ events: AccountEvent[] }>("/api/account/events");
+    return body.events;
+  },
   devices: () => request<{ devices: Device[] }>("/api/devices"),
   renameDevice: (id: string, label: string) =>
     request<{ status: string }>(`/api/devices/${id}`, {
@@ -275,6 +299,32 @@ export interface TrustEdge {
   peer_online: boolean;
   scopes: Scopes;
   can_edit_scopes: boolean;
+}
+
+export type AccountEventType =
+  | "invite_sent"
+  | "invite_accepted"
+  | "invite_declined"
+  | "trust_scopes_updated"
+  | "trust_revoked";
+
+export interface ScopeChange {
+  from: unknown;
+  to: unknown;
+}
+
+export interface AccountEvent {
+  id: number;
+  type: AccountEventType;
+  // outgoing = the viewer performed the action; incoming = the peer did.
+  direction: "outgoing" | "incoming";
+  peer: string;
+  data: {
+    trust_link_id?: string;
+    cancelled_dispatches?: number;
+    changes?: Record<string, ScopeChange>;
+  };
+  created_at: string;
 }
 
 export interface Invitation {
@@ -398,6 +448,7 @@ export interface DispatchEvent {
     | "permission_response"
     | "dispatch_status"
     | "done"
-    | "error";
+    | "error"
+    | "message";
   data: Record<string, unknown>;
 }

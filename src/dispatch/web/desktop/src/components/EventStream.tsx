@@ -137,6 +137,21 @@ function EventCard({
           </div>
         </Block>
       );
+
+    case "message": {
+      // A human chat note pinned to the thread — distinct from agent output so
+      // it never reads as something the agent said or did. Display-only.
+      const author = stringFrom(event.data, "author");
+      const isDecline = event.data["kind"] === "decline_reason";
+      const label = isDecline ? "Decline reason" : "Message";
+      return (
+        <Block tone="message" label={label} name={author || undefined} timing={timing}>
+          <div className="whitespace-pre-wrap break-words text-sm">
+            {stringFrom(event.data, "body")}
+          </div>
+        </Block>
+      );
+    }
   }
 }
 
@@ -165,7 +180,7 @@ export function Markdown({ text }: { text: string }) {
 function Block({
   tone, label, name, timing, children,
 }: {
-  tone: "agent" | "tool" | "result" | "error";
+  tone: "agent" | "tool" | "result" | "error" | "message";
   label: string;
   name?: string;
   timing?: { ts: string | null; prevTs: string | null };
@@ -175,10 +190,11 @@ function Block({
     <div
       className={cn(
         "border-l-4 rounded-md bg-card px-3 py-2 border",
-        tone === "agent"  && "border-l-blue-500",
-        tone === "tool"   && "border-l-amber-500",
-        tone === "result" && "border-l-green-500",
-        tone === "error"  && "border-l-red-500",
+        tone === "agent"   && "border-l-blue-500",
+        tone === "tool"    && "border-l-amber-500",
+        tone === "result"  && "border-l-green-500",
+        tone === "error"   && "border-l-red-500",
+        tone === "message" && "border-l-violet-500 bg-violet-50/40",
       )}
     >
       <div className="flex items-baseline gap-2 mb-1">

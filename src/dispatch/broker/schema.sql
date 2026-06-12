@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS invitations (
 
 CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token);
 
+-- Audit log for the trust layer: invitation lifecycle and trust-edge changes.
+-- One row per action; both parties see it in their history. `actor` is the
+-- user who performed the action, `peer` the other party (an email for
+-- invitations, which may not be a registered user yet).
+CREATE TABLE IF NOT EXISTS account_events (
+    id          BIGSERIAL PRIMARY KEY,
+    actor       TEXT NOT NULL,
+    peer        TEXT NOT NULL,
+    type        TEXT NOT NULL,  -- invite_sent | invite_accepted | invite_declined | trust_scopes_updated | trust_revoked
+    data        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_events_actor ON account_events(actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_account_events_peer  ON account_events(peer, created_at DESC);
+
 -- Trust-layer columns on dispatches. Nullable so pre-trust-layer rows and the
 -- schema's own idempotent re-runs stay valid.
 ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS trust_link_id UUID REFERENCES trust_links(trust_link_id);

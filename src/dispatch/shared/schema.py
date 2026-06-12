@@ -23,6 +23,9 @@ VALID_TOOLS = ("Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "We
 # wire size. Attachment bytes are base64 in metadata; the *manifest*
 # (name/size/sha256) is covered by the Ed25519 signature — see signing.py.
 TASK_MAX_CHARS = 100_000
+# A human chat message pinned to a dispatch thread (display-only — never reaches
+# the executor). Generous, but bounded so one message can't blow the event row.
+MESSAGE_MAX_CHARS = 8_000
 ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024           # one file
 ATTACHMENTS_MAX_TOTAL_BYTES = 250 * 1024 * 1024  # whole dispatch (50 × 5 MB)
 ATTACHMENTS_MAX_COUNT = 50
@@ -333,12 +336,71 @@ DispatchEventType = Literal[
     "dispatch_status",
     "done",
     "error",
+    # A human chat message on the dispatch thread. Authored by the sender or the
+    # recipient, NOT the agent — it rides the same event trace so it shows in the
+    # activity stream, but the executor never reads it back, so it can't steer a
+    # run (display-only by construction). data: {id, author, author_role, body,
+    # kind}. See build_message_event / MessageCreate.
+    "message",
 ]
 
 
 class DispatchEvent(TypedDict):
     type: DispatchEventType
     data: dict[str, Any]
+
+
+# Human-message kinds. "note" is a free reply; "decline_reason" is the optional
+# explanation attached when a recipient rejects a dispatch.
+MessageKind = Literal["note", "decline_reason"]
+
+
+class MessageCreate(BaseModel):
+    """Body for POST /dispatch/{id}/messages — one human chat message on a
+    dispatch thread. The author is the authenticated caller (sender or
+    recipient); the broker derives it from the JWT, never from the body."""
+
+    body: str = Field(..., min_length=1, max_length=MESSAGE_MAX_CHARS)
+    kind: MessageKind = "note"
+
+
+def build_message_event(
+    *, author: str, author_role: str, body: str, kind: str = "note"
+) -> DispatchEvent:
+    """A `message` DispatchEvent: a human note pinned to the dispatch thread.
+    `id` lets every surface dedupe/key it; `ts` is stamped by whoever persists
+    it (broker endpoint / daemon mirror), like every other event."""
+    return {
+        "type": "message",
+        "data": {
+            "id": str(uuid4()),
+            "author": author,
+            "author_role": author_role,
+            "body": body,
+            "kind": kind,
+        },
+    }
+
+
+# --- threading ---------------------------------------------------------------
+# A dispatch and its follow-ups form a thread. The linkage lives in metadata
+# (unsigned, display-only grouping): `parent_id` points at the dispatch a
+# follow-up answers; `thread_id` is the root's id, shared by every dispatch in
+# the chain. The follow-up's inherited *content* (parent task/result, cwd) is
+# baked into the signed task/context at send time — only the pointers are
+# unsigned, so a tampered pointer can at worst mis-group the UI, never widen
+# what the agent does.
+
+def parent_id_of(metadata: dict[str, Any] | None) -> Optional[str]:
+    pid = (metadata or {}).get("parent_id")
+    return str(pid) if pid else None
+
+
+def thread_id_of(metadata: dict[str, Any] | None, self_id: Any) -> str:
+    """The thread this dispatch belongs to: its explicit `thread_id`, else its
+    own id (a root dispatch is its own thread)."""
+    tid = (metadata or {}).get("thread_id")
+    return str(tid) if tid else str(self_id)
 
 
 def reply_from_events(events: list) -> Optional[str]:

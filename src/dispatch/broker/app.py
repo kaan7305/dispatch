@@ -67,9 +67,11 @@ from dispatch.shared.schema import (
     DispatchStatus,
     InvitationCreateRequest,
     LoginRequest,
+    MessageCreate,
     PhoneUpdateRequest,
     Scopes,
     TrustScopesUpdate,
+    build_message_event,
     public_metadata,
     reply_from_events,
     utcnow,
@@ -1104,6 +1106,57 @@ async def remote_tool_decision(
 # ----------------------------------------------------------------------------
 
 
+async def _record_account_event(
+    actor: str, peer: str, event_type: str, data: Optional[dict] = None
+) -> None:
+    """Append to the trust-layer audit log (feeds the History tab).
+    Best-effort: a logging failure must never fail the action itself."""
+    try:
+        await STORE.record_account_event(actor, peer, event_type, data or {})
+    except Exception:
+        logger.exception("failed to record account event %s", event_type)
+
+
+def _scope_changes(old: dict, new: dict) -> dict:
+    """Field-level diff of two Scopes dumps. The stored side is normalized
+    through the model so rows written before a field existed don't read as
+    changes against the new dump's defaults."""
+    try:
+        old = Scopes(**(old or {})).model_dump(mode="json")
+    except Exception:
+        old = old or {}
+    return {
+        key: {"from": old.get(key), "to": new.get(key)}
+        for key in sorted(set(old) | set(new))
+        if old.get(key) != new.get(key)
+    }
+
+
+@app.get("/account/events")
+async def list_account_events(
+    user_id: str = Depends(authed_user),
+    limit: int = Query(200, ge=1, le=500),
+) -> dict:
+    """The user's trust-layer history: invitations sent/accepted/declined,
+    permission (scope) edits, revocations. Direction is relative to the
+    viewer; `peer` is always the other party."""
+    rows = await STORE.list_account_events(user_id, limit)
+    events = []
+    for r in rows:
+        outgoing = r["actor"] == user_id
+        events.append(
+            {
+                "id": r["id"],
+                "type": r["type"],
+                "direction": "outgoing" if outgoing else "incoming",
+                "peer": r["peer"] if outgoing else r["actor"],
+                "data": r["data"],
+                "created_at": r["created_at"].isoformat(),
+            }
+        )
+    return {"events": events}
+
+
 @app.post("/invitations")
 async def create_invitation(
     req: InvitationCreateRequest, user_id: str = Depends(authed_user)
@@ -1117,6 +1170,7 @@ async def create_invitation(
     token = secrets.token_urlsafe(32)
     expires_at = utcnow() + timedelta(days=INVITATION_TTL_DAYS)
     await STORE.create_invitation(user_id, to_email, token, expires_at)
+    await _record_account_event(user_id, to_email, "invite_sent")
 
     link = f"{_public_url()}/invite/{token}"
     result = await send_invitation(to_email, user_id, link)
@@ -1189,6 +1243,10 @@ async def accept_invitation(
         raise HTTPException(status_code=status, detail=error)
     inv = await STORE.get_invitation_by_token(token)
     if inv:
+        await _record_account_event(
+            user_id, inv["from_user"], "invite_accepted",
+            {"trust_link_id": str(trust_link_id)},
+        )
         note = event_notification("invite_accepted", user_id)
         if note:
             await _notify_user(inv["from_user"], note)
@@ -1203,6 +1261,7 @@ async def decline_invitation(
     if not await STORE.decline_invitation(token):
         raise HTTPException(status_code=404, detail="Unknown or already-resolved invitation")
     if inv:
+        await _record_account_event(user_id, inv["from_user"], "invite_declined")
         note = event_notification("invite_declined", inv["to_email"])
         if note:
             await _notify_user(inv["from_user"], note)
@@ -1239,13 +1298,22 @@ async def update_trust(
     req: TrustScopesUpdate,
     user_id: str = Depends(authed_user),
 ) -> dict:
-    ok = await STORE.update_trust_scopes(
-        trust_link_id, user_id, req.scopes.model_dump(mode="json")
-    )
+    link = await STORE.get_trust_link(trust_link_id)
+    new_scopes = req.scopes.model_dump(mode="json")
+    ok = await STORE.update_trust_scopes(trust_link_id, user_id, new_scopes)
     if not ok:
         raise HTTPException(
             status_code=403,
             detail="Only the trustor (the recipient) may edit this edge's scopes",
+        )
+    # The trustor is to_user; the peer whose grant changed is from_user.
+    if link:
+        await _record_account_event(
+            user_id, link["from_user"], "trust_scopes_updated",
+            {
+                "trust_link_id": str(trust_link_id),
+                "changes": _scope_changes(link["scopes"], new_scopes),
+            },
         )
     return {"status": "updated"}
 
@@ -1296,6 +1364,56 @@ async def cancel_dispatch(
     return {"status": "cancelled"}
 
 
+@app.post("/dispatch/{dispatch_id}/messages")
+async def post_message(
+    dispatch_id: UUID, req: MessageCreate, user_id: str = Depends(authed_user)
+) -> dict:
+    """Post one human chat message onto a dispatch thread (sender or recipient).
+
+    The message rides the dispatch's event trace — so it shows in the activity
+    stream on every surface — but it's display-only: the executor never reads
+    events back, so a message can't steer a run. We persist it, fan it out to
+    any live watchers (the other party's /watch + the recipient's inbox), and
+    push it down to the recipient's daemon so its LOCAL UI (which isn't a broker
+    watcher) updates too. Allowed on a dispatch in ANY state — you can still
+    reply after it has completed."""
+    stored = await STORE.get_dispatch(dispatch_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Unknown dispatch_id")
+    sender = stored.payload.sender_id
+    recipient = stored.payload.recipient_id
+    if user_id not in (sender, recipient):
+        raise HTTPException(status_code=403, detail="Not your dispatch")
+    role = "sender" if user_id == sender else "recipient"
+    event = build_message_event(
+        author=user_id, author_role=role, body=req.body, kind=req.kind
+    )
+    event["data"]["ts"] = utcnow().isoformat()
+    await STORE.append_event(dispatch_id, event)  # type: ignore[arg-type]
+    await _broadcast_event(dispatch_id, recipient, event)  # type: ignore[arg-type]
+    # The recipient's local daemon UI streams events from the daemon, not the
+    # broker — so deliver the message down the agent WS for it to mirror.
+    agent_ws = STATE.pick_device_ws(recipient)
+    if agent_ws is not None:
+        try:
+            await agent_ws.send_text(
+                json.dumps(
+                    {
+                        "type": "dispatch_message",
+                        "dispatch_id": str(dispatch_id),
+                        "event": event,
+                    }
+                )
+            )
+        except Exception:
+            logger.exception("failed to push dispatch_message")
+    # Nudge the other party (best-effort) so a reply doesn't go unseen.
+    other = recipient if role == "sender" else sender
+    note = f"💬 {user_id}: {req.body[:80]}"
+    await _notify_user(other, note)
+    return {"status": "ok", "event": event}
+
+
 async def _cancel_inflight(trust_link_id: UUID) -> int:
     """Cancel every in-flight dispatch on a revoked edge: mark it
     cancelled, tell watchers, and tell the recipient's daemon to stop."""
@@ -1330,6 +1448,10 @@ async def revoke_trust(
     cancelled = await _cancel_inflight(trust_link_id)
     if link:
         peer = link["to_user"] if link["from_user"] == user_id else link["from_user"]
+        await _record_account_event(
+            user_id, peer, "trust_revoked",
+            {"trust_link_id": str(trust_link_id), "cancelled_dispatches": cancelled},
+        )
         note = event_notification("revoked", user_id)
         if note:
             await _notify_user(peer, note)
