@@ -17,12 +17,13 @@ export default function DispatchDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
-  // Where "Back" goes. Lists stamp the page they came from into history state
-  // (location.state.from) - deterministic regardless of how deep the history
-  // stack is (a deep-linked launch has none), unlike navigate(-1) which can
-  // bottom out on the bootstrap entry and always land on /inbox.
-  const from = (location.state as { from?: string } | null)?.from;
-  const goBack = () => (from ? navigate(from) : navigate(-1));
+  // "Back" = real browser history, which restores the exact previous page
+  // including the Inbox tab/filter (those live in the URL now). location.key is
+  // "default" only for the very first entry (e.g. a deep-linked launch straight
+  // into a dispatch) where there's nothing to go back to, so fall back to the
+  // inbox there. Using history avoids the forward-push loops a hardcoded target
+  // caused when hopping between dispatches in a thread.
+  const goBack = () => (location.key !== "default" ? navigate(-1) : navigate("/inbox"));
 
   const detail = useQuery({
     queryKey: ["dispatch", id],
@@ -250,7 +251,7 @@ function ApprovalNudge({ count, onClick }: { count: number; onClick: () => void 
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
         <span className="relative inline-flex size-2 rounded-full bg-amber-600" />
       </span>
-      {count} approval{count === 1 ? "" : "s"} waiting - review
+      {count} approval{count === 1 ? "" : "s"} waiting
       <ArrowUp className="size-4" />
     </button>
   );
@@ -516,11 +517,7 @@ function ThreadStrip({ currentId }: { currentId: string }) {
                 <button
                   type="button"
                   disabled={current}
-                  onClick={() =>
-                    navigate(`/dispatch/${it.dispatch_id}`, {
-                      state: { from: `/dispatch/${currentId}` },
-                    })
-                  }
+                  onClick={() => navigate(`/dispatch/${it.dispatch_id}`)}
                   className={cn(
                     "flex w-full items-start gap-2 px-3 py-2 text-left text-sm",
                     current ? "bg-violet-100/70 cursor-default" : "hover:bg-violet-100/50",
@@ -576,7 +573,7 @@ function FollowUpPanel({
       qc.invalidateQueries({ queryKey: ["thread"] });
       const newId = "dispatch_id" in res ? res.dispatch_id : res.dispatches[0]?.dispatch_id;
       onClose();
-      if (newId) navigate(`/dispatch/${newId}`, { state: { from: `/dispatch/${entry.dispatch_id}` } });
+      if (newId) navigate(`/dispatch/${newId}`);
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
   });
@@ -657,8 +654,7 @@ function ReplyComposer({ entry }: { entry: AnyDispatch }) {
         </Button>
       </div>
       <div className="mt-1 text-[11px] text-muted-foreground">
-        A note for the other person - it shows in the activity stream but is
-        never given to the agent.
+        Messages show in the activity stream but aren't given to the agent.
       </div>
       {error && <div className="mt-1 text-xs text-destructive">{error}</div>}
     </div>
@@ -754,7 +750,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
           <div className="font-medium">Approval needed</div>
           <div className="text-sm text-muted-foreground mt-0.5">
             Decide whether to run this dispatch. Approvals happen on your
-            machine - the broker can't fake them.
+            machine; the broker can't fake them.
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -780,7 +776,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
         <input
           value={cwd}
           onChange={(e) => setCwd(e.target.value)}
-          placeholder="e.g. ~/Desktop/Yuni - skips the agent's filesystem search"
+          placeholder="e.g. ~/Desktop/Yuni (skips the filesystem search)"
           spellCheck={false}
           className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -797,7 +793,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. swamped this week - try next Monday"
+          placeholder="e.g. swamped this week, try next Monday"
           className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
@@ -920,13 +916,13 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       </Row>
       <Row label="Paths">
         {paths.length === 0 ? (
-          // An empty paths list is NOT enforced as "workspace only" - the path
+          // An empty paths list is NOT enforced as "workspace only": the path
           // gate is skipped, so the agent may touch any path. On a manual edge
           // each call is still approved; on an auto edge there's no boundary.
           approval === "auto" ? (
-            <Badge variant="warning">any path - unrestricted (auto-approved)</Badge>
+            <Badge variant="warning">any path, unrestricted</Badge>
           ) : (
-            <span className="text-muted-foreground">any path - each call needs approval</span>
+            <span className="text-muted-foreground">any path</span>
           )
         ) : (
           <ul className="text-xs font-mono space-y-0.5">
@@ -937,14 +933,12 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       </Row>
       <Row label="Approval">
         <Badge variant={approval === "manual" ? "warning" : "muted"}>
-          {approval === "manual" ? "Manual - every tool call" : "Auto - no per-tool prompts"}
+          {approval === "manual" ? "Manual" : "Auto"}
         </Badge>
       </Row>
       <Row label="Results">
         <Badge variant="muted">
-          {(scopes.result_visibility ?? "redacted") === "full"
-            ? "Full - sender sees tool result contents"
-            : "Redacted - sender sees call + status only"}
+          {(scopes.result_visibility ?? "redacted") === "full" ? "Full" : "Redacted"}
         </Badge>
       </Row>
     </div>

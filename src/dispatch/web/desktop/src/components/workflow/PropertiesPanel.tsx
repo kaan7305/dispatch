@@ -323,7 +323,7 @@ function ContextFields({
         >
           <option value="">
             {(library.data?.contexts ?? []).length === 0
-              ? "No saved contexts - create one in the Context section"
+              ? "No saved contexts. Create one in the Context section"
               : "Pick a saved context…"}
           </option>
           {(library.data?.contexts ?? []).map((c) => (
@@ -334,7 +334,7 @@ function ContextFields({
           ))}
         </select>
         <p className="text-[11px] text-muted-foreground">
-          Loads a snapshot - later edits to the saved pack won't change this
+          Loads a snapshot; later edits to the saved pack won't change this
           workflow until you re-load.
         </p>
       </div>

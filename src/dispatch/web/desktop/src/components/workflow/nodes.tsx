@@ -487,7 +487,7 @@ export function EndSuccessNode({ data, selected }: NodeProps) {
       selected={!!selected}
       accent="bg-emerald-50 border-emerald-300"
       icon={<CheckCircle className="size-6 text-emerald-600" />}
-      title={d.label || "End - success"}
+      title={d.label || "End (success)"}
       subtitle={message ? truncate(message, 20) : "completes run"}
       showLeftHandle
       showRightHandle={false}
@@ -504,7 +504,7 @@ export function EndErrorNode({ data, selected }: NodeProps) {
       selected={!!selected}
       accent="bg-red-50 border-red-300"
       icon={<AlertCircle className="size-6 text-red-600" />}
-      title={d.label || "End - error"}
+      title={d.label || "End (error)"}
       subtitle={message ? truncate(message, 20) : "fails run"}
       showLeftHandle
       showRightHandle={false}
@@ -1122,7 +1122,7 @@ export const PALETTE: PaletteItem[] = [
   },
   {
     type: "end.success",
-    label: "End - success",
+    label: "End (success)",
     description: "Halt with success",
     icon: <CheckCircle className="size-4 text-emerald-600" />,
     accent: "bg-emerald-50 border-emerald-300",
@@ -1130,7 +1130,7 @@ export const PALETTE: PaletteItem[] = [
   },
   {
     type: "end.error",
-    label: "End - error",
+    label: "End (error)",
     description: "Halt with failure",
     icon: <AlertCircle className="size-4 text-red-600" />,
     accent: "bg-red-50 border-red-300",

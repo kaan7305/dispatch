@@ -51,7 +51,7 @@ export default function Settings() {
           <div>
             <h2 className="font-semibold leading-tight">SMS notifications</h2>
             <p className="text-xs text-muted-foreground">
-              Get a text whenever someone sends you a dispatch - even while your
+              Get a text whenever someone sends you a dispatch, even while your
               daemon is offline.
             </p>
           </div>

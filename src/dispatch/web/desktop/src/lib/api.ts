@@ -20,7 +20,7 @@ function resolvePath(path: string): string {
  *  site we surface them but defer: open the local app and fail loudly. */
 function redirectToLocal(action: string): never {
   openLocalApp();
-  throw new ApiError(409, `${action} happens in the local Dispatch app - opening it now.`);
+  throw new ApiError(409, `${action} happens in the local Dispatch app. Opening it now.`);
 }
 
 /** Adapt a broker dispatch summary into the InboxEntry shape the UI expects.
@@ -30,12 +30,15 @@ function summaryToInboxEntry(s: DispatchSummary): InboxEntry {
   return {
     dispatch_id: s.dispatch_id,
     sender_id: s.sender_id,
+    recipient_id: s.recipient_id,
     task: s.task,
     created_at: s.created_at,
     expires_at: s.expires_at ?? "",
     status: s.status,
     scopes: {},
     pending_tools: {},
+    thread_id: s.thread_id,
+    parent_id: s.parent_id,
   };
 }
 
@@ -304,6 +307,8 @@ export interface DispatchSummary {
   status: DispatchStatus;
   created_at: string;
   expires_at?: string;
+  thread_id?: string;
+  parent_id?: string | null;
 }
 
 export interface TrustEdge {
@@ -453,6 +458,8 @@ export interface InboxEntry {
   status: DispatchStatus;
   scopes: Scopes;
   pending_tools: Record<string, { tool: string; input: Record<string, unknown> }>;
+  thread_id?: string;
+  parent_id?: string | null;
 }
 
 export interface DispatchEvent {

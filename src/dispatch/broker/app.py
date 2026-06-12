@@ -956,6 +956,7 @@ async def list_dispatches(
 
 def _dispatch_summary(s: StoredDispatch) -> dict:
     p = s.payload
+    md = p.metadata or {}
     return {
         "dispatch_id": str(p.dispatch_id),
         "sender_id": p.sender_id,
@@ -964,6 +965,10 @@ def _dispatch_summary(s: StoredDispatch) -> dict:
         "status": s.status.value,
         "created_at": p.created_at.isoformat(),
         "expires_at": p.expires_at.isoformat(),
+        # Threading: which conversation this belongs to (its own id when it's a
+        # root), so list views can group follow-ups under one thread.
+        "thread_id": md.get("thread_id") or str(p.dispatch_id),
+        "parent_id": md.get("parent_id"),
     }
 
 

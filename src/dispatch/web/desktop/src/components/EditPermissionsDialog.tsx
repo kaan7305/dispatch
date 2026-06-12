@@ -294,7 +294,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 {cannotEnumerate && (
                   <div className="text-xs text-muted-foreground mt-2">
                     {isBroker
-                      ? "Open the local Dispatch app to browse and add installed MCP servers - they aren't visible from the web."
+                      ? "Open the local Dispatch app to browse and add installed MCP servers. They aren't visible from the web."
                       : "No installed MCP servers detected on this machine."}
                   </div>
                 )}
@@ -382,7 +382,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Redacted</div>
                   <div className="text-xs text-muted-foreground">
-                    Sender sees each call and its status - never the contents.
+                    Sender sees each call and its status, never the contents.
                     They still get the final reply.
                   </div>
                 </div>
@@ -495,7 +495,7 @@ function McpServerRow({
         <div className="border-t px-3 py-2">
           {wholeGranted && (
             <div className="text-xs text-muted-foreground mb-2">
-              Whole server granted - every tool below is allowed, including ones
+              Whole server granted; every tool below is allowed, including ones
               added later. Uncheck the server to pick individual tools.
             </div>
           )}
@@ -503,7 +503,7 @@ function McpServerRow({
             <div className="text-xs text-muted-foreground py-1">Loading tools…</div>
           ) : toolsQuery.data && !toolsQuery.data.ok ? (
             <div className="text-xs text-muted-foreground py-1">
-              Couldn't list tools{toolsQuery.data.reason ? ` - ${toolsQuery.data.reason}` : ""}.
+              Couldn't list tools{toolsQuery.data.reason ? ` ()` : ""}.
               You can still grant the whole server above.
             </div>
           ) : toolsQuery.isError ? (

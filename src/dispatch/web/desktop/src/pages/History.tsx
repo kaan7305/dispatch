@@ -106,7 +106,7 @@ function DispatchRow({
   const peer = direction === "sent" ? row.recipient_id : row.sender_id;
   return (
     <button
-      onClick={() => navigate(`/dispatch/${row.dispatch_id}`, { state: { from: "/history" } })}
+      onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
       className="w-full text-left flex items-start gap-4 px-5 py-4 border-b last:border-b-0 hover:bg-muted/50"
     >
       <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">

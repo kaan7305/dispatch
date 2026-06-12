@@ -69,7 +69,7 @@ export function EdgeMemoryDialog({ edge, children }: Props) {
         <div className="space-y-3">
           {memory.data?.unavailable ? (
             <div className="text-sm text-muted-foreground px-1 py-4 text-center">
-              Open the local Dispatch app to view learned context - it lives on
+              Open the local Dispatch app to view learned context; it lives on
               your machine, not the broker.
             </div>
           ) : memory.isLoading ? (

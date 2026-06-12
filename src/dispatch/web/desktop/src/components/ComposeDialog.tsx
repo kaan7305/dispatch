@@ -282,13 +282,13 @@ export function ComposeDialog({ children }: Props) {
                 <input
                   value={project}
                   onChange={(e) => setProject(e.target.value)}
-                  placeholder="Project or repo name - helps their agent start in the right directory"
+                  placeholder="Project or repo name (helps their agent start in the right directory)"
                   className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 <input
                   value={deliverable}
                   onChange={(e) => setDeliverable(e.target.value)}
-                  placeholder="Expected deliverable - what does done look like?"
+                  placeholder="Expected deliverable: what does done look like?"
                   className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 <input
@@ -301,7 +301,7 @@ export function ComposeDialog({ children }: Props) {
                   rows={3}
                   value={background}
                   onChange={(e) => setBackground(e.target.value)}
-                  placeholder="Background their agent needs but the task doesn't say - decisions made, current state, constraints"
+                  placeholder="Background their agent needs but the task doesn't say: decisions made, current state, constraints"
                   className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
                 />
               </div>

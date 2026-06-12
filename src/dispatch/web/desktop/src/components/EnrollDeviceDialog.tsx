@@ -39,7 +39,7 @@ export function EnrollDeviceDialog({ children }: Props) {
           <DialogDescription>
             On the new machine, paste this into a terminal. It installs the
             daemon, registers a fresh Ed25519 keypair, and starts the tray
-            app under your account. Each device gets its own keypair - no
+            app under your account. Each device gets its own keypair; no
             shared secrets between machines.
           </DialogDescription>
         </DialogHeader>

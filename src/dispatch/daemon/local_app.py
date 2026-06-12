@@ -319,6 +319,7 @@ def _build_followup_metadata(parent: dict, base: dict, parent_id: str) -> dict:
 
 def _entry_summary(entry: InboxEntry) -> dict:
     p = entry.payload
+    md = p.metadata or {}
     return {
         "dispatch_id": str(p.dispatch_id),
         "sender_id": p.sender_id,
@@ -330,6 +331,9 @@ def _entry_summary(entry: InboxEntry) -> dict:
         "status": entry.status.value,
         "scopes": entry.scopes,
         "pending_tools": entry.pending_tools,
+        # Threading: group follow-ups under one conversation in list views.
+        "thread_id": md.get("thread_id") or str(p.dispatch_id),
+        "parent_id": md.get("parent_id"),
     }
 
 
