@@ -20,10 +20,13 @@ interface Props {
   emphasized?: boolean;
   /** When true and status is pending/delivered, show inline Accept/Reject. */
   showQuickDecision?: boolean;
+  /** Reserve a left gutter (for a thread chevron) so this row's avatar lines up
+   *  with threaded conversation rows in the same list. */
+  indented?: boolean;
 }
 
 export function DispatchRow({
-  dispatchId, who, task, createdAt, status, hint, onClick, emphasized, showQuickDecision,
+  dispatchId, who, task, createdAt, status, hint, onClick, emphasized, showQuickDecision, indented,
 }: Props) {
   const decisionPending = status === "pending" || status === "delivered";
   const qc = useQueryClient();
@@ -45,7 +48,8 @@ export function DispatchRow({
       onClick={onClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick?.(); }}
       className={cn(
-        "w-full text-left flex items-start gap-4 px-6 py-4 border-b transition-colors cursor-pointer",
+        "w-full text-left flex items-start gap-4 py-4 border-b transition-colors cursor-pointer",
+        indented ? "pl-12 pr-6" : "px-6",
         "hover:bg-muted/50 focus:outline-none focus-visible:bg-muted/60",
         emphasized && "bg-amber-50/60 hover:bg-amber-50",
       )}

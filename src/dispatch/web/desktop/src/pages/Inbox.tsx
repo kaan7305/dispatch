@@ -136,6 +136,7 @@ export default function Inbox() {
                     (group[0].status === "delivered" || group[0].status === "pending")
                   }
                   showQuickDecision={tab === "inbox"}
+                  indented
                   onClick={() => open(group[0].dispatch_id)}
                 />
               ) : (
@@ -187,12 +188,12 @@ function ConversationGroup({
   const Chevron = open ? ChevronDown : ChevronRight;
   return (
     <div className="relative border-b">
-      {/* Chevron sits in the row's left padding (absolute), so the avatar lands
-          at the same x as a non-threaded row's avatar. */}
+      {/* Chevron sits in the row's left gutter (absolute), so the avatar lands
+          at the same x as a non-threaded (indented) row's avatar. */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="absolute left-0.5 top-4 z-10 grid place-items-center size-5 rounded hover:bg-muted text-muted-foreground"
+        className="absolute left-4 top-4 z-10 grid place-items-center size-5 rounded hover:bg-muted text-muted-foreground"
         aria-label={open ? "Collapse thread" : "Expand thread"}
         aria-expanded={open}
       >
@@ -203,7 +204,7 @@ function ConversationGroup({
         tabIndex={0}
         onClick={() => onOpen(head.dispatch_id)}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(head.dispatch_id); }}
-        className="w-full text-left flex items-start gap-4 px-6 py-4 hover:bg-muted/50 cursor-pointer"
+        className="w-full text-left flex items-start gap-4 pl-12 pr-6 py-4 hover:bg-muted/50 cursor-pointer"
       >
         <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">
           {initials(whoOf(head))}
