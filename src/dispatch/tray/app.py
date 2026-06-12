@@ -79,6 +79,24 @@ class _URLHandler(NSObject):
             self._tray._on_main(lambda u=url_string: self._tray._handle_dispatch_url(u))
 
 
+class _WakeObserver(NSObject):
+    """Cocoa observer for system sleep/wake.
+
+    On wake the broker WS is usually a zombie: the laptop slept mid-connection,
+    so the socket is dead but the daemon won't notice until the next keepalive
+    ping times out (~10s). We force an immediate reconnect instead of waiting.
+    """
+    def initWithApp_(self, tray_app):  # noqa: N802 — ObjC selector
+        self = objc.super(_WakeObserver, self).init()
+        if self is None:
+            return None
+        self._tray = tray_app  # type: ignore[attr-defined]
+        return self
+
+    def workspaceDidWake_(self, _notification):  # noqa: N802
+        self._tray._on_main(self._tray._on_system_wake)
+
+
 class DispatchTrayApp(rumps.App):
     def __init__(self) -> None:
         super().__init__("Dispatch", title=ICON_BUSY, quit_button=None)
@@ -102,6 +120,21 @@ class DispatchTrayApp(rumps.App):
         self._daemon_thread: threading.Thread | None = None
         self._main_q: queue.Queue = queue.Queue()
         rumps.Timer(self._drain_main_queue, 0.1).start()
+
+        # Force an immediate broker reconnect when the machine wakes, rather than
+        # waiting for the WS keepalive to time out on the zombie socket.
+        self._last_wake_reconnect = 0.0
+        self._wake_observer = _WakeObserver.alloc().initWithApp_(self)
+        try:
+            from AppKit import NSWorkspace
+            NSWorkspace.sharedWorkspace().notificationCenter().addObserver_selector_name_object_(
+                self._wake_observer,
+                b"workspaceDidWake:",
+                "NSWorkspaceDidWakeNotification",
+                None,
+            )
+        except Exception:
+            pass  # non-fatal: we still reconnect via keepalive timeout
 
         self._status_item = rumps.MenuItem("Starting…")
 
@@ -213,6 +246,24 @@ class DispatchTrayApp(rumps.App):
         self._daemon_thread = t
         t.start()
         self._set_status(ICON_BUSY, "Connecting to broker…")
+
+    def _on_system_wake(self) -> None:
+        """Reconnect the broker WS right after the machine wakes.
+
+        Runs on the main thread (bounced via _on_main). Debounced so a burst of
+        wake notifications collapses to one reconnect. No-op when there's no
+        daemon to reconnect (signed out / incomplete config)."""
+        import time as _time
+        now = _time.monotonic()
+        if now - self._last_wake_reconnect < 5.0:
+            return
+        self._last_wake_reconnect = now
+        if not self.config.is_complete():
+            return
+        if self._daemon_loop is None:
+            return
+        self._set_status(ICON_BUSY, "Woke — reconnecting…")
+        self._restart_daemon()
 
     def _restart_daemon(self) -> None:
         """Cancel the running session and restart with the current config.

@@ -513,7 +513,19 @@ async def run_session(
     _emit("connecting")
     local_state.broker_connected = False
     try:
-        async with websockets.connect(ws_url, max_size=None, ssl=ssl_ctx) as ws:
+        async with websockets.connect(
+            ws_url,
+            max_size=None,
+            ssl=ssl_ctx,
+            # Detect a dead socket fast. The library defaults (20s/20s) leave a
+            # zombie connection alive for up to ~20s after a laptop wakes or the
+            # network changes, which is the bulk of the "disconnected for a
+            # while" window. A 15s ping with a 10s pong deadline catches a dead
+            # peer in ~10s and keeps idle proxies (Railway/LB) from reaping us.
+            ping_interval=15,
+            ping_timeout=10,
+            close_timeout=5,
+        ) as ws:
             # First frame identifies this device to the broker.
             await ws.send(json.dumps({"type": "hello", "device_id": device_id}))
             print(
