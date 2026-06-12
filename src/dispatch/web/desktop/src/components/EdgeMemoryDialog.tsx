@@ -10,7 +10,7 @@ import {
 } from "./ui/dialog";
 
 interface Props {
-  /** An INCOMING edge — the memory for an outgoing edge lives on the peer's
+  /** An INCOMING edge - the memory for an outgoing edge lives on the peer's
    *  machine, so this dialog is only offered where you're the recipient. */
   edge: TrustEdge;
   children: React.ReactNode;
@@ -18,7 +18,7 @@ interface Props {
 
 /** What this machine has learned across dispatches on this edge's capability
  *  bucket: project directories previous runs located, injected into the next
- *  run so its agent skips the cold-start filesystem search. Advisory only —
+ *  run so its agent skips the cold-start filesystem search. Advisory only -
  *  entries grant nothing; every tool call still passes the approval gate. */
 export function EdgeMemoryDialog({ edge, children }: Props) {
   const [open, setOpen] = useState(false);
@@ -60,7 +60,7 @@ export function EdgeMemoryDialog({ edge, children }: Props) {
           <DialogDescription>
             Project directories remembered from <strong>{edge.peer}</strong>'s
             previous dispatches, injected into the next run so the agent starts
-            in the right place instead of searching your disk. Advisory only —
+            in the right place instead of searching your disk. Advisory only -
             remembering a path grants nothing; every tool call is still gated
             by this edge's scope and approvals.
           </DialogDescription>
@@ -69,7 +69,7 @@ export function EdgeMemoryDialog({ edge, children }: Props) {
         <div className="space-y-3">
           {memory.data?.unavailable ? (
             <div className="text-sm text-muted-foreground px-1 py-4 text-center">
-              Open the local Dispatch app to view learned context — it lives on
+              Open the local Dispatch app to view learned context - it lives on
               your machine, not the broker.
             </div>
           ) : memory.isLoading ? (

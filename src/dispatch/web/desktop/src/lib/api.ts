@@ -9,7 +9,7 @@ export class ApiError extends Error {
 
 // In broker mode the SPA talks straight to the broker's native endpoints,
 // which return the same shapes the daemon's /api/* proxies pass through. The
-// daemon prefixes those with /api; the broker doesn't — so drop the prefix.
+// daemon prefixes those with /api; the broker doesn't - so drop the prefix.
 // (session + inbox have no 1:1 broker route and are handled explicitly below.)
 function resolvePath(path: string): string {
   if (isBroker && path.startsWith("/api/")) return path.slice(4);
@@ -20,7 +20,7 @@ function resolvePath(path: string): string {
  *  site we surface them but defer: open the local app and fail loudly. */
 function redirectToLocal(action: string): never {
   openLocalApp();
-  throw new ApiError(409, `${action} happens in the local Dispatch app — opening it now.`);
+  throw new ApiError(409, `${action} happens in the local Dispatch app - opening it now.`);
 }
 
 /** Adapt a broker dispatch summary into the InboxEntry shape the UI expects.
@@ -104,6 +104,12 @@ export const api = {
       : request<InboxEntry[]>("/api/inbox"),
   dispatchDetail: (id: string) =>
     request<InboxEntry & { events: DispatchEvent[] }>(`/api/dispatch/${id}`),
+  // Every dispatch in this one's thread (root + follow-ups), oldest first.
+  // Broker-served in both modes (only the broker holds the whole thread).
+  thread: (id: string) =>
+    request<{ thread_id: string; dispatches: ThreadItem[] }>(
+      isBroker ? `/dispatch/${id}/thread` : `/api/dispatch/${id}/thread`,
+    ),
   decide: (id: string, decision: "accept" | "reject", cwd?: string, reason?: string) =>
     isBroker
       ? redirectToLocal("Approving a dispatch")
@@ -116,7 +122,7 @@ export const api = {
           }),
         }),
   // Post a human chat note onto a dispatch thread. Works in either direction
-  // and at any status — display-only, it never reaches the running agent.
+  // and at any status - display-only, it never reaches the running agent.
   // Local mode proxies to the broker; broker mode posts directly.
   postMessage: (id: string, body: string, kind: "note" | "decline_reason" = "note") =>
     isBroker
@@ -147,7 +153,7 @@ export const api = {
   // bytes live on the recipient's daemon, so this only works in local mode;
   // <img>/<a> can't send an Authorization header, so the local token rides as
   // the ?t= query param the daemon also accepts. Null in broker mode (the
-  // broker never holds attachment bytes — they stay on the recipient machine).
+  // broker never holds attachment bytes - they stay on the recipient machine).
   attachmentUrl: (dispatchId: string, name: string): string | null => {
     if (isBroker) return null;
     const t = getToken();
@@ -172,7 +178,7 @@ export const api = {
   revokeTrust: (id: string) =>
     request<{ status: string }>(`/api/trust/${id}`, { method: "DELETE" }),
   // Learned context (cross-dispatch memory) for an incoming edge. Daemon-local
-  // — the entries live on this machine, so in broker mode we degrade to an
+  // - the entries live on this machine, so in broker mode we degrade to an
   // "unavailable" stub instead of a request that can't be served.
   edgeMemory: (id: string): Promise<EdgeMemory> =>
     isBroker
@@ -185,7 +191,7 @@ export const api = {
       `/api/trust/${id}/memory/entry?path=${encodeURIComponent(path)}`,
       { method: "DELETE" },
     ),
-  // Installed MCP servers exposable to senders — feeds the edit-permissions
+  // Installed MCP servers exposable to senders - feeds the edit-permissions
   // picker. This is a daemon-local capability: the broker neither has the route
   // nor should know your full install inventory, so in broker mode (or if the
   // daemon is unreachable) we degrade to an empty list and the dialog shows
@@ -194,7 +200,7 @@ export const api = {
     isBroker
       ? Promise.resolve([])
       : request<McpServer[]>("/api/mcp/servers").catch(() => []),
-  // The tools a single installed server exposes — fed to the per-tool grant
+  // The tools a single installed server exposes - fed to the per-tool grant
   // checkboxes in Edit Permissions. Daemon-local (a live MCP handshake), so in
   // broker mode we report "can't enumerate from the web" and the dialog keeps
   // the whole-server checkbox. ok=false (auth needed / offline) degrades the
@@ -233,7 +239,7 @@ export const api = {
     return body.dispatches;
   },
   // Trust-layer audit log: invitations sent/accepted/declined, permission
-  // (scope) edits, revocations — rendered in the History tab alongside
+  // (scope) edits, revocations - rendered in the History tab alongside
   // dispatches. Direction is relative to the viewer.
   accountEvents: async () => {
     const body = await request<{ events: AccountEvent[] }>("/api/account/events");
@@ -250,7 +256,7 @@ export const api = {
 
   // ── SMS notifications ───────────────────────────────────────────────
   // The recipient's phone for dispatch-arrival texts. `sms_enabled` reflects
-  // whether the broker actually has Twilio configured — a saved number with
+  // whether the broker actually has Twilio configured - a saved number with
   // sms_enabled=false means texts won't send until the broker is wired up.
   phone: () => request<PhoneSettings>("/api/me/phone"),
   setPhone: (phone: string | null) =>
@@ -273,6 +279,16 @@ export interface ComposeRequest {
   task: string;
   expires_in_seconds?: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface ThreadItem {
+  dispatch_id: string;
+  sender_id: string;
+  recipient_id: string;
+  task: string;
+  status: DispatchStatus;
+  created_at: string;
+  parent_id?: string | null;
 }
 
 export interface ComposeFanOutResult {
@@ -385,7 +401,7 @@ export interface EdgeMemory {
   trust_link_id: string;
   bucket: string;
   entries: MemoryEntry[];
-  // Other incoming edges with the identical capability envelope — they share
+  // Other incoming edges with the identical capability envelope - they share
   // this memory bucket.
   shared_with: string[];
   unavailable?: boolean;

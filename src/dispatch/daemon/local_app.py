@@ -537,6 +537,12 @@ def make_app(
             return {**_entry_summary(entry), "events": entry.events}
         return await _broker_request("GET", f"/dispatch/{dispatch_id}")
 
+    @app.get("/api/dispatch/{dispatch_id}/thread", dependencies=[Depends(require_local_token)])
+    async def dispatch_thread(dispatch_id: UUID) -> Response:
+        """The dispatch's thread (root + follow-ups). Always broker-served — the
+        broker is the only place that holds every dispatch in a thread."""
+        return await _broker_request("GET", f"/dispatch/{dispatch_id}/thread")
+
     @app.get(
         "/api/dispatch/{dispatch_id}/attachment/{name}",
         dependencies=[Depends(require_local_token)],

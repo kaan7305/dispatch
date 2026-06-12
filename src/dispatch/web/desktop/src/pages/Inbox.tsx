@@ -44,7 +44,7 @@ export default function Inbox() {
       tab === "inbox"
         ? (inbox.data ?? []).filter((e) => statusMatches(e.status, filter))
         : (sent.data ?? []).filter((d) => statusMatches(d.status, filter));
-    // Newest first, regardless of the order the daemon/broker returned —
+    // Newest first, regardless of the order the daemon/broker returned -
     // ISO-8601 timestamps compare correctly as strings.
     return [...list].sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [tab, filter, inbox.data, sent.data]);
@@ -99,7 +99,7 @@ export default function Inbox() {
                   (row.status === "delivered" || row.status === "pending")
                 }
                 showQuickDecision={tab === "inbox"}
-                onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
+                onClick={() => navigate(`/dispatch/${row.dispatch_id}`, { state: { from: "/inbox" } })}
               />
             ))}
             {hasMore && (
@@ -140,7 +140,7 @@ function statusHint(entry: InboxEntry): string | undefined {
   const tools = entry.scopes.tools ?? [];
   const mcp = entry.scopes.mcp ?? [];
 
-  // No scope data on this entry — e.g. it was hydrated from the broker's
+  // No scope data on this entry - e.g. it was hydrated from the broker's
   // dispatch list after a daemon restart, which doesn't carry per-edge scopes
   // (see daemon seed_from_broker / api.summaryToInboxEntry, both set scopes={}).
   // Show no badge rather than asserting "read-only", which we can't actually know.
@@ -149,7 +149,7 @@ function statusHint(entry: InboxEntry): string | undefined {
   if (tools.includes("Write") || tools.includes("Edit") || tools.includes("Bash")) {
     return "write";
   }
-  // MCP grants reach the recipient's *powerful* tools (Notion, search, etc.) —
+  // MCP grants reach the recipient's *powerful* tools (Notion, search, etc.) -
   // far from read-only, so surface them rather than collapsing to "read-only".
   if (mcp.length > 0) return "MCP";
   return "read-only";

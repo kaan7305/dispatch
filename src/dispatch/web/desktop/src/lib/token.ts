@@ -19,7 +19,7 @@ export function bootstrapToken(): string {
   }
   // The tray stamps launch params into the fragment: #t=<token>&d=<dispatch>.
   // (The legacy bare form "#t=xyz" parses identically.) `d` is a deep-link
-  // target — a clicked notification lands directly on that dispatch.
+  // target - a clicked notification lands directly on that dispatch.
   const params = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams(location.hash.slice(1));
   const t = params.get("t") ?? hashParams.get("t");

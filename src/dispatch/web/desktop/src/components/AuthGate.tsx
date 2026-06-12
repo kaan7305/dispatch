@@ -15,7 +15,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [tick, setTick] = useState(0);
   const hasToken = !!getToken();
 
-  // Probe /api/session — works as both a smoke test and an auth check.
+  // Probe /api/session - works as both a smoke test and an auth check.
   const probe = useQuery({
     queryKey: ["__probe", tick],
     queryFn: () => api.session(),
@@ -25,7 +25,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (probe.error instanceof ApiError && probe.error.status === 401) {
-      // Stale or wrong token — clear it so the user sees the gate.
+      // Stale or wrong token - clear it so the user sees the gate.
       clearToken();
       setTick((n) => n + 1);
     }

@@ -106,7 +106,7 @@ function DispatchRow({
   const peer = direction === "sent" ? row.recipient_id : row.sender_id;
   return (
     <button
-      onClick={() => navigate(`/dispatch/${row.dispatch_id}`)}
+      onClick={() => navigate(`/dispatch/${row.dispatch_id}`, { state: { from: "/history" } })}
       className="w-full text-left flex items-start gap-4 px-5 py-4 border-b last:border-b-0 hover:bg-muted/50"
     >
       <div className="grid place-items-center size-9 rounded-full bg-muted text-xs font-semibold shrink-0">
@@ -163,7 +163,7 @@ function eventCopy(e: AccountEvent): string {
 }
 
 function formatScopeValue(v: unknown): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "-";
   if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
   return String(v);
 }

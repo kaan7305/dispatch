@@ -7,7 +7,7 @@ import type { NodeData } from "./types";
 
 export function WaitReplyNode({ data, selected }: NodeProps) {
   const params = (data ?? {}) as NodeData;
-  const from = (params.from_recipient_id as string | undefined) ?? "—";
+  const from = (params.from_recipient_id as string | undefined) ?? "-";
   const timeout = (params.timeout_s as number | undefined) ?? 3600;
 
   return (

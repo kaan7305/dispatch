@@ -27,7 +27,7 @@ export function InviteDialog({ children }: Props) {
         setSuccess(`Invite emailed to ${result.to_email}.`);
       } else if (result.dev_link) {
         setSuccess(
-          `Dev mode — share this link with ${result.to_email}: ${result.dev_link}`,
+          `Dev mode - share this link with ${result.to_email}: ${result.dev_link}`,
         );
       } else {
         setSuccess(`Invitation created for ${result.to_email}.`);

@@ -39,7 +39,7 @@ export function EnrollDeviceDialog({ children }: Props) {
           <DialogDescription>
             On the new machine, paste this into a terminal. It installs the
             daemon, registers a fresh Ed25519 keypair, and starts the tray
-            app under your account. Each device gets its own keypair — no
+            app under your account. Each device gets its own keypair - no
             shared secrets between machines.
           </DialogDescription>
         </DialogHeader>
@@ -57,7 +57,7 @@ export function EnrollDeviceDialog({ children }: Props) {
                 <Copy className="size-4" /> {copied ? "Copied" : "Copy command"}
               </Button>
               <div className="text-xs text-muted-foreground pt-2 border-t">
-                Anyone who runs this command becomes you on that machine —
+                Anyone who runs this command becomes you on that machine -
                 only paste it on devices you trust.
               </div>
             </>

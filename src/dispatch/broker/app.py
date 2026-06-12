@@ -918,6 +918,30 @@ async def get_dispatch(
     }
 
 
+@app.get("/dispatch/{dispatch_id}/thread")
+async def get_thread(
+    dispatch_id: UUID, user_id: str = Depends(authed_user)
+) -> dict:
+    """Every dispatch in this one's thread (the root + its follow-ups), oldest
+    first — backs the Outlook-style thread strip. Each item carries its
+    parent_id so the chain is navigable."""
+    stored = await STORE.get_dispatch(dispatch_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Unknown dispatch_id")
+    if stored.payload.sender_id != user_id and stored.payload.recipient_id != user_id:
+        raise HTTPException(status_code=403, detail="Not your dispatch")
+    thread_id = (stored.payload.metadata or {}).get("thread_id") or str(dispatch_id)
+    rows = await STORE.list_thread_dispatches(str(thread_id), user_id)
+    items = [
+        {
+            **_dispatch_summary(s),
+            "parent_id": (s.payload.metadata or {}).get("parent_id"),
+        }
+        for s in rows
+    ]
+    return {"thread_id": str(thread_id), "dispatches": items}
+
+
 @app.get("/dispatches")
 async def list_dispatches(
     role: Literal["sent", "received"] = Query(...),
@@ -1117,18 +1141,53 @@ async def _record_account_event(
         logger.exception("failed to record account event %s", event_type)
 
 
+def _canon_mcp(mcp) -> list[str]:
+    """Canonical form of an mcp grant list so equivalent representations compare
+    equal: a whole-server grant is the bare name whether it arrived as 'notion'
+    or 'mcp__notion__*'. Sorted + de-duped."""
+    out: set[str] = set()
+    for g in mcp or []:
+        if g == "*":
+            out.add("*")
+            continue
+        if "__" not in g:
+            out.add(g)
+            continue
+        if not g.startswith("mcp__"):
+            out.add(g)
+            continue
+        parts = g.split("__")
+        server = parts[1] if len(parts) > 1 else ""
+        tool = "__".join(parts[2:])
+        out.add(server if tool in ("", "*") else g)
+    return sorted(out)
+
+
+def _canon_scopes(s: dict) -> dict:
+    """Normalize a Scopes dump for equality: list fields order-insensitive, mcp
+    grants canonicalized. Used to tell a real edit from a no-op Save."""
+    out = dict(s or {})
+    for key in ("tools", "paths", "auto_tools"):
+        if isinstance(out.get(key), list):
+            out[key] = sorted(out[key])
+    out["mcp"] = _canon_mcp(out.get("mcp"))
+    return out
+
+
 def _scope_changes(old: dict, new: dict) -> dict:
     """Field-level diff of two Scopes dumps. The stored side is normalized
     through the model so rows written before a field existed don't read as
-    changes against the new dump's defaults."""
+    changes against the new dump's defaults. List/mcp fields are compared
+    order- and representation-insensitively so a no-op re-save shows nothing."""
     try:
         old = Scopes(**(old or {})).model_dump(mode="json")
     except Exception:
         old = old or {}
+    co, cn = _canon_scopes(old), _canon_scopes(new)
     return {
         key: {"from": old.get(key), "to": new.get(key)}
-        for key in sorted(set(old) | set(new))
-        if old.get(key) != new.get(key)
+        for key in sorted(set(co) | set(cn))
+        if co.get(key) != cn.get(key)
     }
 
 
@@ -1306,15 +1365,16 @@ async def update_trust(
             status_code=403,
             detail="Only the trustor (the recipient) may edit this edge's scopes",
         )
-    # The trustor is to_user; the peer whose grant changed is from_user.
+    # The trustor is to_user; the peer whose grant changed is from_user. Only
+    # log a history entry when something actually changed — a no-op Save (open
+    # the dialog, click Save without touching anything) must not read as an edit.
     if link:
-        await _record_account_event(
-            user_id, link["from_user"], "trust_scopes_updated",
-            {
-                "trust_link_id": str(trust_link_id),
-                "changes": _scope_changes(link["scopes"], new_scopes),
-            },
-        )
+        changes = _scope_changes(link["scopes"], new_scopes)
+        if changes:
+            await _record_account_event(
+                user_id, link["from_user"], "trust_scopes_updated",
+                {"trust_link_id": str(trust_link_id), "changes": changes},
+            )
     return {"status": "updated"}
 
 

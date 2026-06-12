@@ -59,7 +59,7 @@ export function openEventStream(
   return openWs(path, (raw) => onMessage(raw as EventMessage), onStatus);
 }
 
-/** Live broker-side stream for a single dispatch — works for sent
+/** Live broker-side stream for a single dispatch - works for sent
  *  dispatches the local daemon doesn't witness directly. */
 export function openDispatchWatch(
   dispatchId: string,

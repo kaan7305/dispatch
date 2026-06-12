@@ -1,10 +1,10 @@
 export function initials(email: string): string {
-  // First letter only — Gmail-style avatar.
+  // First letter only - Gmail-style avatar.
   const local = email.split("@")[0] ?? email;
   return (local[0] ?? "?").toUpperCase();
 }
 
-/** Flatten markdown to plain prose for line-clamped list previews — strips
+/** Flatten markdown to plain prose for line-clamped list previews - strips
  *  the syntax (#, **, `, [..](..)) instead of rendering it, since block
  *  elements would fight the two-line clamp. */
 export function plainPreview(md: string): string {

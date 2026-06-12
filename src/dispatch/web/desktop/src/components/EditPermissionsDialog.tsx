@@ -22,6 +22,37 @@ function toolGrant(server: string, tool: string): string {
   return `mcp__${server}__${tool}`;
 }
 
+/** Canonical mcp grant list so equivalent forms compare equal: a whole-server
+ *  grant is the bare name whether it came as "notion" or "mcp__notion__*". */
+function canonMcp(mcp: string[]): string[] {
+  const out = new Set<string>();
+  for (const g of mcp ?? []) {
+    if (g === "*" || !g.includes("__") || !g.startsWith("mcp__")) {
+      out.add(g);
+      continue;
+    }
+    const parts = g.split("__");
+    const server = parts[1] ?? "";
+    const tool = parts.slice(2).join("__");
+    out.add(tool === "" || tool === "*" ? server : g);
+  }
+  return Array.from(out).sort();
+}
+
+/** A stable string for a scopes object - order- and representation-insensitive -
+ *  so we can tell a real edit from a no-op Save. */
+function canonScopes(s: Scopes): string {
+  return JSON.stringify({
+    tools: [...(s.tools ?? [])].sort(),
+    mcp: canonMcp(s.mcp ?? []),
+    paths: [...(s.paths ?? [])].sort(),
+    approval: s.approval ?? "manual",
+    auto_tools: [...(s.auto_tools ?? [])].sort(),
+    result_visibility: s.result_visibility ?? "redacted",
+    max_dispatches_per_day: s.max_dispatches_per_day ?? null,
+  });
+}
+
 /** Split an edge's `mcp` list into whole-server grants (bare names or
  *  `mcp__server__*`) and explicit per-tool grants (`mcp__server__tool`). The
  *  "*" wildcard is handled separately by the Allow-all toggle. */
@@ -68,7 +99,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
     ),
   );
   // Tools the recipient previously said "always allow" for (grown JIT from live
-  // approvals). Shown here so they can be revoked — removing one means that tool
+  // approvals). Shown here so they can be revoked - removing one means that tool
   // prompts again on the next dispatch.
   const [autoTools, setAutoTools] = useState<string[]>(edge.scopes.auto_tools ?? []);
   const [resultVisibility, setResultVisibility] = useState<"full" | "redacted">(
@@ -136,6 +167,11 @@ export function EditPermissionsDialog({ edge, children }: Props) {
         auto_tools: autoTools,
         result_visibility: resultVisibility,
       };
+      // No-op Save: if nothing actually changed, don't PATCH - a pointless
+      // write would log a bogus "you updated permissions" history entry.
+      if (canonScopes(next) === canonScopes(edge.scopes)) {
+        return Promise.resolve({ status: "unchanged" });
+      }
       return api.updateTrust(edge.trust_link_id, next);
     },
     onSuccess: () => {
@@ -228,7 +264,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                   <div className="space-y-2">
                     {knownServers.map((name) => {
                       // Only flag "not installed" when we actually enumerated a
-                      // non-empty list — otherwise an empty/failed fetch (broker
+                      // non-empty list - otherwise an empty/failed fetch (broker
                       // mode, daemon still starting) would falsely label every
                       // granted server.
                       const enumerated =
@@ -258,7 +294,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 {cannotEnumerate && (
                   <div className="text-xs text-muted-foreground mt-2">
                     {isBroker
-                      ? "Open the local Dispatch app to browse and add installed MCP servers — they aren't visible from the web."
+                      ? "Open the local Dispatch app to browse and add installed MCP servers - they aren't visible from the web."
                       : "No installed MCP servers detected on this machine."}
                   </div>
                 )}
@@ -346,7 +382,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
                 <div>
                   <div className="text-sm font-medium">Redacted</div>
                   <div className="text-xs text-muted-foreground">
-                    Sender sees each call and its status — never the contents.
+                    Sender sees each call and its status - never the contents.
                     They still get the final reply.
                   </div>
                 </div>
@@ -392,7 +428,7 @@ export function EditPermissionsDialog({ edge, children }: Props) {
 interface McpServerRowProps {
   name: string;
   uninstalled: boolean;
-  /** Whole server granted — every tool, including ones added later. */
+  /** Whole server granted - every tool, including ones added later. */
   wholeGranted: boolean;
   /** Raw tool names individually granted on this server. */
   grantedTools: string[];
@@ -403,7 +439,7 @@ interface McpServerRowProps {
 /** One MCP server in the grant list: a whole-server checkbox plus an expander
  *  that lazily enumerates the server's tools for per-tool checkboxes. Granting
  *  the whole server implicitly covers every tool, so when it's on the per-tool
- *  boxes show checked+disabled. Enumeration is best-effort — a server that needs
+ *  boxes show checked+disabled. Enumeration is best-effort - a server that needs
  *  auth or is offline degrades to just the whole-server checkbox. */
 function McpServerRow({
   name, uninstalled, wholeGranted, grantedTools, onToggleWhole, onToggleTool,
@@ -459,7 +495,7 @@ function McpServerRow({
         <div className="border-t px-3 py-2">
           {wholeGranted && (
             <div className="text-xs text-muted-foreground mb-2">
-              Whole server granted — every tool below is allowed, including ones
+              Whole server granted - every tool below is allowed, including ones
               added later. Uncheck the server to pick individual tools.
             </div>
           )}
@@ -467,7 +503,7 @@ function McpServerRow({
             <div className="text-xs text-muted-foreground py-1">Loading tools…</div>
           ) : toolsQuery.data && !toolsQuery.data.ok ? (
             <div className="text-xs text-muted-foreground py-1">
-              Couldn't list tools{toolsQuery.data.reason ? ` — ${toolsQuery.data.reason}` : ""}.
+              Couldn't list tools{toolsQuery.data.reason ? ` - ${toolsQuery.data.reason}` : ""}.
               You can still grant the whole server above.
             </div>
           ) : toolsQuery.isError ? (

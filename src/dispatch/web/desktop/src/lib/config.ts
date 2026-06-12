@@ -1,9 +1,9 @@
 // Runtime mode for the SPA.
 //
 // The exact same build is served from two places:
-//   - the daemon (127.0.0.1) — the trusted LOCAL surface where compose +
+//   - the daemon (127.0.0.1) - the trusted LOCAL surface where compose +
 //     approve happen; authenticated by the per-launch local token.
-//   - the broker (the deployed website) — a read/manage mirror authenticated
+//   - the broker (the deployed website) - a read/manage mirror authenticated
 //     by the broker JWT. Compose + approve are surfaced here but redirect to
 //     the local app, since those actions must stay on the trusted surface.
 //
@@ -13,7 +13,7 @@
 
 interface DispatchRuntime {
   mode?: "local" | "broker";
-  /** react-router basename — "/app" when the broker serves the SPA there. */
+  /** react-router basename - "/app" when the broker serves the SPA there. */
   basename?: string;
   /** Where the local daemon UI lives, for compose/approve redirects. */
   localAppUrl?: string;

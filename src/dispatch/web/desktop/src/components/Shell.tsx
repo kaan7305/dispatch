@@ -44,7 +44,7 @@ export function Shell() {
     queryFn: () => api.session(),
   });
 
-  // Single global event stream — always open while the shell is mounted.
+  // Single global event stream - always open while the shell is mounted.
   // Invalidates every affected query so any page stays current without polling.
   useEffect(() => {
     const close = openEventStream(
@@ -121,7 +121,7 @@ function AccountMenu({ email }: { email?: string }) {
           type="button"
           className="grid place-items-center size-8 rounded-full bg-muted text-xs font-semibold text-foreground hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         >
-          {email ? initials(email) : "—"}
+          {email ? initials(email) : "-"}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

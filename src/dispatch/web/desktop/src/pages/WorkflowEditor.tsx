@@ -473,7 +473,7 @@ function RunDialog({
     onSuccess: (res) => {
       // Fan-out can partially fail. If every recipient errored, show the
       // first failure; otherwise navigate to the first successful run so
-      // the user sees something useful — the editor's RecentRunsPanel
+      // the user sees something useful - the editor's RecentRunsPanel
       // will surface the rest in parallel.
       if (res.dispatched.length > 0) {
         onStarted(res.dispatched[0].run_id);

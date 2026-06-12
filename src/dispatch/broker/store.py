@@ -275,6 +275,25 @@ class Store:
             )
             return [self._row_to_dispatch(r) for r in rows]
 
+    async def list_thread_dispatches(
+        self, thread_id: str, user_id: str
+    ) -> list[StoredDispatch]:
+        """Every dispatch in a thread the user is party to, oldest first. A
+        thread is the root dispatch (whose id == thread_id) plus every follow-up
+        carrying metadata.thread_id == thread_id."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM dispatches
+                WHERE (metadata->>'thread_id' = $1 OR dispatch_id::text = $1)
+                  AND (sender_id = $2 OR recipient_id = $2)
+                ORDER BY created_at ASC
+                LIMIT 200
+                """,
+                thread_id, user_id,
+            )
+            return [self._row_to_dispatch(r) for r in rows]
+
     def _row_to_dispatch(self, row) -> StoredDispatch:
         payload = DispatchPayload(
             dispatch_id=row["dispatch_id"],

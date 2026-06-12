@@ -9,7 +9,7 @@ import App from "./App";
 import "./index.css";
 
 // Capture the per-launch local token from the URL fragment before React
-// mounts — every API call needs it.
+// mounts - every API call needs it.
 bootstrapToken();
 
 // react-router basename: "/" under the daemon, "/app" when the broker serves

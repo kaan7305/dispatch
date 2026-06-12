@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           <h1 className="text-xl font-semibold">Something broke in the UI</h1>
           <p className="text-sm text-muted-foreground">
             The daemon is still running. This is a render error in the desktop
-            app — usually a bug in our code, not yours.
+            app - usually a bug in our code, not yours.
           </p>
           <pre className="text-xs bg-muted p-3 rounded-md overflow-x-auto max-h-64 whitespace-pre-wrap">
             {this.state.error.message}

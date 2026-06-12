@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, CornerUpLeft, Infinity as InfinityIcon, Paperclip, RotateCcw, Send, X } from "lucide-react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, CornerUpLeft, Infinity as InfinityIcon, Mails, Paperclip, RotateCcw, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";
+import { cn } from "@/lib/utils";
 import { initials, relativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,14 @@ import { EventStream, Markdown } from "@/components/EventStream";
 export default function DispatchDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
+  // Where "Back" goes. Lists stamp the page they came from into history state
+  // (location.state.from) - deterministic regardless of how deep the history
+  // stack is (a deep-linked launch has none), unlike navigate(-1) which can
+  // bottom out on the bootstrap entry and always land on /inbox.
+  const from = (location.state as { from?: string } | null)?.from;
+  const goBack = () => (from ? navigate(from) : navigate(-1));
 
   const detail = useQuery({
     queryKey: ["dispatch", id],
@@ -22,7 +30,7 @@ export default function DispatchDetail() {
     enabled: !!id,
   });
 
-  // Broker-side watch stream — covers sent dispatches the local daemon
+  // Broker-side watch stream - covers sent dispatches the local daemon
   // doesn't witness. The global /ws/events in Shell already handles
   // received dispatch updates, so we only need this extra stream here.
   useEffect(() => {
@@ -39,7 +47,7 @@ export default function DispatchDetail() {
   if (detail.error || !detail.data) {
     return (
       <div className="px-6 py-8">
-        <Button variant="ghost" onClick={() => navigate(-1)}><ArrowLeft className="size-4" /> Back</Button>
+        <Button variant="ghost" onClick={goBack}><ArrowLeft className="size-4" /> Back</Button>
         <div className="mt-6 text-sm text-muted-foreground">
           Could not load dispatch. It may have been delivered to a different
           device, or you may not be the recipient.
@@ -48,7 +56,7 @@ export default function DispatchDetail() {
     );
   }
 
-  return <DetailBody entry={detail.data} onBack={() => navigate(-1)} />;
+  return <DetailBody entry={detail.data} onBack={goBack} />;
 }
 
 interface AnyDispatch {
@@ -121,11 +129,10 @@ function DetailBody({
   // parties can spawn one; a recipient's follow-up routes back to the sender
   // (and needs an edge in that direction, enforced at send like any dispatch).
   const otherParty = isSender ? entry.recipient_id ?? "" : entry.sender_id;
-  const parentId = (entry.metadata?.["parent_id"] as string | undefined) ?? undefined;
 
   // "Approval waiting" nudge: pending tool decisions render near the top of the
   // page, but a live run streams its events into the Activity trace at the
-  // bottom — so a recipient watching events come in won't see a new Allow/Deny
+  // bottom - so a recipient watching events come in won't see a new Allow/Deny
   // card appear above the fold. Track whether the pending-tools block is on
   // screen; when it isn't (and there are decisions waiting), float a pill that
   // jumps to it. Only the recipient can decide, so only they get the nudge.
@@ -185,8 +192,8 @@ function DetailBody({
           {followUpOpen && otherParty && (
             <FollowUpPanel entry={entry} recipient={otherParty} onClose={() => setFollowUpOpen(false)} />
           )}
-          {parentId && <ParentLink parentId={parentId} />}
           <Header entry={entry} />
+          <ThreadStrip currentId={entry.dispatch_id} />
           <RichPayload metadata={entry.metadata} dispatchId={entry.dispatch_id} />
           {decisionPending && isRecipient && <TopLevelDecision entry={entry} />}
           {isRecipient && (
@@ -227,7 +234,7 @@ function DetailBody({
 }
 
 /** Floating "scroll up to approve" pill. Shown to the recipient when one or
- *  more tool decisions are waiting but scrolled out of view — the approval
+ *  more tool decisions are waiting but scrolled out of view - the approval
  *  cards live at the top of the page while a live run's events stream into the
  *  Activity trace at the bottom, so without this a waiting Allow/Deny is easy
  *  to miss. Sits at the bottom of the pane (where the eye is during a run) and
@@ -243,14 +250,14 @@ function ApprovalNudge({ count, onClick }: { count: number; onClick: () => void 
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-500 opacity-75" />
         <span className="relative inline-flex size-2 rounded-full bg-amber-600" />
       </span>
-      {count} approval{count === 1 ? "" : "s"} waiting — review
+      {count} approval{count === 1 ? "" : "s"} waiting - review
       <ArrowUp className="size-4" />
     </button>
   );
 }
 
 /** Structured sender context + attachment manifest riding on the dispatch
- *  (metadata.context / metadata.attachments — both signature-bound). Detail
+ *  (metadata.context / metadata.attachments - both signature-bound). Detail
  *  responses carry only the attachment manifest; the bytes live on the
  *  recipient's machine, written into the run workspace. */
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -376,7 +383,7 @@ function RunStats({ entry }: { entry: AnyDispatch }) {
   );
 }
 
-/** The full event trace. Collapsed by default once there's a reply to read —
+/** The full event trace. Collapsed by default once there's a reply to read -
  *  the trace is the audit trail, not the answer. */
 function CollapsibleActivity({
   entry, isRecipient, defaultOpen,
@@ -404,7 +411,7 @@ function CollapsibleActivity({
   );
 }
 
-/** Compose a fresh dispatch from a finished one — same recipient, task
+/** Compose a fresh dispatch from a finished one - same recipient, task
  *  prefilled but editable (the usual reason to resend is that the first run
  *  missed the mark). The copy carries `resend_of` in metadata so the chain
  *  is traceable; everything else goes through the normal compose path, so
@@ -475,27 +482,79 @@ function ResendPanel({
   );
 }
 
-/** "↩ Follow-up of <id>" banner linking back to the parent dispatch. Shown on
- *  any dispatch that carries metadata.parent_id, so a threaded chain is
- *  navigable in both directions. */
-function ParentLink({ parentId }: { parentId: string }) {
+/** Outlook-style thread strip: the whole chain (root + follow-ups) this
+ *  dispatch belongs to, collapsible, with the current one highlighted. Hidden
+ *  unless there's more than one dispatch in the thread (i.e. a follow-up
+ *  exists), so a plain one-off dispatch shows nothing. */
+function ThreadStrip({ currentId }: { currentId: string }) {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(true);
+  const thread = useQuery({
+    queryKey: ["thread", currentId],
+    queryFn: () => api.thread(currentId),
+  });
+  const items = thread.data?.dispatches ?? [];
+  if (items.length <= 1) return null;
+  const Chevron = open ? ChevronDown : ChevronRight;
   return (
-    <button
-      type="button"
-      onClick={() => navigate(`/dispatch/${parentId}`)}
-      className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50/60 px-2.5 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
-    >
-      <CornerUpLeft className="size-3.5" />
-      Follow-up — open the original dispatch
-    </button>
+    <div className="rounded-lg border border-violet-200 bg-violet-50/40">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-violet-800"
+      >
+        <Chevron className="size-3.5" />
+        <Mails className="size-3.5" />
+        Thread · {items.length} dispatches
+      </button>
+      {open && (
+        <ul className="border-t border-violet-200/70">
+          {items.map((it, i) => {
+            const current = it.dispatch_id === currentId;
+            return (
+              <li key={it.dispatch_id}>
+                <button
+                  type="button"
+                  disabled={current}
+                  onClick={() =>
+                    navigate(`/dispatch/${it.dispatch_id}`, {
+                      state: { from: `/dispatch/${currentId}` },
+                    })
+                  }
+                  className={cn(
+                    "flex w-full items-start gap-2 px-3 py-2 text-left text-sm",
+                    current ? "bg-violet-100/70 cursor-default" : "hover:bg-violet-100/50",
+                  )}
+                >
+                  <span className="mt-0.5 shrink-0 text-[10px] tabular-nums text-violet-500 w-4">
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">
+                      {i > 0 && <CornerUpLeft className="mr-1 inline size-3 text-violet-400" />}
+                      {it.task}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {it.sender_id} → {it.recipient_id} · {relativeTime(it.created_at)}
+                    </span>
+                  </span>
+                  <span className="shrink-0">
+                    <StatusBadge status={it.status} />
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
 /** Compose a follow-up: a NEW dispatch threaded onto this one, addressed to the
  *  other party. It inherits the parent's cwd + result as context server-side
  *  (the daemon enriches metadata.parent_id at compose), but is a fresh, signed,
- *  separately-approved dispatch — not a resumed agent session. */
+ *  separately-approved dispatch - not a resumed agent session. */
 function FollowUpPanel({
   entry, recipient, onClose,
 }: { entry: AnyDispatch; recipient: string; onClose: () => void }) {
@@ -514,9 +573,10 @@ function FollowUpPanel({
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["sent"] });
       qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["thread"] });
       const newId = "dispatch_id" in res ? res.dispatch_id : res.dispatches[0]?.dispatch_id;
       onClose();
-      if (newId) navigate(`/dispatch/${newId}`);
+      if (newId) navigate(`/dispatch/${newId}`, { state: { from: `/dispatch/${entry.dispatch_id}` } });
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
   });
@@ -527,7 +587,7 @@ function FollowUpPanel({
         <div className="font-medium">Follow up with {recipient}</div>
         <div className="text-sm text-muted-foreground mt-0.5">
           Sends a new task on this thread. Their agent inherits this dispatch's
-          working directory and result as context, then runs the new task —
+          working directory and result as context, then runs the new task -
           still gated by your trust edge and their approval.
         </div>
       </div>
@@ -555,7 +615,7 @@ function FollowUpPanel({
 
 /** Inline composer for a human note on the thread. Posts a display-only message
  *  that joins the activity stream (both parties + every surface) without ever
- *  reaching the running agent. Available at any status — you can still say
+ *  reaching the running agent. Available at any status - you can still say
  *  "thanks" or ask a question after the run is done. */
 function ReplyComposer({ entry }: { entry: AnyDispatch }) {
   const qc = useQueryClient();
@@ -593,11 +653,11 @@ function ReplyComposer({ entry }: { entry: AnyDispatch }) {
           className="flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-y"
         />
         <Button size="sm" onClick={submit} disabled={post.isPending || !body.trim()}>
-          <Send className="size-4" /> {post.isPending ? "Sending…" : "Send"}
+          {post.isPending ? "Sending…" : "Send"}
         </Button>
       </div>
       <div className="mt-1 text-[11px] text-muted-foreground">
-        A note for the other person — it shows in the activity stream but is
+        A note for the other person - it shows in the activity stream but is
         never given to the agent.
       </div>
       {error && <div className="mt-1 text-xs text-destructive">{error}</div>}
@@ -694,7 +754,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
           <div className="font-medium">Approval needed</div>
           <div className="text-sm text-muted-foreground mt-0.5">
             Decide whether to run this dispatch. Approvals happen on your
-            machine — the broker can't fake them.
+            machine - the broker can't fake them.
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -720,7 +780,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
         <input
           value={cwd}
           onChange={(e) => setCwd(e.target.value)}
-          placeholder="e.g. ~/Desktop/Yuni — skips the agent's filesystem search"
+          placeholder="e.g. ~/Desktop/Yuni - skips the agent's filesystem search"
           spellCheck={false}
           className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-ring"
         />
@@ -737,7 +797,7 @@ function TopLevelDecision({ entry }: { entry: AnyDispatch }) {
         <input
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. swamped this week — try next Monday"
+          placeholder="e.g. swamped this week - try next Monday"
           className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
@@ -860,13 +920,13 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       </Row>
       <Row label="Paths">
         {paths.length === 0 ? (
-          // An empty paths list is NOT enforced as "workspace only" — the path
+          // An empty paths list is NOT enforced as "workspace only" - the path
           // gate is skipped, so the agent may touch any path. On a manual edge
           // each call is still approved; on an auto edge there's no boundary.
           approval === "auto" ? (
-            <Badge variant="warning">any path — unrestricted (auto-approved)</Badge>
+            <Badge variant="warning">any path - unrestricted (auto-approved)</Badge>
           ) : (
-            <span className="text-muted-foreground">any path — each call needs approval</span>
+            <span className="text-muted-foreground">any path - each call needs approval</span>
           )
         ) : (
           <ul className="text-xs font-mono space-y-0.5">
@@ -877,14 +937,14 @@ function ScopeSummary({ scopes }: { scopes: InboxEntry["scopes"] }) {
       </Row>
       <Row label="Approval">
         <Badge variant={approval === "manual" ? "warning" : "muted"}>
-          {approval === "manual" ? "Manual — every tool call" : "Auto — no per-tool prompts"}
+          {approval === "manual" ? "Manual - every tool call" : "Auto - no per-tool prompts"}
         </Badge>
       </Row>
       <Row label="Results">
         <Badge variant="muted">
           {(scopes.result_visibility ?? "redacted") === "full"
-            ? "Full — sender sees tool result contents"
-            : "Redacted — sender sees call + status only"}
+            ? "Full - sender sees tool result contents"
+            : "Redacted - sender sees call + status only"}
         </Badge>
       </Row>
     </div>

@@ -8,7 +8,7 @@ interface Props {
   /** Whose decisions matter for this view. "you" if the viewer is the
    *  recipient, "them" if the viewer is just watching. */
   viewerRole?: "recipient" | "watcher";
-  /** Dispatch status — drives the empty-state copy. Only a running dispatch
+  /** Dispatch status - drives the empty-state copy. Only a running dispatch
    *  can still produce events, so only it gets the "streaming in" promise. */
   status?: DispatchStatus;
 }
@@ -95,7 +95,7 @@ function EventCard({
       const reason = event.data["reason"];
       const subject = viewerRole === "recipient" ? "You" : "They";
       // A deny that carries a reason was automatic (timeout / out-of-scope / no
-      // approver) — never attribute it to the human as "You denied".
+      // approver) - never attribute it to the human as "You denied".
       const label = allowed
         ? `${subject} allowed`
         : reason
@@ -139,7 +139,7 @@ function EventCard({
       );
 
     case "message": {
-      // A human chat note pinned to the thread — distinct from agent output so
+      // A human chat note pinned to the thread - distinct from agent output so
       // it never reads as something the agent said or did. Display-only.
       const author = stringFrom(event.data, "author");
       const isDecline = event.data["kind"] === "decline_reason";
@@ -155,7 +155,7 @@ function EventCard({
   }
 }
 
-/** Render agent prose as markdown — the executor speaks GFM (headings,
+/** Render agent prose as markdown - the executor speaks GFM (headings,
  *  tables, code fences), which used to show as raw `##`/`|` soup. */
 export function Markdown({ text }: { text: string }) {
   return (
@@ -240,7 +240,7 @@ function clockTime(iso: string): string {
   return d.toLocaleTimeString(undefined, { hour12: false });
 }
 
-/** "+12s" gap since the previous event — makes stalls (slow tools, waiting
+/** "+12s" gap since the previous event - makes stalls (slow tools, waiting
  *  on a human approval) visible at a glance. Hidden under 1s. */
 function deltaLabel(ts: string, prevTs: string | null): string | null {
   if (!prevTs) return null;
