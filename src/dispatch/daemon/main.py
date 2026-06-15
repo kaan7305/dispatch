@@ -506,13 +506,18 @@ async def run_session(
         print("[daemon] another process owns the broker connection; standing by…", flush=True)
         _emit("standby")
         await asyncio.sleep(CONN_STANDBY_POLL_S)
-    conn_lock.write_owner(role="daemon", local_port=local_port)
-    print("[daemon] holding broker-connection ownership", flush=True)
-
-    print(f"[daemon] connecting to broker: {args.broker}")
-    _emit("connecting")
-    local_state.broker_connected = False
+    # From here on this process holds the connection lock. The finally below
+    # guarantees release on EVERY exit path — a raising write_owner/_emit, a
+    # connect failure, or cleanup that throws — so the in-process tray
+    # supervisor (`while True: run_session(...)`) can always reacquire it
+    # instead of wedging forever on "another process owns the broker connection".
     try:
+        conn_lock.write_owner(role="daemon", local_port=local_port)
+        print("[daemon] holding broker-connection ownership", flush=True)
+
+        print(f"[daemon] connecting to broker: {args.broker}")
+        _emit("connecting")
+        local_state.broker_connected = False
         async with websockets.connect(
             ws_url,
             max_size=None,
@@ -564,25 +569,33 @@ async def run_session(
         # reconnecting with a now-cleared token.
         return 7
     finally:
-        # Close every open WebSocket on the local UI server so uvicorn can
-        # shut down immediately. Without this, the browser's /ws/events
-        # connection keeps uvicorn alive past its graceful timeout, the port
-        # stays bound, and the retry loop fails to rebind.
-        for ws in list(local_state.watchers):
-            try:
-                await ws.close()
-            except Exception:
-                pass
-        local_state.watchers.clear()
-        await scheduler.stop()
-        await local_server.stop()
-        prune_task.cancel()
+        # Whatever happens during local cleanup, the connection-ownership lock
+        # MUST be released. It's an in-process flock and the tray supervises
+        # run_session in a `while True:` loop in this same process — if cleanup
+        # below raises before we release, the next iteration can never reacquire
+        # the lock this process still holds, and the daemon wedges forever on
+        # "another process owns the broker connection; standing by…".
         try:
-            await prune_task
-        except (asyncio.CancelledError, Exception):
-            pass
-        nonce_store.close()
-        conn_lock.release()  # hand off connection ownership to any standby
+            # Close every open WebSocket on the local UI server so uvicorn can
+            # shut down immediately. Without this, the browser's /ws/events
+            # connection keeps uvicorn alive past its graceful timeout, the port
+            # stays bound, and the retry loop fails to rebind.
+            for ws in list(local_state.watchers):
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            local_state.watchers.clear()
+            await scheduler.stop()
+            await local_server.stop()
+            prune_task.cancel()
+            try:
+                await prune_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            nonce_store.close()
+        finally:
+            conn_lock.release()  # hand off connection ownership to any standby
     return 0
 
 
