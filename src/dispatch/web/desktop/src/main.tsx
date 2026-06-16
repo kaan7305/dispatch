@@ -6,6 +6,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { bootstrapToken } from "./lib/token";
 import { basename } from "./lib/config";
 import App from "./App";
+// Bundled neutral UI font (Public Sans). Self-hosted via @fontsource so it
+// renders in the offline WKWebView the daemon serves the SPA into.
+import "@fontsource-variable/public-sans";
 import "./index.css";
 
 // Capture the per-launch local token from the URL fragment before React

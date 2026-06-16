@@ -137,7 +137,7 @@ function AccountMenu({ email }: { email?: string }) {
 
 function Sidebar() {
   return (
-    <aside className="w-60 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
+    <aside className="w-48 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
       {isBroker ? (
         // Compose stays on the trusted local surface; the broker site defers
         // to the local app instead of composing here.

@@ -13,8 +13,15 @@ const BROKER_KEY = "dispatch_token"; // written by the broker sign-in page (web/
 
 export function bootstrapToken(): string {
   if (isBroker) {
-    // The sign-in page persists the JWT to localStorage; nothing to capture
-    // from the URL here.
+    // Normally the Clerk sign-in page persists the JWT to localStorage. But
+    // the daemon's "Manage at broker" hand-off opens us at /app#t=<jwt> so the
+    // browser lands signed in as the same account without a fresh Google
+    // sign-in. Capture that token into localStorage, then scrub the fragment.
+    const t = new URLSearchParams(location.hash.slice(1)).get("t");
+    if (t) {
+      localStorage.setItem(BROKER_KEY, t);
+      history.replaceState({}, "", location.pathname);
+    }
     return getToken();
   }
   // The tray stamps launch params into the fragment: #t=<token>&d=<dispatch>.

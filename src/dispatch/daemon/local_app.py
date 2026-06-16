@@ -465,11 +465,20 @@ def make_app(
         """
         import subprocess, sys
         url = local_state.broker_url.rstrip("/") or "https://web-production-700f0.up.railway.app"
+        # Hand the daemon's broker JWT to the browser so it lands signed in as
+        # the same account, instead of the cold Clerk sign-in landing at "/".
+        # The token rides the URL *fragment* (never sent to the broker, kept
+        # out of its logs) and the SPA scrubs it on boot — the same pattern the
+        # local UI uses for its per-launch token. With no token we still open
+        # the app route and the SPA falls back to its normal sign-in.
+        token = (local_state.broker_token or "").strip()
+        target = f"{url}/app#t={token}" if token else url
         opener = "open" if sys.platform == "darwin" else "xdg-open"
         try:
-            subprocess.Popen([opener, url])
+            subprocess.Popen([opener, target])
         except FileNotFoundError:
             raise HTTPException(status_code=500, detail=f"no `{opener}` command available")
+        # Don't echo the JWT back to the caller; the base URL is enough.
         return {"status": "opened", "url": url}
 
     @app.get("/api/install-command", dependencies=[Depends(require_local_token)])
