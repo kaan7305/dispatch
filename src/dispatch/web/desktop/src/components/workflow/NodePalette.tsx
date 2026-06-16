@@ -1,5 +1,5 @@
-import { Bell, Bot, GitBranch, Play } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Bell, Bot, GitBranch, Play } from "@/lib/icons";
+import type { LucideIcon } from "@/lib/icons";
 
 import type { WorkflowNodeType } from "@/lib/workflowApi";
 

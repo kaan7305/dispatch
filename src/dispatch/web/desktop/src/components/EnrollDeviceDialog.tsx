@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Copy } from "lucide-react";
+import { Copy } from "@/lib/icons";
 
 import { api } from "@/lib/api";
 import { Button } from "./ui/button";

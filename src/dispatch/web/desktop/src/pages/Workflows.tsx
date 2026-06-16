@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Workflow as WorkflowIcon } from "lucide-react";
+import { Plus, Workflow as WorkflowIcon } from "@/lib/icons";
 
 import { workflows, type WorkflowSummary } from "@/lib/workflowApi";
 import { relativeTime } from "@/lib/format";

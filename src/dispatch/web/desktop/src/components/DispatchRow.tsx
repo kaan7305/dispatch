@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, X } from "lucide-react";
+import { Check, X } from "@/lib/icons";
 
 import { api, type DispatchStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";

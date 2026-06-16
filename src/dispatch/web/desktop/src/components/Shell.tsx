@@ -11,7 +11,7 @@ import {
   Settings as SettingsIcon,
   Search,
   Plus,
-} from "lucide-react";
+} from "@/lib/icons";
 
 import { api } from "@/lib/api";
 import { isBroker, openLocalApp } from "@/lib/config";

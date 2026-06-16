@@ -1,6 +1,6 @@
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Clock } from "lucide-react";
+import { Clock } from "@/lib/icons";
 
 import { cn } from "@/lib/utils";
 import type { NodeData } from "./types";

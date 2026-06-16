@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, X } from "lucide-react";
+import { Plus, X } from "@/lib/icons";
 
 import type { WorkflowNode } from "@/lib/workflowApi";
 import { contexts } from "@/lib/contextApi";

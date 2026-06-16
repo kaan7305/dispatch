@@ -8,7 +8,7 @@ import {
   UserCheck,
   UserPlus,
   UserX,
-} from "lucide-react";
+} from "@/lib/icons";
 
 import { api, type AccountEvent, type DispatchSummary, type ScopeChange } from "@/lib/api";
 import { initials, plainPreview, relativeTime } from "@/lib/format";

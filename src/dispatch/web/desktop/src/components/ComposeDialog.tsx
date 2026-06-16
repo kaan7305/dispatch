@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Paperclip, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Paperclip, X } from "@/lib/icons";
 
 import { ApiError, api, type ComposeFanOutResult } from "@/lib/api";
 import { addFiles, formatBytes, type Attachment } from "@/lib/attachments";

@@ -13,7 +13,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowLeft, Square } from "lucide-react";
+import { ArrowLeft, Square } from "@/lib/icons";
 
 import {
   workflows,

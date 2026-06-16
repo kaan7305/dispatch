@@ -1,6 +1,6 @@
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Play } from "lucide-react";
+import { Play } from "@/lib/icons";
 
 import { cn } from "@/lib/utils";
 import type { InputSchemaEntry, NodeData } from "./types";

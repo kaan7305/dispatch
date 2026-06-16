@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, MessageSquare, Trash2, TriangleAlert } from "lucide-react";
+import { Check, MessageSquare, Trash2, TriangleAlert } from "@/lib/icons";
 
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";

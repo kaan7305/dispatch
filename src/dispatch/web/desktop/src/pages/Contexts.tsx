@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, BookText, FileText } from "lucide-react";
+import { Plus, BookText, FileText } from "@/lib/icons";
 
 import { contexts, type ContextSummary } from "@/lib/contextApi";
 import { relativeTime } from "@/lib/format";

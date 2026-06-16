@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X } from "@/lib/icons";
 
 import { api, ApiError, type TrustEdge } from "@/lib/api";
 import { Button } from "./ui/button";
