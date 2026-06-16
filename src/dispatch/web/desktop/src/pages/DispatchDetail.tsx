@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, CornerUpLeft, Infinity as InfinityIcon, Mails, Paperclip, RotateCcw, X } from "@/lib/icons";
+import { ArrowLeft, ArrowUp, Ban, Check, ChevronDown, ChevronRight, Clock, CornerUpLeft, Infinity as InfinityIcon, Mails, Paperclip, RotateCcw, X } from "lucide-react";
 
 import { api, type DispatchEvent, type InboxEntry } from "@/lib/api";
 import { openDispatchWatch } from "@/lib/ws";

@@ -18,7 +18,7 @@ import {
   type DefaultEdgeOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Save, Play, ArrowLeft } from "@/lib/icons";
+import { Save, Play, ArrowLeft } from "lucide-react";
 
 import {
   workflows,

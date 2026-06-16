@@ -34,7 +34,7 @@ import {
   Type,
   Variable,
   Volume2,
-} from "@/lib/icons";
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { NodeStatus } from "@/lib/workflowApi";

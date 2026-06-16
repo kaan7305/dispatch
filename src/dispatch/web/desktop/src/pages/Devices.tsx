@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Monitor, Pencil, Plus, Server, Smartphone, Trash2, X } from "@/lib/icons";
+import { Check, Monitor, Pencil, Plus, Server, Smartphone, Trash2, X } from "lucide-react";
 
 import { api, type Device } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";

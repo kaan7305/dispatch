@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight } from "@/lib/icons";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { api, ApiError, type Scopes, type TrustEdge } from "@/lib/api";
 import { isBroker } from "@/lib/config";

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,7 +11,7 @@ import {
   Settings as SettingsIcon,
   Search,
   Plus,
-} from "@/lib/icons";
+} from "lucide-react";
 
 import { api } from "@/lib/api";
 import { isBroker, openLocalApp } from "@/lib/config";
@@ -135,9 +135,59 @@ function AccountMenu({ email }: { email?: string }) {
   );
 }
 
+// Drag-to-resize bounds for the left nav (px). Default sits at the old w-48.
+const SIDEBAR_MIN = 168;
+const SIDEBAR_MAX = 288;
+const SIDEBAR_DEFAULT = 192;
+const SIDEBAR_KEY = "dispatch:sidebarWidth";
+
+function clampSidebar(px: number): number {
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, px));
+}
+
 function Sidebar() {
+  const [width, setWidth] = useState(() => {
+    const saved = Number(localStorage.getItem(SIDEBAR_KEY));
+    return saved ? clampSidebar(saved) : SIDEBAR_DEFAULT;
+  });
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, String(width));
+  }, [width]);
+
+  useEffect(() => {
+    // The sidebar's left edge is at viewport x=0, so the pointer's clientX is
+    // the desired width. Listeners live on window so a fast drag that outruns
+    // the 4px handle keeps resizing.
+    function onMove(e: MouseEvent) {
+      if (dragging.current) setWidth(clampSidebar(e.clientX));
+    }
+    function onUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  function startDrag() {
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
   return (
-    <aside className="w-48 shrink-0 border-r px-3 py-4 flex flex-col gap-1">
+    <aside
+      style={{ width }}
+      className="relative shrink-0 border-r px-3 py-4 flex flex-col gap-1"
+    >
       {isBroker ? (
         // Compose stays on the trusted local surface; the broker site defers
         // to the local app instead of composing here.
@@ -173,6 +223,15 @@ function Sidebar() {
           {label}
         </NavLink>
       ))}
+      {/* Drag handle over the right border to resize the nav. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={startDrag}
+        onDoubleClick={() => setWidth(SIDEBAR_DEFAULT)}
+        title="Drag to resize (double-click to reset)"
+        className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-border active:bg-ring/50"
+      />
     </aside>
   );
 }

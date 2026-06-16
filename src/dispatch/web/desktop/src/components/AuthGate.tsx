@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound } from "@/lib/icons";
+import { KeyRound } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import { getToken, clearToken } from "@/lib/token";

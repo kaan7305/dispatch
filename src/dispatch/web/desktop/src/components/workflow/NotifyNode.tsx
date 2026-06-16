@@ -1,6 +1,6 @@
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Bell } from "@/lib/icons";
+import { Bell } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { NodeData } from "./types";

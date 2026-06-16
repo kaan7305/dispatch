@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Brain, Check, Settings, Trash2, UserPlus, X } from "@/lib/icons";
+import { Brain, Check, Settings, Trash2, UserPlus, X } from "lucide-react";
 
 import { api, type Invitation, type Scopes, type TrustEdge } from "@/lib/api";
 import { initials } from "@/lib/format";

@@ -9,15 +9,6 @@ export default {
       screens: { "2xl": "1400px" },
     },
     extend: {
-      fontFamily: {
-        sans: [
-          '"Public Sans Variable"',
-          "ui-sans-serif",
-          "system-ui",
-          "-apple-system",
-          "sans-serif",
-        ],
-      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

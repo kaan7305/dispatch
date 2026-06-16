@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronDown, ChevronRight } from "@/lib/icons";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { api, type InboxEntry, type DispatchSummary } from "@/lib/api";
 import { DispatchRow } from "@/components/DispatchRow";
