@@ -52,8 +52,16 @@ class Store:
             )
         self.pool = await asyncpg.create_pool(
             dsn=self.dsn,
-            min_size=1,
+            # min_size=0 so an idle broker holds no open connection and Neon's
+            # serverless compute can scale-to-zero (suspend) instead of billing
+            # 24/7. Trade-off: the first query after an idle period eats a Neon
+            # cold-start (~a couple seconds) while a fresh connection opens.
+            min_size=0,
             max_size=10,
+            # Reap idle connections so the pool actually drains to zero between
+            # bursts; without this an acquired-then-released conn lingers and
+            # keeps compute awake.
+            max_inactive_connection_lifetime=60,
             init=self._init_conn,
         )
         async with self.pool.acquire() as conn:
