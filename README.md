@@ -146,7 +146,8 @@ migration step.
 | `DISPATCH_JWT_SECRET` | Broker | 32+ random chars. Rotating it invalidates all tokens. |
 | `DATABASE_URL` | Broker | Postgres URL. Auto-set by Railway's plugin. |
 | `DISPATCH_PUBLIC_URL` | Broker (optional) | Public base URL; falls back to `RAILWAY_PUBLIC_DOMAIN`, then localhost. |
-| `CLERK_*` | Broker (optional) | `CLERK_PUBLISHABLE_KEY`, `CLERK_FRONTEND_API`, `CLERK_JWT_AUDIENCE`, `CLERK_JWT_TEMPLATE` - enable Clerk (Google) sign-in for the web UI. Without them, use dev `/auth/login`. |
+| `CLERK_*` | Broker (optional) | `CLERK_PUBLISHABLE_KEY`, `CLERK_FRONTEND_API`, `CLERK_JWT_AUDIENCE`, `CLERK_JWT_TEMPLATE` - enable Clerk (Google) sign-in for the web UI. Without them, use dev `/auth/login` (set `DISPATCH_DEV_AUTH=1`). |
+| `DISPATCH_DEV_AUTH` | Broker (optional) | Set to `1` to enable the passwordless `POST /auth/login` for local dev. It mints a JWT for any username, so it is off by default and **always refused when Clerk is configured** - never enable it on a real deployment. |
 | `RESEND_API_KEY`, `RESEND_FROM` | Broker (optional) | Real email for invitation links. Without it, links are returned in the API response (dev mode). |
 | `DISPATCH_DAEMON_INSTALL` | Broker (optional) | What `/install.sh` points `pipx install` at. Default: a GitHub repo URL. |
 | `ANTHROPIC_API_KEY` | Daemon | The recipient runs the agent on their own key. |

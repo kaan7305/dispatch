@@ -32,6 +32,15 @@ class ClerkAuthError(Exception):
 _JWKS_CACHE: dict[str, PyJWKClient] = {}
 
 
+def clerk_configured() -> bool:
+    """True when Clerk browser sign-in is configured (frontend API present).
+
+    Used to decide whether the passwordless dev login may be exposed: a real
+    deployment sets Clerk, and the dev endpoint must never be reachable there.
+    """
+    return bool((os.environ.get("CLERK_FRONTEND_API") or "").strip())
+
+
 def _frontend_api() -> str:
     raw = os.environ.get("CLERK_FRONTEND_API")
     if not raw:
