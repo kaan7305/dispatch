@@ -38,7 +38,12 @@ from pydantic import BaseModel
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from dispatch.broker.clerk import ClerkAuthError, extract_email, verify_clerk_token
+from dispatch.broker.clerk import (
+    ClerkAuthError,
+    clerk_configured,
+    extract_email,
+    verify_clerk_token,
+)
 from dispatch.broker.email import send_invitation
 from dispatch.broker.sms import (
     dispatch_notification_body,
@@ -163,6 +168,22 @@ async def authed_user(authorization: Optional[str] = Header(None)) -> str:
     return user_id
 
 
+def _dev_auth_enabled() -> bool:
+    """Whether the passwordless /auth/login endpoint may be served.
+
+    /auth/login mints a valid JWT for ANY username with no verification, so an
+    exposed one is a full impersonation oracle. It is OFF by default and only
+    served when DISPATCH_DEV_AUTH is explicitly truthy AND Clerk sign-in is not
+    configured — a real deployment (Clerk set) never exposes it, even if the
+    flag is left on by mistake.
+    """
+    if clerk_configured():
+        return False
+    return (os.environ.get("DISPATCH_DEV_AUTH") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 async def _verify_ws(token: Optional[str]) -> Optional[str]:
     if not token:
         return None
@@ -182,7 +203,19 @@ async def _verify_ws(token: Optional[str]) -> Optional[str]:
 
 @app.post("/auth/login")
 async def login(req: LoginRequest) -> dict:
-    """Dev-mode / CLI login. The web UI uses the magic-link flow below."""
+    """Passwordless dev login. Disabled unless DISPATCH_DEV_AUTH is set and
+    Clerk is not configured (see _dev_auth_enabled) — it issues a token for any
+    username, so it must never be reachable on a real deployment. Production
+    sign-in is Clerk (web) or the device-code flow (`dispatch login`, CLI)."""
+    if not _dev_auth_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Passwordless /auth/login is disabled. Set DISPATCH_DEV_AUTH=1 "
+                "for local development, or sign in via Clerk (web) or "
+                "`dispatch login` (CLI device-code flow)."
+            ),
+        )
     user_id = req.username.strip()
     await STORE.upsert_user(user_id)
     return {"user_id": user_id, "token": issue_token(user_id)}
