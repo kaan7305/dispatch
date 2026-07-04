@@ -336,6 +336,12 @@ async def run_session(
             except Exception:
                 pass
 
+    # Wire the bundled agent runtime (Node + claude/codex CLIs) onto PATH so a
+    # recipient never had to install anything from a terminal. No-op on a dev
+    # machine with a global `claude`; the loud path is when neither exists.
+    from dispatch.executor import prepare_agent_runtime
+    prepare_agent_runtime()
+
     if not args.token:
         print(
             "error: no token. Sign in on the broker's web page, then either:\n"
@@ -382,11 +388,20 @@ async def run_session(
         anthropic_api_key=args.anthropic_key,
     )
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    # Two ways to be authenticated: an API key in the environment/config, OR a
+    # subscription login the vendored `claude` CLI stored in ~/.claude.json
+    # (`claude` / the app's "Sign in with Claude" both write it). Only warn if
+    # neither is present — otherwise a subscription user gets a false alarm.
+    _claude_json = Path(
+        os.environ.get("CLAUDE_CONFIG_PATH", str(Path.home() / ".claude.json"))
+    )
+    _has_login = _claude_json.exists()
+    if not os.environ.get("ANTHROPIC_API_KEY") and not _has_login:
         print(
-            "warning: ANTHROPIC_API_KEY is not set. Set it once with:\n"
+            "warning: no agent credentials found. Either sign in with your\n"
+            "Claude subscription from the Dispatch app, or set an API key:\n"
             "    dispatch-daemon --anthropic-key sk-ant-...\n"
-            "or export it in your shell. Without it the agent will fail to run.",
+            "Without one, the agent will fail to run.",
             file=sys.stderr,
         )
 

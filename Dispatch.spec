@@ -11,12 +11,24 @@ from pathlib import Path
 SRC = Path("src")
 WEB_DIR = SRC / "dispatch" / "web"
 DESKTOP_DIST = WEB_DIR / "desktop" / "dist"
+VENDOR = Path("vendor")   # produced by scripts/vendor_agents.py
 
 if not DESKTOP_DIST.exists():
     raise SystemExit(
         f"Desktop UI build not found at {DESKTOP_DIST}. "
         "Run `pnpm --dir src/dispatch/web/desktop build` first."
     )
+
+# The bundled agent runtime (Node + claude/codex CLIs). Optional so a dev build
+# still works against a globally-installed `claude`, but required for a shippable
+# app a non-technical recipient can use with no terminal. See docs/BUNDLING.md.
+_vendor_datas = []
+if (VENDOR / "bin" / "node").exists():
+    _vendor_datas.append((str(VENDOR), "vendor"))
+else:
+    print("Dispatch.spec: NOTE — no ./vendor runtime found. Run "
+          "`python scripts/vendor_agents.py` for a self-contained app. "
+          "Building without it: the recipient will need a global `claude` CLI.")
 
 block_cipher = None
 
@@ -28,6 +40,7 @@ a = Analysis(
         # Bundle the locally-served desktop SPA (React build output).
         # local_app.py mounts this as the static root on 127.0.0.1.
         (str(DESKTOP_DIST), "dispatch/web/desktop"),
+        *_vendor_datas,
     ],
     hiddenimports=[
         # rumps / PyObjC

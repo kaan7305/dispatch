@@ -287,6 +287,11 @@ async def run_dispatch(
     dispatch's verified attachments; their locations (plus any sender context
     in metadata) are appended to the task query as a trailer.
     """
+    # Ensure the vendored `claude` CLI + Node are on PATH before the SDK spawns
+    # them. Idempotent and cheap; a no-op on a dev machine with a global CLI.
+    from dispatch.executor.runtime import prepare_agent_runtime
+    prepare_agent_runtime()
+
     in_scope = list(allowed_tools) if allowed_tools is not None else list(ALL_TOOLS)
     disallowed = [t for t in ALL_TOOLS if t not in in_scope]
 
