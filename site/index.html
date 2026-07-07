@@ -186,9 +186,9 @@
   }
   .hero-stage {
     position: relative;
-    width: 466px; height: 472px;
+    width: 466px; height: 508px;
     justify-self: end;
-    animation: stage-float 9s ease-in-out infinite;
+    animation: stage-float 9s ease-in-out 2.6s infinite;
   }
   @media (max-width: 960px) { .hero-stage { justify-self: center; } }
   @keyframes stage-float {
@@ -3645,13 +3645,56 @@ const revealObs = new IntersectionObserver((entries) => {
 }, { threshold: 0.12 });
 document.querySelectorAll(".reveal").forEach(el => revealObs.observe(el));
 
+/* ── hero intro: the demo frame opens full-screen, then flies back home ── */
+(function () {
+  const stage = document.getElementById("hero-fan");
+  if (!stage) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  function start() {
+    if (window.scrollY > 40) return;   /* reloaded mid-page — skip the intro */
+    /* FLIP: measure the resting spot with a settled layout, start scaled up
+       to fill the viewport (with a margin so nothing clips), then release
+       the transform so it glides back into place. */
+    stage.classList.add("in");
+    stage.style.transition = "none";   /* appear full-screen instantly */
+    stage.style.animation = "none";    /* keep stage-float out of the way */
+    stage.style.transform = "none";
+    const r = stage.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const scale = Math.min(vw / r.width, vh / r.height) * 0.97;
+    const dx = vw / 2 - (r.left + r.width / 2);
+    const dy = vh / 2 - (r.top + r.height / 2);
+    /* .hero has z-index:1 (so the sticky header would cover the frame) and
+       overflow:hidden (which clips the scaled-up frame at the hero's top
+       edge) — lift and unclip the hero for the duration of the intro */
+    const hero = stage.closest(".hero");
+    if (hero) { hero.style.zIndex = "30"; hero.style.overflow = "visible"; }
+    stage.style.zIndex = "60";
+    stage.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) scale(${scale.toFixed(3)})`;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      stage.style.transition = "transform 2000ms cubic-bezier(0.4, 0, 0.2, 1)";
+      setTimeout(() => { stage.style.transform = ""; }, 3500);
+      setTimeout(() => {
+        stage.style.transition = ""; stage.style.zIndex = "";
+        stage.style.animation = "";
+        if (hero) { hero.style.zIndex = ""; hero.style.overflow = ""; }
+      }, 5700);
+    }));
+  }
+  /* measure only after fonts + layout settle, or the frame drifts off-screen */
+  const kick = () => (document.fonts && document.fonts.ready || Promise.resolve()).then(() => setTimeout(start, 60));
+  if (document.readyState === "complete") kick();
+  else window.addEventListener("load", kick, { once: true });
+})();
+
 /* ───────── hero fan: one sender → ten machines in one window, interactive ───────── */
 (function buildHeroFan() {
   const canvas = document.getElementById("fan-canvas");
   const sender = document.getElementById("fan-sender");
   if (!canvas || !sender) return;
 
-  const W = 464, H = 434;
+  const W = 464, H = 470;
   const ox = 158, oy = 198;          /* where the streams leave the sender card */
   const NAMES = ["maya", "ege", "edward", "nora", "jon", "selin", "rosa", "deniz", "sam", "tuna"];
   const svgNS = "http://www.w3.org/2000/svg";
@@ -5704,15 +5747,19 @@ ucObs.observe(document.querySelector(".uc-grid"));
     await sleep(500); if (tok !== token) return;
   }
   async function bootB(tok) {
-    w(B, '<span class="dim">PS C:\\team-b&gt;</span> codex', "dim");
+    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex mcp add dispatch</span>');
+    await sleep(900); if (tok !== token) return;
+    w(B, '  <span class="ok">✓</span> added MCP server <span class="mcp">dispatch</span> <span class="dim">· dispatch@0.1</span>');
+    await sleep(700); if (tok !== token) return;
+    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex</span>');
     await sleep(650); if (tok !== token) return;
-    w(B, '<span class="dim">codex · v0.4 · windows</span>', "dim");
-    await sleep(750); if (tok !== token) return;
-    w(B, '<span class="dim">›</span> codex plugin add dispatch');
-    await sleep(1000); if (tok !== token) return;
-    w(B, '  <span class="ok">✓ dispatch@0.1</span> · <span class="mcp">MCP connected</span>');
-    await sleep(1000); if (tok !== token) return;
-    w(B, '<span class="dim">›</span> daemon <span class="ok">listening</span> for dispatches…');
+    w(B, '<span class="ex">&gt;_</span> OpenAI Codex <span class="dim">(v0.48.0)</span>', "welcome");
+    await sleep(450); if (tok !== token) return;
+    w(B, '  <span class="dim">model gpt-5-codex · C:\\team-b</span>', "welcome");
+    await sleep(800); if (tok !== token) return;
+    w(B, '<span class="bar">▌</span> <span class="mcp">MCP: dispatch</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
+    await sleep(800); if (tok !== token) return;
+    w(B, '<span class="bar">▌</span> daemon <span class="ok">listening</span> · key <span class="dim">b7e2…41d0</span>');
     await sleep(500); if (tok !== token) return;
   }
 
