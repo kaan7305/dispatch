@@ -128,7 +128,7 @@
   @media (max-width: 720px) { nav a:not(.nav-cta) { display: none; } }
 
   /* ── hero ── */
-  .hero { padding: 120px 0 96px; overflow: hidden; }
+  .hero { padding: 72px 0 24px; overflow: hidden; }
   .kicker {
     font-size: 11px;
     letter-spacing: 0.14em;
@@ -173,27 +173,31 @@
   }
   .cta-row { margin-top: 40px; display: flex; gap: 16px; align-items: center; }
 
-  /* ── hero stage: the whole story on an 8s loop ── */
+  /* ── hero: compact copy far left, the live demo big on the right ── */
+  .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: 1.15fr 0.85fr;
-    gap: 48px;
-    align-items: center;
+    grid-template-columns: minmax(320px, 3.4fr) 8fr;
+    gap: 56px;
+    align-items: start;
   }
-  @media (max-width: 960px) {
-    .hero-grid { grid-template-columns: 1fr; }
-    .hero-stage { margin: 48px auto 0; }
-  }
-  .hero-stage {
-    position: relative;
-    width: 466px; height: 508px;
-    justify-self: end;
-    animation: stage-float 9s ease-in-out 2.6s infinite;
-  }
-  @media (max-width: 960px) { .hero-stage { justify-self: center; } }
-  @keyframes stage-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-7px); }
+  .hero-copy { padding-top: 56px; }
+  .hero h1 { font-size: clamp(28px, 2.6vw, 40px); }
+  .hero .btn { padding: 10px 20px; font-size: 14px; }
+  .hero .cta-row { margin-top: 32px; }
+  .hero .onboard-box { padding: 15px 17px; margin-top: 20px; }
+  .hero .onboard-box code { font-size: 12.5px; }
+  @media (max-width: 1000px) { .hero > .wrap-wide { padding: 0 24px; } }
+  .hero-demo { min-width: 0; }
+  /* the hero demo is a self-running showcase — clicks don't reach it, the
+     autopilot's programmatic clicks still work; Replay lives outside */
+  .hero-demo .stage-desk { pointer-events: none; }
+  .demo-fit { position: relative; }
+  .demo-fit-inner { transform-origin: top left; }
+  @media (min-width: 1001px) { .demo-fit-inner { width: 1232px; } }
+  @media (max-width: 1000px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero-copy { padding-top: 0; }
   }
   .hs-path { position: absolute; inset: 0; }
   .hs-card {
@@ -603,30 +607,34 @@
     border: 1px solid var(--hairline);
   }
   .btn-ghost:hover { border-color: #ccc; }
+  .btn-green { background: #16A34A; color: #fff; }
+  .btn-green:hover { background: #15803D; }
 
-  /* ── the spine: three steps, ten seconds to read ── */
-  .spine {
-    border-top: 1px solid var(--hairline);
-    background: rgba(255,255,255,0.55);
-  }
-  .spine-row {
-    display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap;
-    padding-top: 20px; padding-bottom: 20px;
-  }
-  .sp {
-    display: flex; align-items: center; gap: 11px;
-    font-size: 13.5px;
-    color: var(--ink);
-  }
-  .sp b {
-    flex-shrink: 0;
-    width: 22px; height: 22px;
+  /* ── agent onboarding one-liner (hero) ── */
+  .onboard-box {
+    margin-top: 22px;
+    max-width: 680px;
+    display: flex; align-items: center; gap: 14px;
     border: 1px solid var(--hairline);
-    border-radius: 50%;
-    display: grid; place-items: center;
-    font-family: var(--mono); font-size: 10px; font-weight: 600;
     background: var(--card);
+    border-radius: 10px;
+    padding: 16px 18px;
   }
+  .onboard-box code {
+    flex: 1;
+    font-family: var(--mono); font-size: 13px; line-height: 1.65;
+    color: var(--ink);
+    word-break: break-word; white-space: pre-wrap;
+  }
+  .onboard-copy {
+    border: none; background: transparent; cursor: pointer;
+    color: var(--muted); padding: 7px;
+    border-radius: 6px;
+    transition: color 150ms, background 150ms;
+  }
+  .onboard-copy:hover { color: var(--ink-strong); background: rgba(17,17,17,0.05); }
+  .onboard-copy.ok { color: #16A34A; }
+
 
   /* ── section scaffolding ── */
   section { padding: 96px 0; }
@@ -1346,7 +1354,7 @@
   .demo-status.hot { color: var(--yellow-ink); }
 
   /* ── at scale: the workshop ── */
-  #scale { border-top: 1px solid var(--hairline); }
+  #scale { border-top: 1px solid var(--hairline); padding-top: 48px; }
   .scale-stage {
     display: grid;
     grid-template-columns: 300px 1fr;
@@ -1432,58 +1440,66 @@
   .class-grid {
     display: grid;
     grid-template-columns: repeat(10, minmax(0, 1fr));
-    gap: 12px;
-    max-width: 520px;
+    gap: 9px;
+    max-width: 660px;
   }
   @media (max-width: 640px) { .class-grid { grid-template-columns: repeat(7, 1fr); } }
 
+  /* each seat is a miniature Dispatch window — the product, 50 times over */
   .seat {
     position: relative;
-    aspect-ratio: 1;
-    border-radius: 50%;
-    background: #E7E6E2;
-    display: grid; place-items: center;
-    font-size: 8.5px; font-weight: 600;
-    letter-spacing: 0.02em;
-    color: #8A8A85;
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
     cursor: pointer;
     user-select: none;
-    transition: background 350ms, box-shadow 350ms, transform 350ms cubic-bezier(0.34,1.56,0.64,1), color 350ms;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    transition: box-shadow 350ms, transform 350ms cubic-bezier(0.34,1.56,0.64,1), border-color 350ms, opacity 350ms;
   }
-  .seat:hover { transform: scale(1.15); z-index: 3; }
-  .seat.pending { color: #78350F; }
-  .seat.running { color: #14532D; }
-  .seat.done { color: transparent; }
-  .seat.declined { color: transparent; }
-  .seat.expired { color: #A7A6A2; }
-  .seat.pending {
-    background: #FEF3C7;
-    box-shadow: 0 0 0 2px rgba(149,100,0,0.25);
-    animation: seat-think 1.6s ease-in-out infinite;
+  .seat:hover { transform: scale(1.12); z-index: 3; }
+  .seat .stb {
+    display: flex; align-items: center; gap: 2.5px;
+    padding: 3.5px 5px;
+    background: #FBFBFA;
+    border-bottom: 1px solid var(--hairline);
+    border-radius: 5px 5px 0 0;
   }
+  .seat .stb i { width: 3px; height: 3px; border-radius: 50%; background: #D9D8D4; flex-shrink: 0; }
+  .seat .stb span {
+    margin-left: 2px; min-width: 0;
+    font-family: var(--mono); font-size: 7px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .seat .sbd {
+    position: relative; height: 24px;
+    display: grid; place-items: center;
+    border-radius: 0 0 5px 5px;
+    background: var(--card);
+    transition: background 350ms;
+  }
+  .seat .sic { font-size: 10px; font-weight: 700; line-height: 1; }
+  .seat .sprog {
+    position: absolute; left: 5px; right: 5px; bottom: 3px; height: 2.5px;
+    border-radius: 2px; background: rgba(22,163,74,0.15);
+    opacity: 0; transition: opacity 250ms;
+  }
+  .seat .sprog i {
+    display: block; height: 100%; border-radius: 2px; background: #16A34A;
+    width: calc(var(--p, 0) * 100%);
+    transition: width 300ms;
+  }
+  /* deciding — the ask landed, a person is looking at it */
+  .seat.pending .sbd { background: var(--pale-yellow); }
+  .seat.pending .sic::before { content: "…"; color: var(--yellow-ink); }
+  .seat.pending { animation: seat-think 1.6s ease-in-out infinite; }
   @keyframes seat-think {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(149,100,0,0.25); }
-    50% { box-shadow: 0 0 0 4px rgba(149,100,0,0.12); }
+    0%, 100% { box-shadow: 0 0 0 2px rgba(149,100,0,0.18); }
+    50% { box-shadow: 0 0 0 4px rgba(149,100,0,0.08); }
   }
-  .seat.running {
-    background: #BBF7D0;
-    animation: seat-run 1.1s ease-in-out infinite;
-  }
-  /* progress ring — fills a third per step: download, build, reply */
-  .seat.running::before {
-    content: "";
-    position: absolute;
-    inset: -4px;
-    border-radius: 50%;
-    background: conic-gradient(#16A34A calc(var(--p, 0) * 360deg), rgba(22,163,74,0.15) 0);
-    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
-    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
-    transition: --p 300ms;
-  }
-  @keyframes seat-run {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.12); }
-  }
+  /* running — the agent works the steps, progress along the bottom */
+  .seat.running { border-color: #BBF7D0; }
+  .seat.running .sprog { opacity: 1; }
+  .seat.running .sic::before { content: "▸"; color: #16A34A; font-size: 9px; }
   .task-steps {
     display: flex; gap: 16px; flex-wrap: wrap;
     margin-bottom: 12px;
@@ -1501,53 +1517,35 @@
     background: var(--card);
     color: var(--ink);
   }
-  .seat.done {
-    background: #22C55E;
-    animation: none;
-    transform: scale(1);
-  }
-  .seat.done::after {
-    content: "";
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 34%; height: 18%;
-    border-left: 2px solid #fff;
-    border-bottom: 2px solid #fff;
-    transform: translate(-50%, -65%) rotate(-45deg);
-  }
-  .seat.stuck {
-    background: #F87171;
-    color: transparent;
-    animation: stuck-pulse 1.3s ease-in-out infinite;
-  }
-  .seat.stuck::after {
-    content: "!";
-    position: absolute; inset: 0;
-    display: grid; place-items: center;
-    color: #fff; font-size: 12px; font-weight: 700;
-  }
+  /* done — replied with a score */
+  .seat.done { border-color: #A7DDB5; animation: none; }
+  .seat.done .sbd { background: var(--pale-green); }
+  .seat.done .sic::before { content: "✓"; color: var(--green-ink); }
+  /* stuck — hit an error, waiting for help */
+  .seat.stuck { border-color: #F5B5B2; animation: stuck-pulse 1.3s ease-in-out infinite; }
+  .seat.stuck .sbd { background: var(--pale-red); }
+  .seat.stuck .sic::before { content: "!"; color: #B91C1C; font-size: 11px; }
   @keyframes stuck-pulse {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.45); }
-    50% { box-shadow: 0 0 0 7px rgba(239,68,68,0.12); }
+    0%, 100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.35); }
+    50% { box-shadow: 0 0 0 6px rgba(239,68,68,0.1); }
   }
-  .seat.declined { background: #FCA5A5; animation: none; }
-  .seat.declined::after {
-    content: "×";
-    position: absolute; inset: 0;
-    display: grid; place-items: center;
-    color: #7F1D1D; font-size: 11px; font-weight: 700;
-  }
-  .seat.expired { background: #D9D8D4; animation: none; opacity: 0.7; }
+  /* declined — a person said no */
+  .seat.declined { border-color: #E8C6C4; animation: none; }
+  .seat.declined .sbd { background: var(--pale-red); }
+  .seat.declined .sic::before { content: "×"; color: var(--red-ink); font-size: 11px; }
+  /* expired — never answered */
+  .seat.expired { animation: none; opacity: 0.62; }
+  .seat.expired .sic::before { content: "—"; color: #A7A6A2; }
 
   .seat.you {
-    box-shadow: 0 0 0 2px var(--ink-strong);
-    transform: scale(1.18);
+    border-color: var(--ink-strong);
+    box-shadow: 0 0 0 1.5px var(--ink-strong);
     z-index: 2;
   }
   .seat.you::before {
     content: "you";
     position: absolute;
-    top: -20px; left: 50%;
+    top: -17px; left: 50%;
     transform: translateX(-50%);
     font-size: 9px; font-weight: 600;
     letter-spacing: 0.08em; text-transform: uppercase;
@@ -2703,77 +2701,31 @@
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
-      <a href="#layers">Trust model</a>
       <a href="#parts">Under the hood</a>
       <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Get an invite</a>
     </nav>
   </div>
 </header>
 
-<!-- ── HERO ── -->
+<!-- ── HERO: copy left, the live demo right ── -->
 <div class="hero">
-  <div class="wrap hero-grid">
+  <div class="wrap-wide hero-grid">
     <div class="hero-copy">
-      <div class="kicker reveal">A peer-to-peer courier for agentic work <span class="status-chip">in development · invite-only</span></div>
       <h1 class="reveal">Send a task to a person.<br/>Their machine does the work — <em>with their say-so.</em></h1>
-      <p class="lede reveal">
-        You describe a task in plain language and name someone you know. Their computer
-        runs it with a local AI agent. Not because a server decided it could — because
-        they trusted you, your device signed it, and they approved it.
-      </p>
-      <p class="fine reveal">
-        No shared credentials. No remote shell. The recipient's API key, files, and
-        final word never leave their machine.
-      </p>
       <div class="cta-row reveal">
-        <a class="btn btn-primary" href="#demo">Watch the interactive demo</a>
-        <a class="btn btn-ghost" href="#layers">Why it's safe</a>
+        <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation&body=I'd%20like%20an%20invite.">Get Started</a>
+        <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="onboard-box reveal">
+        <code id="onboard-cmd">Onboard me to Dispatch locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
+        <button class="onboard-copy" id="onboard-copy" aria-label="Copy to clipboard" title="Copy">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
       </div>
     </div>
 
-    <!-- one sender, ten machines, live — inside one window -->
-    <div class="hero-stage reveal" id="hero-fan" aria-hidden="true">
-      <div class="fan-frame">
-        <div class="fan-frame-tb">
-          <span class="mdots"><i></i><i></i><i></i></span>
-          <span>dispatch — one to ten · simulated</span>
-          <span class="fan-hint" id="fan-count">watch the room answer — one seat is yours</span>
-        </div>
-        <div class="fan-canvas" id="fan-canvas">
-          <div class="fan-sender" id="fan-sender" title="click to ask again">
-            <div class="fan-tb"><span class="mdots"><i></i><i></i><i></i></span><span>kaan — sender</span></div>
-            <div class="fan-task">&ldquo;Add up Friday's sales from your register file and reply with the total.&rdquo;</div>
-            <div class="fan-total">
-              <b id="fan-sum">$0</b>
-              <span id="fan-replied">asking 10 machines…</span>
-            </div>
-            <span class="fan-chip">→ 10 machines · signed once</span>
-          </div>
-          <!-- paths, packets, and receiver screens are generated by the fan builder -->
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── THE SPINE: the whole idea in one line ── -->
-<div class="spine">
-  <div class="wrap spine-row">
-    <div class="sp"><b>1</b>Describe a task. Name a person.</div>
-    <div class="sp"><b>2</b>They approve it — and every risky command.</div>
-    <div class="sp"><b>3</b>Their machine does the work. You get the result.</div>
-  </div>
-</div>
-
-<!-- ── INTERACTIVE DEMO ── -->
-<section id="demo">
-  <div class="wrap-wide">
-    <div class="section-kicker reveal">The demo — two machines, and you're one of them</div>
-    <h2 class="reveal">Kaan sends. You decide. Watch it move.</h2>
-    <p class="section-intro reveal">
-      <strong>Pick the task Kaan sends — or write your own.</strong> The rest happens in front of you.
-    </p>
-
+    <!-- ── the interactive two-machine demo, scaled to sit beside the copy ── -->
+    <div class="hero-demo" id="demo">
     <div class="demo-topline reveal">
       <ol class="steps" id="demo-steps">
         <li><span class="n">1</span><span class="lbl">Compose</span></li>
@@ -2786,10 +2738,11 @@
         <li class="sep-holder"></li>
         <li><span class="n">5</span><span class="lbl">Done</span></li>
       </ol>
-      <span class="live-chip"><span class="dot"></span>Interactive simulation</span>
     </div>
 
-    <div class="stage-desk reveal">
+    <div class="demo-fit reveal">
+    <div class="demo-fit-inner">
+    <div class="stage-desk">
     <div class="demo-stage">
 
       <!-- SENDER -->
@@ -2844,10 +2797,6 @@
             <textarea class="task-input" id="task-input" placeholder="Describe the task in plain language…"></textarea>
             <div class="preset-row" id="preset-row"></div>
             <div class="dialog-foot">
-              <span class="sig-chip">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9M17 6l3 3"/></svg>
-                ed25519
-              </span>
               <button class="abtn outline" id="compose-cancel">Cancel</button>
               <button class="abtn" id="compose-send" disabled>Send dispatch</button>
             </div>
@@ -2945,14 +2894,17 @@
       </svg>
     </div>
     </div>
+    </div>
+    </div>
 
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="replay-btn">Replay</button>
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
       <a class="btn btn-primary demo-cta" id="demo-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Want this between real machines? Get an invite</a>
     </div>
+    </div>
   </div>
-</section>
+</div>
 
 <!-- ── AT SCALE: one dispatch, fifty machines ── -->
 <section id="scale">
@@ -3367,69 +3319,6 @@
   </div>
 </section>
 
-<!-- ── THREE LAYERS ── -->
-<section id="layers">
-  <div class="wrap">
-    <div class="section-kicker reveal">The trust model</div>
-    <h2 class="reveal">Three locks, three different keyholders.</h2>
-    <p class="section-intro reveal">
-      A dispatch has to pass three independent checks before anything touches the
-      recipient's machine. They live in different places on purpose: no single
-      compromised component can open all three.
-    </p>
-
-    <div class="layers-track reveal" id="layers-track">
-      <div class="layers-rail"></div>
-      <div class="envelope" id="envelope"></div>
-
-      <div class="gate" id="gate-1">
-        <div class="gate-num"><span>LAYER 1</span><span class="stamp">passed</span></div>
-        <h3>Is this allowed?</h3>
-        <p>The broker checks for an accepted trust edge — the link created when the
-           recipient said yes to an invitation — that the envelope fits the scope
-           that edge grants, and that it's under the daily rate limit. Anything
-           else gets a 403 before it goes anywhere.</p>
-        <div class="where">Checked on the server</div>
-      </div>
-
-      <div class="gate" id="gate-2">
-        <div class="gate-num"><span>LAYER 2</span><span class="stamp">passed</span></div>
-        <h3>Is this really them?</h3>
-        <p>The recipient's daemon verifies the Ed25519 signature against a pinned
-           device key and checks the nonce is fresh and unseen. This happens entirely
-           on the recipient's machine — a compromised broker can't forge it.</p>
-        <div class="where">Checked on your machine</div>
-      </div>
-
-      <div class="gate" id="gate-3">
-        <div class="gate-num"><span>LAYER 3</span><span class="stamp">passed</span></div>
-        <h3>Do you want this?</h3>
-        <p>A person accepts or declines the dispatch, and — unless they've chosen
-           auto-approval for this sender — every destructive tool call pauses for
-           a per-call yes or no.</p>
-        <div class="where">Checked by you</div>
-      </div>
-    </div>
-
-    <p class="layers-note reveal">
-      The layers are deliberately redundant. <strong>Layer 2 is the backstop:</strong>
-      even if someone owned the broker outright, they couldn't forge a trusted sender,
-      because the signature check runs against a key the broker never held.
-    </p>
-    <p class="layers-note reveal">
-      <strong>How an edge is born:</strong> an emailed, single-use invitation. The device
-      key is pinned when the recipient first accepts — if it ever changes, the edge
-      stops working until you re-verify. <strong>What travels:</strong> the task text, the
-      event stream you watched, and the result — relayed by the broker. The files the
-      agent reads stay on the recipient's machine, except what their own agent sends to
-      their model provider, under their own key — same as any Claude Code session.
-    </p>
-    <div class="layers-controls reveal">
-      <button class="btn btn-ghost" id="layers-replay">Run it again</button>
-    </div>
-  </div>
-</section>
-
 <!-- ── SCOPES ── -->
 <section id="scopes">
   <div class="wrap">
@@ -3584,54 +3473,6 @@
   </div>
 </section>
 
-<!-- ── CLOSING ASK ── -->
-<section id="invite">
-  <div class="wrap" style="text-align: center;">
-    <div class="section-kicker reveal">Get on the map</div>
-    <h2 class="reveal">Trust someone with your keyboard.</h2>
-    <p class="section-intro reveal" style="margin: 0 auto 40px;">
-      Dispatch is in development and invite-only. Ask, and we'll set up your trust edge.
-    </p>
-
-    <div class="needs reveal">
-      <div class="need"><span class="n">1</span><span>Both of you run the Dispatch app — a menu-bar app and a small daemon. macOS first.</span></div>
-      <div class="need"><span class="n">2</span><span>The recipient has Claude Code or Codex with their own API key — their agent, their cost, their yes.</span></div>
-      <div class="need"><span class="n">3</span><span>One emailed invitation creates the trust edge. Keys pin on first accept.</span></div>
-    </div>
-
-    <div class="cta-row reveal" style="justify-content: center;">
-      <a class="btn btn-primary" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation&body=I'd%20like%20an%20invite.">Request an invitation</a>
-      <a class="btn btn-ghost" href="#demo">Replay the demo</a>
-    </div>
-  </div>
-</section>
-
-<!-- ── FOOTER ── -->
-<footer>
-  <div class="wrap footer-grid">
-    <div>
-      <a class="wordmark" href="#">Dispatch<em>.</em></a>
-      <p class="colophon" style="margin-top: 12px;">
-        Peer-to-peer delegation for agentic work.
-        Signed by devices, scoped by people, approved by hand.
-      </p>
-      <p class="colophon" style="margin-top: 10px;">Built by Kaan Eroltu.</p>
-    </div>
-    <div>
-      <div class="foot-links">
-        <a href="#demo">How it works</a>
-        <a href="#layers">Trust model</a>
-        <a href="mailto:castrumai@gmail.com?subject=Dispatch%20threat%20model">Ask for the threat model</a>
-        <a href="mailto:castrumai@gmail.com">Contact</a>
-      </div>
-      <p class="colophon" style="margin-top: 14px;">
-        Every demo on this page is a scripted simulation of the real interface —
-        no machines were contacted, which is rather the point.
-      </p>
-    </div>
-  </div>
-</footer>
-
 <script>
 /* ───────────────────────── reveal on scroll ───────────────────────── */
 const revealObs = new IntersectionObserver((entries) => {
@@ -3644,6 +3485,39 @@ const revealObs = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.12 });
 document.querySelectorAll(".reveal").forEach(el => revealObs.observe(el));
+
+/* ── hero: scale the live demo to fit its column ── */
+(function () {
+  const fit = document.querySelector(".demo-fit");
+  const inner = document.querySelector(".demo-fit-inner");
+  if (!fit || !inner) return;
+  const DESIGN = 1232;   /* the demo's natural width (wrap-wide minus padding) */
+  function apply() {
+    if (window.innerWidth <= 1000) {
+      inner.style.transform = ""; fit.style.height = "";
+      return;
+    }
+    const s = Math.min(1, fit.clientWidth / DESIGN);
+    inner.style.transform = `scale(${s})`;
+    fit.style.height = inner.offsetHeight * s + "px";
+  }
+  new ResizeObserver(apply).observe(inner);
+  window.addEventListener("resize", apply);
+  apply();
+})();
+
+/* ── hero: copy the agent onboarding one-liner ── */
+(function () {
+  const btn = document.getElementById("onboard-copy");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const text = document.getElementById("onboard-cmd").textContent.trim();
+    navigator.clipboard.writeText(text).then(() => {
+      btn.classList.add("ok");
+      setTimeout(() => btn.classList.remove("ok"), 1200);
+    });
+  });
+})();
 
 /* ── hero intro: the demo frame opens full-screen, then flies back home ── */
 (function () {
@@ -4094,8 +3968,10 @@ async function cursorTo(target, token, dur = 600) {
   if (!target) return;
   const dr = stageDesk.getBoundingClientRect();
   const r = target.getBoundingClientRect();
-  curX = r.left - dr.left + r.width / 2;
-  curY = r.top - dr.top + r.height / 2;
+  /* the hero scales the stage down — convert visual px back to local px */
+  const s = dr.width / (stageDesk.offsetWidth || dr.width) || 1;
+  curX = (r.left - dr.left + r.width / 2) / s;
+  curY = (r.top - dr.top + r.height / 2) / s;
   demoCursor.style.transition = `transform ${dur}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 250ms`;
   demoCursor.style.transform = `translate(${curX}px, ${curY}px)`;
   await sleep(dur + 40);
@@ -4119,71 +3995,63 @@ let expiryTimer = null;
 /* ── the scripted agent runs, one per preset ── */
 const PRESETS = [
   {
-    chip: "Organize Saturday's photos",
-    task: "Gather the photos I took on Saturday into one folder on my Desktop and name them by time",
+    chip: "Pull Friday's sales for the board deck",
+    task: "Total Friday's sales from the register export on your Desktop and give me one line for the board deck",
     steps: [
-      { type: "tool", name: "Glob", input: { pattern: "IMG_*.jpg", path: "~/Desktop" },
-        term: { cmd: "ls ~/Desktop/IMG_*.jpg | wc -l", out: ["      14"] } },
-      { type: "result", text: "14 photos found — all taken Saturday between 12:04 and 17:31" },
-      { type: "agent", text: "Found 14 photos from Saturday. I'll make a folder called \"Saturday photos\" and rename each one by the time it was taken — nothing gets deleted." },
-      { type: "perm", name: "Bash", input: { command: "mkdir ~/Desktop/'Saturday photos' && mv ~/Desktop/IMG_*.jpg → renamed by time taken" },
-        term: { cmd: "mkdir ~/Desktop/'Saturday photos' && mv ~/Desktop/IMG_*.jpg …", out: [
-          "IMG_4211.jpg → 12.04pm.jpg",
-          "IMG_4212.jpg → 12.31pm.jpg",
-          "IMG_4225.jpg → 1.48pm.jpg",
-          "…11 more",
-          "all 14 photos moved",
+      { type: "tool", name: "Glob", input: { pattern: "register-*.csv", path: "~/Desktop" },
+        term: { cmd: "ls ~/Desktop/register-*.csv", out: ["register-2026-07-03.csv"] } },
+      { type: "result", text: "register-2026-07-03.csv — 412 rows, Friday 09:02–21:47" },
+      { type: "agent", text: "Found Friday's register export — 412 transactions. I'll total it and write the one-liner for the deck; the raw register file stays untouched." },
+      { type: "perm", name: "Write", input: { file_path: "~/Desktop/board-deck-friday.txt" },
+        term: { cmd: "cat > ~/Desktop/board-deck-friday.txt", out: [
+          "Friday total: $36,800 across 412 sales",
+          "peak hour 18:00–19:00 ($4,910)",
+          "(saved — register untouched)",
         ] },
-        denyText: "No problem — nothing was moved. Here's the list of the 14 photos so you can sort them yourself." },
-      { type: "result", text: "14 photos renamed and moved into ~/Desktop/Saturday photos", afterPermOnly: true },
+        denyText: "Nothing written — Friday came to $36,800 across 412 sales, peak hour 18:00–19:00, if you want to type it yourself." },
+      { type: "result", text: "Wrote ~/Desktop/board-deck-friday.txt — Friday total $36,800", afterPermOnly: true },
     ],
-    doneText: "All 14 Saturday photos are in one folder on your Desktop, named by the time they were taken.",
+    doneText: "Friday came to $36,800 across 412 sales — the board-deck one-liner is on your Desktop.",
   },
   {
-    chip: "Fix typos in my resume",
-    task: "Read the resume on my Desktop, fix any typos, and save the corrected copy as Resume-final",
+    chip: "Export Q2 invoices for finance",
+    task: "Collect the Q2 invoices from your Documents into one zip for finance and tell me the total billed",
     steps: [
-      { type: "tool", name: "Read", input: { file_path: "~/Desktop/Resume.txt" },
-        term: { cmd: "cat ~/Desktop/Resume.txt", out: [
-          "KAAN EROLTU",
-          "Product & operations — 6 years…",
-          "…2 pages read",
-        ] } },
-      { type: "agent", text: "Read it top to bottom. Three typos: \"managment\", \"recieved\", and a doubled \"the the\" in the second paragraph. Saving a corrected copy — your original stays untouched." },
-      { type: "perm", name: "Write", input: { file_path: "~/Desktop/Resume-final.txt" },
-        term: { cmd: "cat > ~/Desktop/Resume-final.txt", out: [
-          "managment  → management",
-          "recieved   → received",
-          "\"the the\"  → \"the\"",
-          "(saved — original untouched)",
+      { type: "tool", name: "Glob", input: { pattern: "INV-2026-Q2-*.pdf", path: "~/Documents/invoices" },
+        term: { cmd: "ls ~/Documents/invoices/INV-2026-Q2-*.pdf | wc -l", out: ["      23"] } },
+      { type: "agent", text: "23 invoices from April through June — $148,200 billed in total. I'll zip them for finance; the originals stay where they are." },
+      { type: "perm", name: "Bash", input: { command: "zip ~/Desktop/Q2-invoices.zip ~/Documents/invoices/INV-2026-Q2-*.pdf" },
+        term: { cmd: "zip ~/Desktop/Q2-invoices.zip ~/Documents/invoices/INV-2026-Q2-*.pdf", out: [
+          "adding: INV-2026-Q2-001.pdf",
+          "adding: INV-2026-Q2-002.pdf",
+          "…21 more",
+          "Q2-invoices.zip — 23 files, 18.4 MB",
         ] },
-        denyText: "Nothing saved — the three typos are listed above so you can fix them yourself." },
-      { type: "result", text: "Saved ~/Desktop/Resume-final.txt with 3 fixes", afterPermOnly: true },
+        denyText: "No zip made — the 23 invoices and the $148,200 total are listed above for you to handle directly." },
+      { type: "result", text: "Q2-invoices.zip on your Desktop — 23 invoices, $148,200 billed", afterPermOnly: true },
     ],
-    doneText: "Three typos fixed. The corrected copy is saved as Resume-final on your Desktop.",
+    doneText: "23 Q2 invoices zipped for finance — $148,200 billed in total.",
   },
   {
-    chip: "Diagnose a failing test",
-    task: "Why is test_sync_retry failing on my machine? Don't fix it — just diagnose.",
+    chip: "Diagnose the failing deploy",
+    task: "The staging deploy keeps failing on your machine. Find out why — don't fix anything.",
     steps: [
-      { type: "tool", name: "Read", input: { file_path: "~/work/app/tests/test_sync.py" },
-        term: { cmd: "cat ~/work/app/tests/test_sync.py", out: [
-          "def test_sync_retry():",
-          "    q = SyncQueue(retries=2, backoff=0.5)",
-          "    q.push(flaky_job)  # fails once, then succeeds",
-          "    assert q.drain(timeout=30)",
+      { type: "tool", name: "Read", input: { file_path: "~/work/app/deploy.log" },
+        term: { cmd: "tail -n 120 ~/work/app/deploy.log", out: [
+          "release v2.4.1 → staging",
+          "!ERROR migration 0042_add_orders_index timed out (60s)",
+          "…120 lines read",
         ] } },
-      { type: "perm", name: "Bash", input: { command: "cd ~/work/app && pytest tests/test_sync.py::test_sync_retry -x -q" },
-        term: { cmd: "cd ~/work/app && pytest tests/test_sync.py::test_sync_retry -x -q", out: [
-          "!F",
-          "!TimeoutError: retry #2 never fired (waited 30s)",
-          "!1 failed in 31.2s",
+      { type: "perm", name: "Bash", input: { command: "cd ~/work/app && alembic upgrade head --sql | head" },
+        term: { cmd: "cd ~/work/app && alembic upgrade head --sql | head", out: [
+          "CREATE INDEX ix_orders_created_at ON orders (created_at);",
+          "!-- no CONCURRENTLY — takes a full table lock",
         ] },
-        denyText: "Can't run the test without Bash — from reading the code alone, the retry loop never re-arms its backoff timer, which would explain a hang." },
-      { type: "result", text: "FAILED test_sync_retry — TimeoutError after 30s\n1 failed in 31.2s", afterPermOnly: true },
-      { type: "agent", text: "Found it: retry() resets attempts but never re-arms the backoff timer, so the second retry waits forever. The test times out rather than failing an assert. It's a deadlock in the code, not a flaky test.", afterPermOnly: true },
+        denyText: "Didn't run anything — from the log alone, migration 0042 times out while building an index; it's almost certainly locking the orders table." },
+      { type: "result", text: "migration 0042 builds ix_orders_created_at without CONCURRENTLY — locks orders, deploy window times out", afterPermOnly: true },
+      { type: "agent", text: "Found it: migration 0042 creates an index on orders without CONCURRENTLY, so it takes a full table lock and blows the deploy's 60-second window. Rewrite it as CREATE INDEX CONCURRENTLY and the deploy goes through.", afterPermOnly: true },
     ],
-    doneText: "The retry loop never re-arms its backoff timer — second retry waits forever.",
+    doneText: "Migration 0042 locks the orders table — add CONCURRENTLY and the deploy passes.",
   },
 ];
 
@@ -4477,8 +4345,8 @@ async function runDemo() {
     presetRow.appendChild(chip);
   });
 
-  demoStatus.className = "demo-status hot";
-  demoStatus.textContent = "Your move — pick a task for Kaan, or type your own, then hit Send.";
+  demoStatus.className = "demo-status";
+  demoStatus.textContent = "Kaan picks a task and sends it — the whole run plays out by itself.";
 
   /* send resolves when clicked; Kaan's cursor drives unless the visitor takes over */
   await new Promise((resolve) => {
@@ -4770,8 +4638,10 @@ function buildRoom() {
     const name = i === YOU_SEAT
       ? "you"
       : SEAT_NAMES[i % SEAT_NAMES.length] + (i >= SEAT_NAMES.length ? " K." : "");
-    const initials = i === YOU_SEAT ? "YO" : name.slice(0, 2).toUpperCase();
-    const seat = el(`<div class="seat${i === YOU_SEAT ? " you" : ""}" data-i="${i}">${initials}</div>`);
+    const seat = el(`<div class="seat${i === YOU_SEAT ? " you" : ""}" data-i="${i}">
+      <div class="stb"><i></i><i></i><i></i><span>${name}</span></div>
+      <div class="sbd"><span class="sic"></span><span class="sprog"><i></i></span></div>
+    </div>`);
     classGrid.appendChild(seat);
     seatMeta.push({ name, el: seat, status: "idle", step: 0, acceptDelay: null, dur: null, reason: null });
   }
@@ -5791,44 +5661,6 @@ ucObs.observe(document.querySelector(".uc-grid"));
   }, { threshold: 0.2 });
   obs.observe(bnd);
 })();
-
-/* ───────────────────────── layers animation ───────────────────────── */
-const envelope = document.getElementById("envelope");
-const gates = [1, 2, 3].map(n => document.getElementById("gate-" + n));
-const gateStops = ["18%", "50%", "82%"];
-let layersToken = 0;
-
-async function runLayers() {
-  const token = ++layersToken;
-  gates.forEach(g => g.classList.remove("lit"));
-  envelope.style.transition = "none";
-  envelope.style.left = "4%";
-  envelope.style.opacity = "0";
-  await sleep(80); if (token !== layersToken) return;
-  envelope.style.transition = "";
-  envelope.style.opacity = "1";
-  for (let i = 0; i < 3; i++) {
-    envelope.style.left = gateStops[i];
-    await sleep(950); if (token !== layersToken) return;
-    gates[i].classList.add("lit");
-    await sleep(650); if (token !== layersToken) return;
-  }
-  envelope.style.left = "96%";
-  await sleep(900); if (token !== layersToken) return;
-  envelope.style.opacity = "0";
-}
-
-document.getElementById("layers-replay").addEventListener("click", runLayers);
-
-const layersObs = new IntersectionObserver((entries) => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      layersObs.disconnect();
-      setTimeout(runLayers, 500);
-    }
-  });
-}, { threshold: 0.4 });
-layersObs.observe(document.getElementById("layers-track"));
 
 /* ═════════════════ under-the-hood explorer ═════════════════ */
 const hoodItems = Array.from(document.querySelectorAll(".hood-item"));
