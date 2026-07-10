@@ -3101,12 +3101,12 @@
         </div>
       </div>
 
-      <div class="terminal" id="terminal">
+      <div class="terminal open" id="terminal">
         <div class="term-titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
           <div class="who">your mac — zsh — agent workspace</div>
         </div>
-        <div class="term-body" id="term-body"></div>
+        <div class="term-body" id="term-body"><div class="term-line sys">~ waiting for a dispatch — nothing runs without your yes</div></div>
       </div>
       </div>
 
@@ -4554,8 +4554,10 @@ async function runDemo() {
   recipientWindow.classList.remove("attn");
   brokerNode.classList.remove("busy");
   recipientNotif.classList.remove("show");
-  terminalEl.classList.remove("open");
+  /* the terminal stays on the desktop — idle until the agent starts */
+  terminalEl.classList.add("open");
   termBody.innerHTML = "";
+  termSys("~ waiting for a dispatch — nothing runs without your yes");
   cursorHide();
   document.getElementById("demo-cta").style.display = "none";
 
@@ -4596,7 +4598,7 @@ async function runDemo() {
   });
 
   demoStatus.className = "demo-status";
-  demoStatus.textContent = "Kaan picks a task and sends it — the whole run plays out by itself.";
+  demoStatus.textContent = "";
 
   /* send resolves when clicked; Kaan's cursor drives unless the visitor takes over */
   await new Promise((resolve) => {
