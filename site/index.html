@@ -2110,85 +2110,77 @@
 
   /* ── use cases: small dispatch cards living their lifecycle ── */
   #uses { border-top: 1px solid var(--hairline); }
-  .uc-grid {
+  /* one story at a time: a nav of six, a stage that plays the pick */
+  .uses-show {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 20px;
+    align-items: stretch;
   }
-  @media (max-width: 980px) { .uc-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 640px) { .uc-grid { grid-template-columns: 1fr; } }
-  .uc-card {
+  @media (max-width: 860px) { .uses-show { grid-template-columns: 1fr; } }
+  .uses-nav { display: flex; flex-direction: column; gap: 6px; }
+  .us-item {
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-left: 2px solid rgba(255,255,255,0.11);
+    border-radius: 0 9px 9px 0;
+    padding: 11px 16px;
+    cursor: pointer;
+    transition: background 200ms, border-color 250ms;
+  }
+  .us-item:hover { background: rgba(255,255,255,0.05); }
+  .us-item.on { background: #161614; border-left-color: #F6F5F1; }
+  .us-item b {
+    display: block;
+    font-family: var(--serif); font-weight: 500;
+    font-size: 15.5px; letter-spacing: -0.01em;
+    color: #F6F5F1;
+  }
+  .us-item span {
+    display: block;
+    font-family: var(--mono); font-size: 10px;
+    color: #8E8C85; margin-top: 2px;
+  }
+  .uses-stage {
     background: #161614;
     border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 12px;
-    padding: 17px 18px 14px;
-    font-family: var(--sans);
-    display: flex; flex-direction: column; gap: 11px;
-    transition: border-color 250ms, transform 250ms, box-shadow 250ms;
+    border-radius: 14px;
+    padding: 26px 30px;
+    display: flex; flex-direction: column; gap: 18px;
+    min-height: 320px;
   }
-  .uc-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(255,255,255,0.2);
-    box-shadow: 0 14px 34px rgba(0,0,0,0.4);
-  }
-  .uc-route {
-    display: flex; align-items: center; gap: 9px;
-    font-size: 12px;
-  }
-  .uc-card .avatar {
-    background: rgba(255,255,255,0.08);
-    color: #D6D4CE;
-    border: 1px solid rgba(255,255,255,0.08);
-  }
-  .uc-who { font-family: var(--mono); font-size: 11px; color: #8E8C85; flex: 1; }
-  /* the badge, tuned for the dark cards */
-  .uc-card .badge { border: none; }
-  .uc-card .badge.warning { background: rgba(229,181,103,0.13); color: #E5B567; }
-  .uc-card .badge.running { background: rgba(127,180,216,0.13); color: #8AB8DC; }
-  .uc-card .badge.success { background: rgba(93,187,99,0.14); color: #5DBB63; }
-  .uc-card .badge.destructive { background: rgba(224,113,108,0.13); color: #E0716C; }
-  .uc-card .task-quote {
-    margin-bottom: 0; padding: 0;
-    border: none; background: none;
+  .us-top { display: flex; align-items: center; gap: 12px; }
+  .us-route { font-family: var(--mono); font-size: 12.5px; color: #8E8C85; flex: 1; }
+  .uses-stage .badge { border: none; }
+  .uses-stage .badge.warning { background: rgba(229,181,103,0.13); color: #E5B567; }
+  .uses-stage .badge.running { background: rgba(127,180,216,0.13); color: #8AB8DC; }
+  .uses-stage .badge.success { background: rgba(93,187,99,0.14); color: #5DBB63; }
+  .uses-stage .badge.destructive { background: rgba(224,113,108,0.13); color: #E0716C; }
+  .us-quote {
     font-family: var(--serif);
-    font-size: 15.5px; line-height: 1.5;
+    font-size: clamp(20px, 2.1vw, 27px);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
     color: #F6F5F1;
+    max-width: 640px;
+    flex: 1;
   }
   .uc-result {
     border-left: 2px solid #2E7D3A;
     background: rgba(255,255,255,0.045);
     border-radius: 0 8px 8px 0;
-    padding: 8px 12px;
+    padding: 10px 14px;
     font-family: var(--mono);
-    font-size: 11.5px; line-height: 1.55;
+    font-size: 12px; line-height: 1.6;
     color: #B9B7B0;
     opacity: 0;
     transform: translateY(5px);
     transition: opacity 400ms, transform 400ms cubic-bezier(0.16,1,0.3,1);
-    min-height: 32px;
+    min-height: 40px;
   }
-  .uc-card[data-tone="red"] .uc-result { border-left-color: #B0524D; }
+  .uc-result.no { border-left-color: #B0524D; }
   .uc-result.show { opacity: 1; transform: none; }
-  .uc-tag {
-    margin-top: auto;
-    font-family: var(--mono);
-    font-size: 9.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: #8E8C85;
-  }
-  /* the heavy tier: wide cards with a visible step pipeline */
-  .uc-divider {
-    grid-column: 1 / -1;
-    margin-top: 26px;
-    padding-top: 4px;
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--nt-muted, #8E8C85);
-  }
-  .uc-card.big { grid-column: span 2; }
-  @media (max-width: 720px) { .uc-card.big { grid-column: auto; } }
   .uc-steps { display: flex; gap: 6px; flex-wrap: wrap; }
   .uc-step {
     font-family: var(--mono);
@@ -3423,119 +3415,25 @@
     <p class="section-intro reveal">Anything you'd trust a friend to do at your keyboard.
       <span class="aside">Illustrative scenarios — not customer stories.</span></p>
 
-    <div class="uc-grid reveal">
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">KA</span><span class="uc-who">kaan → dad's mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Update Zoom before your call tonight.</div>
-        <div class="uc-result">Done — test call works.</div>
-        <div class="uc-tag">every step approved by dad</div>
+    <div class="uses-show reveal">
+      <div class="uses-nav" id="uses-nav">
+        <button class="us-item on" data-us="0"><b>Every step approved by dad</b><span>kaan → dad's mac</span></button>
+        <button class="us-item" data-us="1"><b>Debug where the bug lives</b><span>ege → kaan's mac</span></button>
+        <button class="us-item" data-us="2"><b>The answer travels, not the files</b><span>maya → lab workstation</span></button>
+        <button class="us-item" data-us="3"><b>No is always an option</b><span>ops → jeff's office box</span></button>
+        <button class="us-item" data-us="4"><b>One thread, whole release</b><span>deniz → build mac</span></button>
+        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b><span>tara → 30 student macs</span></button>
       </div>
 
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">YO</span><span class="uc-who">you → your home mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Email me the tax PDF that's on my desktop.</div>
-        <div class="uc-result">Found it. Sent.</div>
-        <div class="uc-tag">your own second machine</div>
+      <div class="uses-stage">
+        <div class="us-top">
+          <span class="us-route" id="us-route">kaan → dad's mac</span>
+          <span class="badge warning" id="us-badge">Pending</span>
+        </div>
+        <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
+        <div class="uc-steps" id="us-steps"></div>
+        <div class="uc-result" id="us-result">Done — test call works.</div>
       </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">MA</span><span class="uc-who">maya → lab workstation</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Run the survey query — send me only the totals.</div>
-        <div class="uc-result">Totals sent. The dataset stayed on the workstation.</div>
-        <div class="uc-tag">the answer travels, not the files</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">EG</span><span class="uc-who">ege → kaan's mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Run pytest on your machine — the bug only happens there.</div>
-        <div class="uc-result">Trace attached — it's the locale.</div>
-        <div class="uc-tag">debug where the bug lives</div>
-      </div>
-
-      <div class="uc-card" data-declined="1" data-tone="red">
-        <div class="uc-route"><span class="avatar">OP</span><span class="uc-who">ops → jeff's office box</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Restart the staging service real quick.</div>
-        <div class="uc-result">"Not tonight — rewiring the rack."</div>
-        <div class="uc-tag">no is always an option</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">NO</span><span class="uc-who">nora → her studio mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Render the final cut and drop it in Dropbox.</div>
-        <div class="uc-result">Rendered overnight. Link in the thread.</div>
-        <div class="uc-tag">heavy work, someone else's hours</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">LE</span><span class="uc-who">lena → mert's mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Start the big export before you log off — I'll grab it my morning.</div>
-        <div class="uc-result">Export running. Done by your 9am.</div>
-        <div class="uc-tag">timezones become a feature</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">KA</span><span class="uc-who">kaan → grandma's macbook</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Photos is full — move last year's albums to the external drive.</div>
-        <div class="uc-result">62 GB freed. Albums safe.</div>
-        <div class="uc-tag">housecalls without the drive over</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">SA</span><span class="uc-who">sam → meeting-room mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Transcribe yesterday's interviews from the recorder.</div>
-        <div class="uc-result">12 clips → notes/interviews.md</div>
-        <div class="uc-tag">the machine that has the files</div>
-      </div>
-
-      <div class="uc-card" data-declined="1" data-tone="red">
-        <div class="uc-route"><span class="avatar">TA</span><span class="uc-who">tara → school lab mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Install the fonts for tomorrow's class.</div>
-        <div class="uc-result">"IT locks installs — ask Marco."</div>
-        <div class="uc-tag">machines have owners</div>
-      </div>
-
-      <div class="uc-card" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">DE</span><span class="uc-who">deniz → field laptop</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Sync the sensor logs once it's back online.</div>
-        <div class="uc-result">Synced 3.2 GB when it woke.</div>
-        <div class="uc-tag">queued until they're online</div>
-      </div>
-
-      <div class="uc-divider">…and the heavy lifting</div>
-
-      <div class="uc-card big" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">DE</span><span class="uc-who">deniz → build mac</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.</div>
-        <div class="uc-steps"><span class="uc-step">build 2.4.0</span><span class="uc-step">notarize</span><span class="uc-step">upload · 3 artifacts</span><span class="uc-step">checksum → thread</span></div>
-        <div class="uc-result">2.4.0 live. Checksum posted — verify before you announce.</div>
-        <div class="uc-tag">one thread, whole release</div>
-      </div>
-
-      <div class="uc-card big" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">MA</span><span class="uc-who">maya → lab workstation</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Re-run the pipeline on the new batch: clean it, join with March, regenerate figures 2–6 for the paper.</div>
-        <div class="uc-steps"><span class="uc-step">clean 48k rows</span><span class="uc-step">join march batch</span><span class="uc-step">re-render figs 2–6</span><span class="uc-step">diff vs. v1</span></div>
-        <div class="uc-result">6 figures regenerated — figure 4 changed meaningfully, diff attached.</div>
-        <div class="uc-tag">the dataset stays in the lab</div>
-      </div>
-
-      <div class="uc-card big" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">EG</span><span class="uc-who">ege → office box</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Find the outage: tail the error logs, locate when the spike starts, correlate with the deploy list.</div>
-        <div class="uc-steps"><span class="uc-step">tail 6h of logs</span><span class="uc-step">spike starts 02:14</span><span class="uc-step">match deploys</span></div>
-        <div class="uc-result">Spike begins 02:14 — four minutes after deploy #412. Rollback candidate attached.</div>
-        <div class="uc-tag">diagnosis, not access</div>
-      </div>
-
-      <div class="uc-card big" data-declined="0" data-tone="green">
-        <div class="uc-route"><span class="avatar">TA</span><span class="uc-who">tara → 30 student macs</span><span class="badge warning" data-uc-badge>Pending</span></div>
-        <div class="task-quote">Collect assignment.zip from every student, run the autograder, post scores to the sheet.</div>
-        <div class="uc-steps"><span class="uc-step">collect 30 zips</span><span class="uc-step">autograde</span><span class="uc-step">post scores</span><span class="uc-step">2 missing → threads</span></div>
-        <div class="uc-result">28 graded and posted. 2 missing files — follow-up threads opened with both.</div>
-        <div class="uc-tag">fan-out with follow-ups</div>
-      </div>
-
     </div>
   </div>
 </section>
@@ -5485,54 +5383,92 @@ const scaleObs = new IntersectionObserver((entries) => {
 }, { threshold: 0.4 });
 scaleObs.observe(classGrid);
 
-/* ═════════════════ use-case cards: each lives its lifecycle on loop ═════════════════ */
-function startUcCard(card, idx) {
-  const badge = card.querySelector("[data-uc-badge]");
-  const result = card.querySelector(".uc-result");
-  const steps = Array.from(card.querySelectorAll(".uc-step"));
-  const declined = card.dataset.declined === "1";
-  async function cycle() {
-    badge.className = "badge warning";
-    badge.textContent = "Pending";
-    result.classList.remove("show");
-    steps.forEach(s => s.classList.remove("on", "act"));
-    await sleep(1500 + (idx % 3) * 500);
-    if (declined) {
-      badge.className = "badge destructive";
-      badge.textContent = "Rejected";
-    } else {
-      badge.className = "badge running";
-      badge.textContent = "Running";
-      if (steps.length) {
-        for (const s of steps) {
-          s.classList.add("act");
-          await sleep(950);
-          s.classList.remove("act");
-          s.classList.add("on");
-        }
-      } else {
-        await sleep(1700 + (idx % 4) * 400);
+/* ═════════ use cases: one story at a time, played out on the stage ═════════ */
+const USES = [
+  { route: "kaan → dad's mac",
+    quote: "Update Zoom before your call tonight.",
+    steps: [], result: "Done — test call works.", declined: false },
+  { route: "ege → kaan's mac",
+    quote: "Run pytest on your machine — the bug only happens there.",
+    steps: [], result: "Trace attached — it's the locale.", declined: false },
+  { route: "maya → lab workstation",
+    quote: "Run the survey query — send me only the totals.",
+    steps: [], result: "Totals sent. The dataset stayed on the workstation.", declined: false },
+  { route: "ops → jeff's office box",
+    quote: "Restart the staging service real quick.",
+    steps: [], result: "“Not tonight — rewiring the rack.”", declined: true },
+  { route: "deniz → build mac",
+    quote: "Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.",
+    steps: ["build 2.4.0", "notarize", "upload · 3 artifacts", "checksum → thread"],
+    result: "2.4.0 live. Checksum posted — verify before you announce.", declined: false },
+  { route: "tara → 30 student macs",
+    quote: "Collect assignment.zip from every student, run the autograder, post scores to the sheet.",
+    steps: ["collect 30 zips", "autograde", "post scores", "2 missing → threads"],
+    result: "28 graded and posted. 2 missing files — follow-up threads opened with both.", declined: false },
+];
+
+const usItems = Array.from(document.querySelectorAll(".us-item"));
+const usRoute = document.getElementById("us-route");
+const usBadge = document.getElementById("us-badge");
+const usQuote = document.getElementById("us-quote");
+const usSteps = document.getElementById("us-steps");
+const usResult = document.getElementById("us-result");
+let usToken = 0;
+let usAuto = null;
+let usPinned = false;   /* once the visitor picks a story, stop auto-advancing */
+let usIdx = 0;
+
+async function usShow(i) {
+  const tok = ++usToken;
+  usIdx = i;
+  const u = USES[i];
+  usItems.forEach((b, k) => b.classList.toggle("on", k === i));
+
+  usRoute.textContent = u.route;
+  usQuote.textContent = u.quote;
+  usResult.textContent = u.result;
+  usResult.classList.remove("show");
+  usResult.classList.toggle("no", u.declined);
+  usBadge.className = "badge warning"; usBadge.textContent = "Pending";
+  usSteps.innerHTML = "";
+  usSteps.style.display = u.steps.length ? "flex" : "none";
+  const chips = u.steps.map(s => el(`<span class="uc-step">${s}</span>`));
+  chips.forEach(c => usSteps.appendChild(c));
+
+  await sleep(900); if (tok !== usToken) return;
+  if (u.declined) {
+    usBadge.className = "badge destructive"; usBadge.textContent = "Rejected";
+  } else {
+    usBadge.className = "badge running"; usBadge.textContent = "Running";
+    if (chips.length) {
+      for (const c of chips) {
+        c.classList.add("act");
+        await sleep(800); if (tok !== usToken) return;
+        c.classList.remove("act"); c.classList.add("on");
       }
-      badge.className = "badge success";
-      badge.textContent = "Completed";
+    } else {
+      await sleep(1500); if (tok !== usToken) return;
     }
-    result.classList.add("show");
-    /* one lifecycle, then rest — a wall that flickers forever is noise */
+    usBadge.className = "badge success"; usBadge.textContent = "Completed";
   }
-  cycle();
+  usResult.classList.add("show");
 }
 
-const ucObs = new IntersectionObserver((entries) => {
+usItems.forEach((b, i) => b.addEventListener("click", (e) => {
+  if (e.isTrusted) { usPinned = true; clearInterval(usAuto); }
+  usShow(i);
+}));
+
+const usesObs = new IntersectionObserver((entries) => {
   entries.forEach(e => {
     if (e.isIntersecting) {
-      ucObs.disconnect();
-      document.querySelectorAll(".uc-card").forEach((card, idx) => {
-        setTimeout(() => startUcCard(card, idx), idx * 350);
-      });
+      usesObs.disconnect();
+      usShow(0);
+      usAuto = setInterval(() => { if (!usPinned) usShow((usIdx + 1) % USES.length); }, 7500);
     }
   });
-}, { threshold: 0.05 });   /* the grid is tall — 20% never intersects on short viewports */
-ucObs.observe(document.querySelector(".uc-grid"));
+}, { threshold: 0.3 });
+usesObs.observe(document.querySelector(".uses-show"));
 
 /* ═══════════════ across orgs: the trust boundary ═══════════════ */
 (function boundaryScene() {
