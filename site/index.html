@@ -658,7 +658,6 @@
   .section-intro .aside { color: var(--muted); font-size: 14px; margin-top: 10px; display: block; }
 
   /* ═══════════════════ THE DEMO — replica of the real app ═══════════════════ */
-  #demo { border-top: 1px solid var(--hairline); }
 
   /* the desk — one framed surface holding the whole scene */
   .stage-desk {
@@ -699,7 +698,7 @@
   }
   .demo-stage {
     display: grid;
-    grid-template-columns: 1fr 190px 1fr;
+    grid-template-columns: 1fr 70px 1fr;
     gap: 18px;
     align-items: start;
   }
@@ -718,16 +717,18 @@
     width: 100%;
   }
   .steps li {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 9px;
+    font-size: 14px; color: var(--muted);
     transition: color 350ms;
     white-space: nowrap;
   }
+  .steps li:not(.sep-holder) { cursor: pointer; }
+  .steps li:not(.sep-holder):hover { color: var(--nt-strong, var(--ink-strong)); }
   .steps li .n {
-    width: 23px; height: 23px; border-radius: 50%;
+    width: 27px; height: 27px; border-radius: 50%;
     border: 1px solid var(--hairline);
     display: grid; place-items: center;
-    font-family: var(--mono); font-size: 10px;
+    font-family: var(--mono); font-size: 11px;
     background: var(--card);
     color: var(--muted);
     transition: background 350ms, color 350ms, border-color 350ms, transform 350ms;
@@ -1214,6 +1215,7 @@
   .hub {
     position: relative;
     width: 100%;
+    height: 58px;
     display: grid; place-items: center;
     margin-top: 64px;
   }
@@ -2795,7 +2797,6 @@
   .demo-status { color: var(--nt-ink); }
   .demo-status.hot { color: #E5B567; }
 
-  #demo { border-top-color: var(--nt-line); }
   #scale { border-top-color: var(--nt-line); }
 
   /* the light product canvases, framed like screenshots on black */
@@ -2817,6 +2818,9 @@
     .hood-item { border-bottom-color: var(--nt-line); }
     .hood-item.on { border-bottom-color: var(--nt-strong); }
   }
+
+  /* the broker stays in the story, not on the canvas — lanes + packets remain */
+  .broker-node, .broker-caption, .broker-checks, .relay-feed, .broker-note { display: none; }
 
   /* across orgs — labels that sit directly on the dark canvas */
   .org-head .who { color: var(--nt-muted); }
@@ -4139,6 +4143,7 @@ const recipientNotif = document.getElementById("recipient-notif");
 const stepEls = Array.from(document.querySelectorAll("#demo-steps li:not(.sep-holder)"));
 
 function setStep(n) {
+  if (demoWarp && n >= demoWarp) demoWarp = 0;
   stepEls.forEach((li, i) => {
     li.classList.toggle("cur", i === n - 1);
     li.classList.toggle("done", i < n - 1);
@@ -4192,6 +4197,15 @@ function showNotif() {
 }
 
 /* ── the demo's own cursor: walks to a control, clicks it ── */
+/* fast-forward: clicking a step re-runs the demo, warping time until that step */
+let demoWarp = 0;
+const dsleep = (ms) => sleep(demoWarp ? 8 : ms);
+function seekDemo(n) {
+  userTouched = false;
+  demoWarp = n <= 1 ? 0 : n;
+  runDemo();
+}
+
 const demoCursor = document.getElementById("demo-cursor");
 const stageDesk = document.querySelector(".stage-desk");
 let curX = 60, curY = 60;
@@ -4201,6 +4215,7 @@ function cursorHide() { demoCursor.style.opacity = "0"; }
 
 async function cursorTo(target, token, dur = 600) {
   if (!target) return;
+  if (demoWarp) dur = 0;
   const dr = stageDesk.getBoundingClientRect();
   const r = target.getBoundingClientRect();
   /* the hero scales the stage down — convert visual px back to local px */
@@ -4209,7 +4224,7 @@ async function cursorTo(target, token, dur = 600) {
   curY = (r.top - dr.top + r.height / 2) / s;
   demoCursor.style.transition = `transform ${dur}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 250ms`;
   demoCursor.style.transform = `translate(${curX}px, ${curY}px)`;
-  await sleep(dur + 40);
+  await dsleep(dur + 40);
 }
 
 async function cursorPress(token) {
@@ -4217,9 +4232,9 @@ async function cursorPress(token) {
   const ring = el(`<div class="click-ring" style="left:${curX + 3}px; top:${curY + 3}px;"></div>`);
   stageDesk.appendChild(ring);
   setTimeout(() => ring.remove(), 520);
-  await sleep(130);
+  await dsleep(130);
   demoCursor.classList.remove("press");
-  await sleep(90);
+  await dsleep(90);
 }
 
 let runToken = 0;
@@ -4378,7 +4393,7 @@ async function emit(tone, label, name, bodyHtml, relayText, token) {
   const sStream = document.getElementById("s-stream");
   if (rStream) pushEv(rStream, evBlock("recipient", tone, label, name, bodyHtml));
   if (relayText) relay(relayText);
-  await sleep(350);
+  await dsleep(350);
   if (token !== runToken) return;
   if (sStream) pushEv(sStream, evBlock("sender", tone, label, name, bodyHtml));
 }
@@ -4501,7 +4516,7 @@ function waitChoice(yesBtn, noBtn, token, { autopilotMs = null, autoPick = "yes"
         if (userTouched || token !== runToken) return;
         (autoPick === "yes" ? yesBtn : noBtn).click();
         userTouched = false; // the click above set it; autopilot doesn't count
-      }, autopilotMs);
+      }, demoWarp ? 60 : autopilotMs);
     }
   });
 }
@@ -4548,7 +4563,7 @@ async function runDemo() {
   demoStatus.textContent = "Kaan is composing a dispatch…";
 
   /* Kaan's cursor walks to Compose and clicks it */
-  await sleep(250); if (token !== runToken) return;
+  await dsleep(250); if (token !== runToken) return;
   setStep(1);
   senderWindow.classList.add("attn");
   cursorShow();
@@ -4573,7 +4588,7 @@ async function runDemo() {
         let d = 38 + Math.random() * 52;
         if (ch === " ") d += 30;
         if (ch === "," || ch === "." || ch === "?") d += 140;
-        await sleep(d);
+        await dsleep(d);
       }
       typingActive = false;
     });
@@ -4605,15 +4620,15 @@ async function runDemo() {
       await cursorPress(token);
       presetRow.children[0].click();
       userTouched = false;
-      await sleep(400);
-      while (typingActive && token === runToken) await sleep(150);
+      await dsleep(400);
+      while (typingActive && token === runToken) await dsleep(150);
       if (userTouched || token !== runToken) return;
-      await sleep(500);
+      await dsleep(500);
       await cursorTo(composeSend, token, 550);
       if (userTouched || token !== runToken) return;
       await cursorPress(token);
       composeSend.click();
-    }, 1500);
+    }, demoWarp ? 60 : 1500);
   });
   if (token !== runToken) return;
   cursorHide();
@@ -4626,7 +4641,7 @@ async function runDemo() {
   senderWindow.classList.remove("attn");
   setStep(2);
   composeOverlay.classList.remove("show");
-  await sleep(300); if (token !== runToken) return;
+  await dsleep(300); if (token !== runToken) return;
   composeOverlay.style.display = "none";
 
   senderContent.innerHTML = senderInboxView(true, task);
@@ -4636,20 +4651,20 @@ async function runDemo() {
   /* broker checks */
   brokerNode.classList.add("busy");
   wireTask.classList.add("on");
-  await sleep(500); if (token !== runToken) return;
+  await dsleep(500); if (token !== runToken) return;
   brokerCheck(`<span class="mark">✓</span> trust edge kaan → you: accepted`);
-  await sleep(480); if (token !== runToken) return;
+  await dsleep(480); if (token !== runToken) return;
   brokerCheck(`<span class="mark">✓</span> within scope`);
-  await sleep(480); if (token !== runToken) return;
+  await dsleep(480); if (token !== runToken) return;
   brokerCheck(`<span class="mark">✓</span> rate: 3 of 50 today`);
-  await sleep(480); if (token !== runToken) return;
+  await dsleep(480); if (token !== runToken) return;
   brokerCheck(`→ routed to your daemon`);
   relay("new_dispatch → your daemon");
   wireTask.classList.remove("on");
   brokerNode.classList.remove("busy");
 
   /* sender navigates to detail view */
-  await sleep(600); if (token !== runToken) return;
+  await dsleep(600); if (token !== runToken) return;
   senderContent.innerHTML = senderDetailView(task);
 
   /* recipient: row lands in inbox */
@@ -4677,8 +4692,8 @@ async function runDemo() {
   recipientWindow.classList.add("attn");
   showNotif();
 
-  demoStatus.className = "demo-status hot";
-  demoStatus.textContent = "It's in your inbox. Accept it and the agent starts — reject it and nothing runs.";
+  demoStatus.className = "demo-status";
+  demoStatus.textContent = "";
 
   const accepted = await waitChoice(
     document.getElementById("btn-accept"),
@@ -4707,7 +4722,7 @@ async function runDemo() {
   setStep(4);
   relay("dispatch_decision: accept");
   setStatus("running");
-  await sleep(400); if (token !== runToken) return;
+  await dsleep(400); if (token !== runToken) return;
   recipientContent.innerHTML = recipientDetailView(task);
   wireEvents.classList.add("on");
 
@@ -4719,7 +4734,7 @@ async function runDemo() {
   if (token !== runToken) return;
   demoStatus.className = "demo-status";
   demoStatus.textContent = "The agent is running. Read-only tools run freely — destructive ones will ask you.";
-  await sleep(500); if (token !== runToken) return;
+  await dsleep(500); if (token !== runToken) return;
 
   let permAllowed = true;
 
@@ -4732,17 +4747,17 @@ async function runDemo() {
         jsonBody(step.input) + `<div class="ev-note">in scope — runs without asking</div>`,
         "tool_use ⇢ sender", token);
       await termRun(step.term, token);
-      await sleep(600);
+      await dsleep(600);
 
     } else if (step.type === "result") {
       await emit("result", "Tool result", null,
         `<div class="ev-json">${esc(step.text)}</div>`,
         "tool_result ⇢ sender", token);
-      await sleep(650);
+      await dsleep(650);
 
     } else if (step.type === "agent") {
       await emit("agent", "Agent", null, esc(step.text), "agent_text ⇢ sender", token);
-      await sleep(750);
+      await dsleep(750);
 
     } else if (step.type === "perm") {
       /* permission_request — the recipient (you) decides */
@@ -4783,10 +4798,10 @@ async function runDemo() {
       } else {
         await emit("error", "Denied", step.name, `<div class="ev-note">decision: deny — by the recipient (you)</div>`, "permission_response: deny", token);
         termErr(`✗ ${step.name} denied by you — nothing ran`);
-        await sleep(550); if (token !== runToken) return;
+        await dsleep(550); if (token !== runToken) return;
         await emit("agent", "Agent", null, esc(step.denyText), "agent_text ⇢ sender", token);
       }
-      await sleep(650);
+      await dsleep(650);
     }
   }
   if (token !== runToken) return;
@@ -4814,6 +4829,7 @@ async function runDemo() {
 }
 
 replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
+stepEls.forEach((li, i) => li.addEventListener("click", () => seekDemo(i + 1)));
 composeBtn.addEventListener("click", () => {
   if (composeOverlay.style.display === "none") { userTouched = false; runDemo(); }
 });
