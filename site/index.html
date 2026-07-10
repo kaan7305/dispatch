@@ -25,7 +25,7 @@
     --pale-blue: #E1F3FE;   --blue-ink: #1F6C9F;
     --pale-green: #EDF3EC;  --green-ink: #346538;
     --pale-yellow: #FBF3DB; --yellow-ink: #956400;
-    --serif: "Iowan Old Style", "Charter", "Palatino", Georgia, serif;
+    --serif: "Tiempos Text", "Times New Roman", Times, "Iowan Old Style", Georgia, serif;
     --sans: "Helvetica Neue", -apple-system, "Segoe UI", sans-serif;
     --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
 
@@ -707,15 +707,15 @@
     .demo-stage { grid-template-columns: 1fr; }
   }
 
-  /* step timeline above the stage */
+  /* step timeline above the stage — spans the stage edge to edge */
   .demo-topline {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap;
+    display: flex; align-items: center;
     margin-bottom: 24px;
   }
   .steps {
-    display: flex; align-items: center; flex-wrap: wrap;
+    display: flex; align-items: center;
     list-style: none; gap: 0;
+    width: 100%;
   }
   .steps li {
     display: flex; align-items: center; gap: 8px;
@@ -741,14 +741,14 @@
     background: var(--pale-green); color: var(--green-ink); border-color: transparent;
   }
   .steps li.sep-holder {
-    width: 24px; height: 1px;
+    flex: 1; min-width: 14px; height: 1px;
     background: var(--hairline);
-    margin: 0 10px;
+    margin: 0 16px;
   }
   @media (max-width: 800px) {
     .steps li span.lbl { display: none; }
     .steps li.cur span.lbl { display: inline; }
-    .steps li.sep-holder { width: 12px; margin: 0 6px; }
+    .steps li.sep-holder { min-width: 8px; margin: 0 8px; }
   }
   .live-chip {
     display: inline-flex; align-items: center; gap: 7px;
@@ -2287,26 +2287,66 @@
   .scope-panel {
     background: var(--card);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
-    padding: 28px;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 18px 48px rgba(0,0,0,0.4);
   }
-  .scope-panel h3 {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 18px;
-    color: var(--ink-strong);
-    margin-bottom: 20px;
+  .sp-tb {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px;
+    background: #FBFBFA;
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sp-body { padding: 4px 22px 14px; flex: 1; }
+  .sp-group {
+    font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--amfg);
+    margin: 15px 0 2px;
   }
   .scope-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--hairline);
-    font-size: 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 9px 0;
+    border-bottom: 1px solid #F1F0ED;
   }
   .scope-row:last-child { border-bottom: none; }
-  .scope-row label { cursor: pointer; display: flex; align-items: center; gap: 10px; }
-  .scope-row .hint { font-size: 12px; color: var(--muted); }
-  .scope-row input[type="checkbox"] { accent-color: #111; width: 15px; height: 15px; cursor: pointer; }
+  .sr-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .sr-name { font-size: 13.5px; color: var(--ink-strong); font-weight: 500; }
+  .sr-sub { font-size: 11.5px; color: var(--muted); }
+  .sr-mono {
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: var(--amuted); border: 1px solid var(--ab);
+    border-radius: 6px; padding: 3px 10px;
+  }
+  /* switch, same language as the real app */
+  .sw-wrap { position: relative; display: inline-flex; cursor: pointer; flex-shrink: 0; }
+  .sw-wrap input { position: absolute; opacity: 0; pointer-events: none; }
+  .sw {
+    width: 34px; height: 20px; border-radius: 9999px;
+    background: #D4D4D8; position: relative;
+    transition: background 180ms;
+  }
+  .sw::after {
+    content: "";
+    position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    transition: left 180ms;
+  }
+  .sw-wrap input:checked + .sw { background: #16A34A; }
+  .sw-wrap input:checked + .sw::after { left: 16px; }
+  .sw-wrap input:disabled + .sw { background: #86C79A; cursor: not-allowed; }
+  .sp-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 22px;
+    border-top: 1px solid var(--hairline);
+    background: #FBFBFA;
+  }
+  .sp-revoke { font-size: 12px; color: var(--red-ink); }
+  .sp-note { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .seg {
     display: inline-flex;
     border: 1px solid var(--hairline);
@@ -2324,29 +2364,26 @@
     transition: background 200ms, color 200ms;
   }
   .seg button.on { background: var(--ink-strong); color: #fff; }
-  .scope-json {
+  .scope-json-wrap {
     background: #FBFBFA;
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.8;
-    padding: 24px;
-    border-radius: 10px;
     border: 1px solid var(--hairline);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 18px 48px rgba(0,0,0,0.4);
+  }
+  .scope-json {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.9;
+    padding: 22px 24px;
     overflow-x: auto;
     white-space: pre;
     color: var(--ink);
+    flex: 1;
   }
   .scope-json .k { color: var(--blue-ink); }
   .scope-json .v { color: var(--green-ink); }
-  .scope-sentence {
-    grid-column: 1 / -1;
-    font-size: 15px;
-    color: var(--ink);
-    background: var(--pale-yellow);
-    border-radius: 8px;
-    padding: 16px 20px;
-    transition: opacity 200ms;
-  }
   .scope-sentence strong { color: var(--ink-strong); }
 
   /* ── parts: interactive under-the-hood explorer ── */
@@ -2713,8 +2750,10 @@
 
   h1, h2 { color: var(--nt-strong); }
   .section-kicker { color: var(--nt-muted); }
-  .section-intro { color: var(--nt-ink); }
-  .section-intro .aside { color: var(--nt-muted); }
+  /* marketing copy set in the serif, Centaur-style — product UI stays sans */
+  .section-intro { color: var(--nt-ink); font-family: var(--serif); font-size: 18px; }
+  .section-intro .aside { color: var(--nt-muted); font-family: var(--serif); }
+  .demo-status { font-family: var(--serif); font-size: 15px; }
 
   .btn-ghost { color: var(--nt-ink); border-color: var(--nt-line); }
   .btn-ghost:hover { border-color: rgba(255,255,255,0.3); }
@@ -2764,6 +2803,91 @@
   .org-head .who { color: var(--nt-muted); }
   .org-head .who b { color: var(--nt-strong); }
   .org-os { color: var(--nt-muted); border-color: var(--nt-line); }
+
+  /* ── overview + safe by default (Centaur-style, night-native) ── */
+  #overview { border-top: 1px solid var(--nt-line); }
+  .ov-title { font-size: clamp(34px, 3.4vw, 48px); margin-bottom: 44px; }
+  .ov-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36px 96px;
+    max-width: 1160px;
+  }
+  @media (max-width: 800px) { .ov-grid { grid-template-columns: 1fr; } }
+  .ov-item h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 19px;
+    color: var(--nt-strong);
+    margin-bottom: 6px;
+  }
+  .ov-item p { font-family: var(--serif); font-size: 17px; line-height: 1.55; color: var(--nt-ink); }
+
+  .ov-split {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 72px;
+    align-items: center;
+    margin-top: 96px;
+  }
+  @media (max-width: 900px) { .ov-split { grid-template-columns: 1fr; gap: 40px; } }
+  .ov-copy h2 { font-size: clamp(30px, 3vw, 44px); margin-bottom: 18px; }
+  .ov-copy p { font-family: var(--serif); font-size: 17.5px; line-height: 1.6; color: var(--nt-ink); max-width: 480px; }
+  .ov-link {
+    display: inline-block;
+    margin-top: 22px;
+    font-size: 14.5px;
+    color: #5DBB63;
+    text-decoration: none;
+  }
+  .ov-link:hover { text-decoration: underline; }
+
+  .ov-card {
+    background: #141412;
+    border: 1px solid var(--nt-line);
+    border-radius: 16px;
+    padding: 26px 28px;
+  }
+  .ov-card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    margin-bottom: 20px;
+  }
+  .ov-card-title { font-family: var(--serif); font-size: 20px; color: var(--nt-muted); }
+  .ov-repo {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 13px; color: var(--nt-muted);
+  }
+  .ov-repo b { color: var(--nt-strong); font-weight: 600; }
+  .ov-mark {
+    width: 15px; height: 15px; border-radius: 5px;
+    background: #2E7D3A;
+    box-shadow: 0 0 10px rgba(93,187,99,0.4);
+  }
+  .ov-level {
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .ov-level .ov-level { margin-top: 14px; background: rgba(255,255,255,0.045); }
+  .ov-level .ov-level .ov-level { background: rgba(255,255,255,0.055); }
+  .ov-row {
+    display: flex; align-items: center; gap: 10px;
+    color: var(--nt-muted);
+  }
+  .ov-name { font-family: var(--mono); font-size: 14px; color: var(--nt-strong); font-weight: 600; }
+  .ov-name i { font-style: normal; font-weight: 400; color: var(--nt-muted); }
+  .ov-badge {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--nt-ink);
+    background: rgba(255,255,255,0.08);
+    border-radius: 9999px;
+    padding: 4px 11px;
+    white-space: nowrap;
+  }
+  .ov-desc { font-size: 13.5px; line-height: 1.55; color: var(--nt-muted); margin: 8px 0 0 25px; }
 </style>
 </head>
 <body>
@@ -2778,6 +2902,7 @@
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
       <a href="#parts">Under the hood</a>
+      <a href="docs.html">Docs</a>
       <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Get an invite</a>
     </nav>
   </div>
@@ -3090,16 +3215,10 @@
     <div class="bnd">
 
       <!-- the boundary line -->
-      <div class="bnd-line" id="bnd-line">
-        <span class="bnd-cap top">Trust boundary</span>
-        <span class="bnd-cross" id="bnd-cross">dispatch ›</span>
-      </div>
-
       <!-- LEFT · Company A · MacBook · Claude Code -->
       <div class="org org-a">
         <div class="org-head">
           <span class="who"><span class="ava blue">MA</span><b>Manager</b> · Team A</span>
-          <span class="org-os"><span class="os-dot mac"></span>MacBook · Claude Code</span>
         </div>
 
         <div class="laptop mac" id="lap-a">
@@ -3178,7 +3297,6 @@
       <div class="org org-b">
         <div class="org-head">
           <span class="who"><span class="ava red">MB</span><b>Manager</b> · Team B</span>
-          <span class="org-os"><span class="os-dot win"></span>Windows · Codex</span>
         </div>
 
         <div class="laptop win" id="lap-b">
@@ -3408,35 +3526,78 @@
 
     <div class="scopes-grid reveal">
       <div class="scope-panel">
-        <h3>What Kaan's dispatches may do on your machine</h3>
-        <div class="scope-row">
-          <label><input type="checkbox" checked disabled /> Read, Glob, Grep</label>
-          <span class="hint">always the floor</span>
+        <div class="sp-tb">
+          <span class="mdots"><i></i><i></i><i></i></span>
+          <span>Edit permissions — kaan@castrum.ai → you</span>
         </div>
-        <div class="scope-row">
-          <label><input type="checkbox" id="sc-write" /> Write &amp; Edit files</label>
-          <span class="hint">create or change files</span>
+        <div class="sp-body">
+          <div class="sp-group">Tools</div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Read files</span><span class="sr-sub">Read · Glob · Grep — always the floor</span></div>
+            <label class="sw-wrap"><input type="checkbox" checked disabled /><span class="sw"></span></label>
+          </div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Write &amp; edit files</span><span class="sr-sub">create or change files on this machine</span></div>
+            <label class="sw-wrap"><input type="checkbox" id="sc-write" /><span class="sw"></span></label>
+          </div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Run shell commands</span><span class="sr-sub">Bash — grants the shell, full stop</span></div>
+            <label class="sw-wrap"><input type="checkbox" id="sc-bash" /><span class="sw"></span></label>
+          </div>
+
+          <div class="sp-group">MCP servers</div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Your connected tools</span><span class="sr-sub">which of your MCP servers this sender may use</span></div>
+            <span class="seg">
+              <button id="sc-mcp-none" class="on">none</button>
+              <button id="sc-mcp-some">gog · notion</button>
+              <button id="sc-mcp-all">all</button>
+            </span>
+          </div>
+
+          <div class="sp-group">Limits</div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Paths</span><span class="sr-sub">file access stays inside</span></div>
+            <span class="sr-mono">~/work</span>
+          </div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Daily limit</span><span class="sr-sub">dispatches per day from this sender</span></div>
+            <span class="seg">
+              <button id="sc-lim-10">10</button>
+              <button id="sc-lim-50" class="on">50</button>
+              <button id="sc-lim-200">200</button>
+            </span>
+          </div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Expires</span><span class="sr-sub">the edge shuts itself off</span></div>
+            <span class="seg">
+              <button id="sc-exp-never" class="on">never</button>
+              <button id="sc-exp-30">in 30 days</button>
+            </span>
+          </div>
+
+          <div class="sp-group">Approval</div>
+          <div class="scope-row">
+            <div class="sr-main"><span class="sr-name">Tool approval</span><span class="sr-sub">destructive calls pause for a yes</span></div>
+            <span class="seg">
+              <button id="sc-manual" class="on">every call</button>
+              <button id="sc-auto">automatic</button>
+            </span>
+          </div>
         </div>
-        <div class="scope-row">
-          <label><input type="checkbox" id="sc-bash" /> Run shell commands</label>
-          <span class="hint">Bash</span>
-        </div>
-        <div class="scope-row">
-          <span>Limited to paths</span>
-          <span style="font-family: var(--mono); font-size: 12px;">~/work</span>
-        </div>
-        <div class="scope-row">
-          <span>Tool approval</span>
-          <span class="seg">
-            <button id="sc-manual" class="on">every call</button>
-            <button id="sc-auto">automatic</button>
-          </span>
+        <div class="sp-foot">
+          <span class="sp-revoke">Revoke edge — cancels anything in flight</span>
+          <span class="sp-note">applies immediately</span>
         </div>
       </div>
 
-      <div class="scope-json" id="scope-json"></div>
-
-      <div class="scope-sentence" id="scope-sentence"></div>
+      <div class="scope-json-wrap">
+        <div class="sp-tb">
+          <span class="mdots"><i></i><i></i><i></i></span>
+          <span>the scope — enforced by your daemon on every call</span>
+        </div>
+        <div class="scope-json" id="scope-json"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -3544,6 +3705,79 @@
           <div class="hood-cap">Born the moment you accept a task. Works inside your scopes. Gone when it's done.</div>
         </div>
 
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── OVERVIEW + SAFE BY DEFAULT ── -->
+<section id="overview">
+  <div class="wrap-wide">
+    <h2 class="ov-title reveal">Overview</h2>
+
+    <div class="ov-grid reveal">
+      <div class="ov-item">
+        <h3>Signed by devices.</h3>
+        <p>Every dispatch carries an Ed25519 signature from the sender's machine,
+           verified against a pinned key — a compromised broker can't forge a
+           trusted sender.</p>
+      </div>
+      <div class="ov-item">
+        <h3>Credential-safe by design.</h3>
+        <p>The recipient's API key, files, and final word never leave their
+           machine. The broker relays envelopes; it holds no keys and runs no code.</p>
+      </div>
+      <div class="ov-item">
+        <h3>Scoped by people.</h3>
+        <p>The recipient decides which tools, paths, and MCP servers each sender
+           may touch — least privilege by default, changeable any time,
+           revocable outright.</p>
+      </div>
+      <div class="ov-item">
+        <h3>Agent agnostic.</h3>
+        <p>Claude Code on a Mac, Codex on Windows — the same signed envelope,
+           the same scopes, the same approvals, whatever runs the work.</p>
+      </div>
+    </div>
+
+    <div class="ov-split">
+      <div class="ov-copy reveal">
+        <h2>Safe by default</h2>
+        <p>A dispatch clears three independent checks before anything touches the
+           recipient's machine. They live in different places on purpose — no
+           single compromised component can open all three.</p>
+        <a class="ov-link" href="docs.html#trust-model">Read the trust model →</a>
+      </div>
+
+      <div class="ov-card reveal">
+        <div class="ov-card-head">
+          <span class="ov-card-title">Enforcement</span>
+          <span class="ov-repo"><span class="ov-mark"></span>kaan7305/<b>dispatch</b></span>
+        </div>
+        <div class="ov-level">
+          <div class="ov-row">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="20" cy="12" r="2"/><path d="M6 12h4m4 0h4"/></svg>
+            <span class="ov-name"><i>dispatch/</i>broker</span>
+            <span class="ov-badge">server</span>
+          </div>
+          <p class="ov-desc">Routes and checks policy — trust edge, scope, rate limit. Anything else gets a 403 before it goes anywhere.</p>
+          <div class="ov-level">
+            <div class="ov-row">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9M17 6l3 3"/></svg>
+              <span class="ov-name"><i>dispatch/</i>daemon</span>
+              <span class="ov-badge">your machine</span>
+            </div>
+            <p class="ov-desc">Verifies the signature against a pinned device key and a fresh nonce — entirely on the recipient's machine.</p>
+            <div class="ov-level">
+              <div class="ov-row">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
+                <span class="ov-name">you</span>
+                <span class="ov-badge">human</span>
+              </div>
+              <p class="ov-desc">Accepts or declines — and approves every destructive tool call, one at a time.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -5410,8 +5644,9 @@ ucObs.observe(document.querySelector(".uc-grid"));
 
   /* ---- boundary packet ---- */
   async function crossPacket(dir, tok) {
-    beNode.classList.add("busy"); line.classList.add("hot"); cross.classList.add("hot");
-    cross.textContent = dir === "a2b" ? "› A → B" : "B → A ‹";
+    beNode.classList.add("busy");
+    if (line) line.classList.add("hot");
+    if (cross) { cross.classList.add("hot"); cross.textContent = dir === "a2b" ? "› A → B" : "B → A ‹"; }
     if (!calm) {
       const pkt = el('<span class="bnd-pkt"></span>');
       backend.appendChild(pkt);
@@ -5423,7 +5658,9 @@ ucObs.observe(document.querySelector(".uc-grid"));
       await sleep(950); if (tok !== token) return;
       pkt.style.opacity = "0"; setTimeout(() => pkt.remove(), 300);
     } else { await sleep(400); }
-    cross.classList.remove("hot"); line.classList.remove("hot"); beNode.classList.remove("busy");
+    if (cross) cross.classList.remove("hot");
+    if (line) line.classList.remove("hot");
+    beNode.classList.remove("busy");
   }
 
   /* ---- in-terminal approval ---- */
@@ -5715,7 +5952,8 @@ ucObs.observe(document.querySelector(".uc-grid"));
     if (cta) cta.style.display = "none";
     hideCompose(A); hideCompose(B);
     [sysAudit, sysDb, sysCrm].forEach(n => n.classList.remove("hit", "touched"));
-    setLog("idle"); cross.classList.remove("hot"); cross.textContent = "dispatch ›";
+    setLog("idle");
+    if (cross) { cross.classList.remove("hot"); cross.textContent = "dispatch ›"; }
     statusEl.className = "demo-status";
     statusEl.textContent = "Two managers, two machines — powering up…";
     await Promise.all([bootSide(A, tok, bootA), bootSide(B, tok, bootB)]);
@@ -5770,61 +6008,47 @@ hoodObs.observe(document.querySelector(".hood-stage"));
 /* ───────────────────────── scopes toggler ───────────────────────── */
 const scWrite = document.getElementById("sc-write");
 const scBash = document.getElementById("sc-bash");
-const scManual = document.getElementById("sc-manual");
-const scAuto = document.getElementById("sc-auto");
 const scopeJson = document.getElementById("scope-json");
-const scopeSentence = document.getElementById("scope-sentence");
 
 let approvalMode = "manual";
+let mcpMode = "none";
+let dailyLimit = 50;
+let expiresAt = null;
+
+/* segmented control: one .on per group, then re-render */
+function segGroup(ids, onPick) {
+  const btns = ids.map(id => document.getElementById(id));
+  btns.forEach((b, i) => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    onPick(i);
+    renderScope();
+  }));
+}
 
 function renderScope() {
   const tools = ["Read", "Glob", "Grep"];
   if (scWrite.checked) tools.push("Write", "Edit");
   if (scBash.checked) tools.push("Bash");
+  const mcp = mcpMode === "none" ? [] : mcpMode === "some" ? ["gog", "notion"] : ["*"];
 
   scopeJson.innerHTML =
 `{
   <span class="k">"tools"</span>: [${tools.map(t => `<span class="v">"${t}"</span>`).join(", ")}],
-  <span class="k">"mcp"</span>: [],
+  <span class="k">"mcp"</span>: [${mcp.map(m => `<span class="v">"${m}"</span>`).join(", ")}],
   <span class="k">"paths"</span>: [<span class="v">"~/work"</span>],
   <span class="k">"approval"</span>: <span class="v">"${approvalMode}"</span>,
-  <span class="k">"max_dispatches_per_day"</span>: 50,
-  <span class="k">"expires_at"</span>: null
+  <span class="k">"max_dispatches_per_day"</span>: ${dailyLimit},
+  <span class="k">"expires_at"</span>: ${expiresAt ? `<span class="v">"${expiresAt}"</span>` : "null"}
 }`;
-
-  let can = "read files";
-  if (scWrite.checked && scBash.checked) can = "read files, change them, and run shell commands";
-  else if (scWrite.checked) can = "read and change files";
-  else if (scBash.checked) can = "read files and run shell commands";
-
-  let gate;
-  if (approvalMode === "manual") {
-    gate = scBash.checked
-      ? "and every command shows itself to you — paths and all — before it runs"
-      : "and every tool call still waits for your yes";
-  } else {
-    gate = scBash.checked
-      ? "auto-approval trusts the agent to stay inside ~/work — pair Bash with every-call approval unless you fully trust this sender"
-      : "and tool calls run without asking — you've vouched for this sender";
-  }
-
-  scopeSentence.innerHTML =
-    `With this edge, Kaan's dispatches can <strong>${can}</strong>, scoped to <strong>~/work</strong>, ` +
-    `at most 50 a day, ${gate}. Change your mind? Tighten or revoke the edge any time.`;
 }
 
 scWrite.addEventListener("change", renderScope);
 scBash.addEventListener("change", renderScope);
-scManual.addEventListener("click", () => {
-  approvalMode = "manual";
-  scManual.classList.add("on"); scAuto.classList.remove("on");
-  renderScope();
-});
-scAuto.addEventListener("click", () => {
-  approvalMode = "auto";
-  scAuto.classList.add("on"); scManual.classList.remove("on");
-  renderScope();
-});
+segGroup(["sc-mcp-none", "sc-mcp-some", "sc-mcp-all"], i => { mcpMode = ["none", "some", "all"][i]; });
+segGroup(["sc-lim-10", "sc-lim-50", "sc-lim-200"], i => { dailyLimit = [10, 50, 200][i]; });
+segGroup(["sc-exp-never", "sc-exp-30"], i => { expiresAt = i === 0 ? null : "2026-08-09T00:00:00Z"; });
+segGroup(["sc-manual", "sc-auto"], i => { approvalMode = i === 0 ? "manual" : "auto"; });
 renderScope();
 </script>
 

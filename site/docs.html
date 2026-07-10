@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dispatch — Documentation</title>
+<meta name="description" content="Dispatch documentation — a peer-to-peer courier for agentic work." />
+<style>
+  :root {
+    --night: #0F0F0D;
+    --panel: #161614;
+    --panel-2: #1C1C19;
+    --ink: #D6D4CE;
+    --strong: #F6F5F1;
+    --muted: #8E8C85;
+    --line: rgba(255,255,255,0.10);
+    --green: #5DBB63;
+    --green-dim: #2E7D3A;
+    --amber: #E5B567;
+    --serif: "Tiempos Text", "Times New Roman", Times, "Iowan Old Style", Georgia, serif;
+    --sans: "Helvetica Neue", -apple-system, "Segoe UI", sans-serif;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--serif);
+    background: var(--night);
+    color: var(--ink);
+    line-height: 1.65;
+    font-size: 16.5px;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(229,181,103,0.32); color: #111; }
+  a { color: var(--green); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── top bar ── */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    padding: 14px 28px;
+    background: rgba(15,15,13,0.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .wordmark { font-family: var(--serif); font-size: 21px; color: var(--strong); letter-spacing: -0.02em; }
+  .wordmark em { font-style: italic; }
+  .top-links { display: flex; align-items: center; gap: 22px; font-family: var(--sans); font-size: 13px; }
+  .top-links a { color: var(--muted); }
+  .top-links a:hover { color: var(--strong); text-decoration: none; }
+
+  /* ── shell ── */
+  .docs {
+    display: grid;
+    grid-template-columns: 270px minmax(0, 1fr);
+    max-width: 1240px;
+    margin: 0 auto;
+    gap: 48px;
+    padding: 0 28px;
+  }
+  @media (max-width: 880px) { .docs { grid-template-columns: 1fr; gap: 0; } }
+
+  /* ── sidebar ── */
+  .side {
+    position: sticky; top: 61px;
+    align-self: start;
+    height: calc(100vh - 61px);
+    overflow-y: auto;
+    padding: 30px 18px 40px 0;
+    border-right: 1px solid var(--line);
+  }
+  @media (max-width: 880px) {
+    .side { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 18px 0; }
+  }
+  .side-group {
+    font-family: var(--sans);
+    font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted);
+    margin: 22px 0 8px;
+  }
+  .side-group:first-child { margin-top: 0; }
+  .side a {
+    display: block;
+    font-family: var(--serif);
+    font-size: 15px;
+    color: var(--ink);
+    padding: 5px 12px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+  }
+  .side a:hover { color: var(--strong); text-decoration: none; background: rgba(255,255,255,0.04); }
+  .side a.on {
+    color: var(--strong);
+    background: var(--panel);
+    border-color: var(--line);
+  }
+
+  /* ── content ── */
+  main { padding: 44px 0 110px; max-width: 780px; }
+  .page { display: none; }
+  .page.on { display: block; }
+
+  h1 {
+    font-family: var(--serif); font-weight: 500;
+    font-size: clamp(32px, 4vw, 42px);
+    letter-spacing: -0.02em;
+    color: var(--strong);
+    margin-bottom: 14px;
+  }
+  .lede { font-size: 18px; color: var(--ink); max-width: 660px; }
+  hr.rule { border: none; border-top: 1px solid var(--line); margin: 30px 0; }
+  h2 {
+    font-family: var(--serif); font-weight: 500;
+    font-size: 25px; color: var(--strong);
+    margin: 42px 0 12px;
+  }
+  h3 { font-family: var(--serif); font-weight: 600; font-size: 18px; color: var(--strong); margin: 28px 0 8px; }
+  p { margin: 12px 0; }
+  p strong, li strong { color: var(--strong); font-weight: 600; }
+  ul, ol { margin: 12px 0 12px 22px; }
+  li { margin: 6px 0; }
+
+  code {
+    font-family: var(--mono); font-size: 0.82em;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 5px;
+    padding: 1.5px 6px;
+    color: var(--strong);
+    white-space: nowrap;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 16px 0;
+    line-height: 1.6;
+  }
+  pre code {
+    background: none; border: none; padding: 0;
+    font-size: 12.5px; color: var(--ink);
+    white-space: pre;
+  }
+  pre .c { color: var(--muted); }        /* comment */
+  pre .g { color: var(--green); }        /* highlight */
+  pre .k { color: #7FB4D8; }             /* key */
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14.5px;
+  }
+  th {
+    font-family: var(--sans); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    vertical-align: top;
+  }
+  td:first-child { white-space: nowrap; }
+
+  .callout {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--green-dim);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 18px 0;
+    font-size: 15px;
+  }
+  .callout.warn { border-left-color: var(--amber); }
+
+  /* the three-layer diagram */
+  .layers { display: grid; gap: 12px; margin: 20px 0; }
+  .layer {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 15px 18px;
+  }
+  .layer .lh {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--strong);
+  }
+  .layer .badge {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink);
+    background: rgba(255,255,255,0.08);
+    border-radius: 9999px;
+    padding: 3px 10px;
+    white-space: nowrap;
+  }
+  .layer p { font-size: 14px; color: var(--muted); margin: 7px 0 0; }
+
+  .page-foot {
+    margin-top: 60px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 16px;
+    font-family: var(--sans); font-size: 13.5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="wordmark" href="index.html">Dispatch<em>.</em></a>
+  <div class="top-links">
+    <a href="index.html">Home</a>
+    <a href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
+    <a href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Get an invite</a>
+  </div>
+</header>
+
+<div class="docs">
+  <nav class="side" id="side">
+    <div class="side-group">Start</div>
+    <a href="#what-is-dispatch" data-page="what-is-dispatch">What is Dispatch?</a>
+    <a href="#quickstart" data-page="quickstart">Quickstart</a>
+    <a href="#running-the-broker" data-page="running-the-broker">Running the broker</a>
+
+    <div class="side-group">Concepts</div>
+    <a href="#trust-model" data-page="trust-model">The trust model</a>
+    <a href="#scopes" data-page="scopes">Scopes &amp; MCP sharing</a>
+
+    <div class="side-group">Use</div>
+    <a href="#cli" data-page="cli">The dispatch CLI</a>
+    <a href="#claude-skill" data-page="claude-skill">Claude Code skill</a>
+
+    <div class="side-group">Reference</div>
+    <a href="#api" data-page="api">API &amp; signing</a>
+    <a href="#security" data-page="security">Security model</a>
+    <a href="#troubleshooting" data-page="troubleshooting">Troubleshooting</a>
+  </nav>
+
+  <main>
+
+    <!-- ══════════ WHAT IS DISPATCH ══════════ -->
+    <section class="page" id="p-what-is-dispatch">
+      <h1>What is Dispatch?</h1>
+      <p class="lede">
+        Dispatch is a peer-to-peer courier for agentic work. One person describes a task in
+        natural language and names a recipient; the recipient's machine runs it with a local
+        AI agent — but only if the two people have an explicit, scoped, revocable trust
+        relationship, the dispatch is cryptographically signed by the sender's device, and
+        the recipient approves it.
+      </p>
+      <hr class="rule" />
+      <p>A dispatch never runs on a machine unless all three hold:</p>
+      <ul>
+        <li>an accepted <strong>trust edge</strong> exists from sender to recipient,</li>
+        <li>the dispatch carries a valid <strong>signature</strong> from a device of that sender,</li>
+        <li>it stays within the <strong>scope</strong> that edge grants — and destructive tool calls get a per-call human approval.</li>
+      </ul>
+
+      <h2>Components</h2>
+      <table>
+        <tr><th>Component</th><th>What it is</th></tr>
+        <tr><td><code>Broker</code></td><td>Multi-tenant FastAPI service, Postgres-backed. Issues identity, routes dispatches, enforces trust policy, relays events. Never holds a signing key; never touches a recipient's filesystem.</td></tr>
+        <tr><td><code>Daemon</code></td><td>A small background process each user runs on their own machine. Holds that machine's Ed25519 device key, signs outgoing dispatches, verifies incoming ones, and runs the agent.</td></tr>
+        <tr><td><code>Web UI</code></td><td>A React app served both by the broker and by each daemon on 127.0.0.1: manage contacts and per-edge permissions, compose, watch sent dispatches, act on your inbox.</td></tr>
+        <tr><td><code>MCP server</code></td><td>A thin in-session client Claude Code launches per session. Holds no broker connection, key, or executor — it ensures a daemon is running and drives it over the daemon's loopback API.</td></tr>
+        <tr><td><code>Agent</code></td><td>A Claude Agent SDK session the daemon opens per accepted dispatch, on a clean base. Transient — created on accept, gone when the task ends.</td></tr>
+      </table>
+      <p>Every user is both a sender and a recipient; everyone runs a daemon.</p>
+
+      <h2>Core concepts</h2>
+      <table>
+        <tr><th>Concept</th><th>Meaning</th></tr>
+        <tr><td><code>User</code></td><td>Identified by email. Created on first sign-in.</td></tr>
+        <tr><td><code>Device</code></td><td>One per machine running the daemon. Has an Ed25519 keypair; the private key never leaves the machine.</td></tr>
+        <tr><td><code>Invitation</code></td><td>An emailed, single-use, expiring link. How a trust edge is born.</td></tr>
+        <tr><td><code>Trust edge</code></td><td>A directed <code>from_user → to_user</code> relationship, created when the recipient accepts an invitation. Per-direction: B accepting A's invite lets A dispatch to B — nothing more.</td></tr>
+        <tr><td><code>Dispatch</code></td><td>One task. Signed by the sender's device, authorized by an edge, executed by the recipient's daemon.</td></tr>
+      </table>
+      <div class="page-foot"><span></span><a href="#quickstart">Quickstart →</a></div>
+    </section>
+
+    <!-- ══════════ QUICKSTART ══════════ -->
+    <section class="page" id="p-quickstart">
+      <h1>Quickstart</h1>
+      <p class="lede">
+        The trust layers need a local daemon that holds your device key, signs and verifies,
+        runs the agent, and holds the approval prompts. There is always exactly one daemon
+        per machine. The two setups differ only in how the daemon gets started.
+      </p>
+      <hr class="rule" />
+
+      <h2>A) Via Claude Code — the low-friction default</h2>
+      <p>
+        Install the Dispatch plugin for Claude Code. It bundles the <code>/dispatch</code> skill and an
+        MCP server that Claude Code launches each session. On startup it checks for a running
+        daemon and, if there isn't one, spawns it detached.
+      </p>
+<pre><code><span class="c"># 1. Install the package so the plugin's commands are on your PATH:</span>
+pipx install git+https://github.com/kaan7305/dispatch.git
+
+<span class="c"># 2. Sign in — entirely from the terminal (opens one browser tab to approve):</span>
+dispatch login --broker https://your-broker
+
+<span class="c"># 3. Add the marketplace and install the plugin (one-time), in Claude Code:</span>
+/plugin marketplace add kaan7305/dispatch
+/plugin install dispatch@dispatch</code></pre>
+      <p>
+        You don't need a separate Anthropic API key for in-session mode — the agent runs on
+        your existing Claude Code login. Restart your session; the MCP server exposes
+        <code>dispatch_read</code>, <code>dispatch_act</code>, <code>dispatch_send</code>,
+        <code>dispatch_invite</code>, and <code>dispatch_trust</code>.
+      </p>
+      <div class="callout">
+        Because the daemon persists across sessions, dispatches are received even when no
+        Claude session is open. Anything sent while no daemon is running waits in the broker's
+        offline queue and lands when a daemon next comes up.
+      </div>
+
+      <h2>B) Always-on daemon — for background use</h2>
+      <p>After signing in to the broker, the page shows a one-line installer:</p>
+<pre><code>curl -fsSL https://your-broker/install.sh | bash -s -- &lt;your-token&gt;</code></pre>
+      <p>
+        To set your Anthropic API key in the same step (the recipient runs the agent on their
+        own key), pass it as a second argument. The installer sets up <code>pipx</code> if
+        needed, saves broker + token to <code>~/.dispatch/config.json</code>, and starts the
+        daemon. On first run it generates this machine's Ed25519 device keypair and enrolls
+        the public key with the broker. Every later run is just:
+      </p>
+<pre><code>dispatch-daemon</code></pre>
+
+      <h2>Using it</h2>
+      <ol>
+        <li><strong>Sign in</strong> — the web UI via Clerk; the CLI/daemon via <code>dispatch login</code> (a device-code flow).</li>
+        <li><strong>Run your daemon</strong> — the install one-liner once, or let Claude Code auto-spawn it.</li>
+        <li><strong>Invite</strong> — in Contacts (or <code>dispatch invite &lt;email&gt;</code>), invite a teammate.</li>
+        <li><strong>They accept</strong> — choosing the scopes they grant you: tools, MCP servers, approval mode.</li>
+        <li><strong>Compose</strong> — pick them as recipient, describe the task, send.</li>
+        <li><strong>Watch</strong> — the full event stream appears live in your Sent card and their Inbox card.</li>
+      </ol>
+      <p>
+        Revoke a contact any time — it cancels anything in flight on that edge and refuses
+        new dispatches immediately.
+      </p>
+      <div class="page-foot"><a href="#what-is-dispatch">← What is Dispatch?</a><a href="#running-the-broker">Running the broker →</a></div>
+    </section>
+
+    <!-- ══════════ RUNNING THE BROKER ══════════ -->
+    <section class="page" id="p-running-the-broker">
+      <h1>Running the broker</h1>
+      <p class="lede">The broker needs Postgres. Run it locally for development or deploy it.</p>
+      <hr class="rule" />
+
+      <h2>A) Locally</h2>
+<pre><code>docker run -d --name dispatch-pg \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=dispatch -p 5432:5432 postgres:16
+
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env        <span class="c"># set DISPATCH_JWT_SECRET</span>
+
+uvicorn --app-dir src dispatch.broker.app:app --env-file .env --host 0.0.0.0 --port 8000</code></pre>
+      <p>
+        Open <code>http://localhost:8000</code>. For a teammate on another machine:
+        <code>cloudflared tunnel --url http://localhost:8000</code>.
+      </p>
+
+      <h2>B) Railway (managed)</h2>
+      <ol>
+        <li>Push the repo to GitHub; create a Railway project from it (Nixpacks auto-detects Python and uses the Procfile).</li>
+        <li>Add the PostgreSQL plugin and wire <code>DATABASE_URL</code>.</li>
+        <li>Set <code>DISPATCH_JWT_SECRET</code> (<code>openssl rand -hex 32</code>).</li>
+        <li>Settings → Networking → Generate Domain. <code>/health</code> is the healthcheck.</li>
+      </ol>
+      <p>
+        The broker schema is idempotent and runs on every startup — no migration step.
+      </p>
+
+      <h2>Environment</h2>
+      <table>
+        <tr><th>Var</th><th>Where</th><th>Notes</th></tr>
+        <tr><td><code>DISPATCH_JWT_SECRET</code></td><td>Broker</td><td>32+ random chars. Rotating it invalidates all tokens.</td></tr>
+        <tr><td><code>DATABASE_URL</code></td><td>Broker</td><td>Postgres URL. Auto-set by Railway's plugin.</td></tr>
+        <tr><td><code>DISPATCH_PUBLIC_URL</code></td><td>Broker</td><td>Public base URL; falls back to the Railway domain.</td></tr>
+        <tr><td><code>CLERK_*</code></td><td>Broker</td><td>Enable Clerk (Google) sign-in for the web UI.</td></tr>
+        <tr><td><code>RESEND_API_KEY</code></td><td>Broker</td><td>Real email for invitation links; dev mode returns them in the API response.</td></tr>
+        <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Daemon</td><td>The recipient runs the agent on their own key.</td></tr>
+        <tr><td><code>DISPATCH_WORKSPACE</code></td><td>Daemon</td><td>Agent working directory. Default <code>./workspace</code>.</td></tr>
+        <tr><td><code>DISPATCH_KEY_BACKEND</code></td><td>Daemon</td><td><code>file</code> to store the device key in a 0600 file instead of the OS keychain.</td></tr>
+      </table>
+      <div class="page-foot"><a href="#quickstart">← Quickstart</a><a href="#trust-model">The trust model →</a></div>
+    </section>
+
+    <!-- ══════════ TRUST MODEL ══════════ -->
+    <section class="page" id="p-trust-model">
+      <h1>The trust model</h1>
+      <p class="lede">
+        Trust is enforced in three independent places. A compromised broker cannot forge a
+        trusted sender, because Layer 2 happens entirely on the recipient's machine against
+        a key the broker can't substitute.
+      </p>
+      <hr class="rule" />
+
+      <div class="layers">
+        <div class="layer">
+          <div class="lh">Layer 1 · dispatch/broker <span class="badge">server</span></div>
+          <p>"Is there an accepted trust edge? In scope? Under the rate limit?" — anything else gets a 403 before it goes anywhere.</p>
+        </div>
+        <div class="layer">
+          <div class="lh">Layer 2 · dispatch/daemon <span class="badge">your machine</span></div>
+          <p>"Is the signature valid? Key pinned? Nonce fresh and unseen?" — verified entirely on the recipient's machine, else rejected.</p>
+        </div>
+        <div class="layer">
+          <div class="lh">Layer 3 · you <span class="badge">human</span></div>
+          <p>"Does the human approve this specific tool call?" — manual or auto, per the scope the recipient set.</p>
+        </div>
+      </div>
+
+      <p>
+        The layers are deliberately redundant. <strong>Layer 2 is the backstop:</strong> even if
+        someone owned the broker outright, they couldn't forge a trusted sender, because the
+        signature check runs against a key the broker never held.
+      </p>
+
+      <h2>How an edge is born</h2>
+      <p>
+        An emailed, single-use invitation. The device key is pinned when the recipient first
+        accepts — if it ever changes, the edge stops working until you re-verify.
+      </p>
+      <h2>What travels</h2>
+      <p>
+        The task text, the event stream you watched, and the result — relayed by the broker.
+        The files the agent reads stay on the recipient's machine, except what their own agent
+        sends to their model provider, under their own key — same as any Claude Code session.
+      </p>
+      <div class="page-foot"><a href="#running-the-broker">← Running the broker</a><a href="#scopes">Scopes →</a></div>
+    </section>
+
+    <!-- ══════════ SCOPES ══════════ -->
+    <section class="page" id="p-scopes">
+      <h1>Scopes &amp; MCP sharing</h1>
+      <p class="lede">
+        What an edge permits is set by the recipient — the trustor — and is changeable any
+        time, revocable outright.
+      </p>
+      <hr class="rule" />
+<pre><code>{
+  <span class="k">"tools"</span>: [<span class="g">"Read"</span>, <span class="g">"Glob"</span>, <span class="g">"Grep"</span>],     <span class="c">// subset of Read/Write/Edit/Bash/Glob/Grep</span>
+  <span class="k">"mcp"</span>: [],                             <span class="c">// MCP servers a dispatch may use: names or ["*"]</span>
+  <span class="k">"paths"</span>: [<span class="g">"~/work"</span>],                   <span class="c">// file-path allowlist ([] = no path limit)</span>
+  <span class="k">"approval"</span>: <span class="g">"manual"</span>,                  <span class="c">// "manual" = approve every tool call | "auto"</span>
+  <span class="k">"max_dispatches_per_day"</span>: 50,
+  <span class="k">"expires_at"</span>: null
+}</code></pre>
+      <p>New edges default to least privilege: read-only tools, no MCP, manual approval.</p>
+
+      <h2>Letting dispatches use your MCP tools</h2>
+      <p>
+        A dispatch can use the recipient's own MCP servers — their Notion, search, domain
+        tools — without exposing the rest of the machine. No manual setup:
+      </p>
+      <ul>
+        <li>
+          <strong>Auto-discovery.</strong> Your installed MCP servers are discovered automatically
+          from your Claude config (<code>~/.claude.json</code> — user, per-project, and each
+          project's <code>.mcp.json</code>). The dispatch control plane is never exposable.
+        </li>
+        <li>
+          <strong>Pick at invite time.</strong> When someone accepts your invite — or when you edit
+          an edge — you choose which of your servers that sender may use: "Allow all", or a
+          per-server Allow/Don't.
+        </li>
+      </ul>
+      <p>
+        A dispatch is handed only the servers its edge scoped — unscoped servers are never
+        launched, attempted, or even visible to the task. And the task runs on a clean base,
+        so the edge's <code>mcp</code> grant is the entire reachable surface, gated per-call
+        by the approval layer.
+      </p>
+      <div class="page-foot"><a href="#trust-model">← The trust model</a><a href="#cli">The dispatch CLI →</a></div>
+    </section>
+
+    <!-- ══════════ CLI ══════════ -->
+    <section class="page" id="p-cli">
+      <h1>The dispatch CLI</h1>
+      <p class="lede">
+        A thin terminal client for the broker, installed as the <code>dispatch</code> command
+        alongside <code>dispatch-daemon</code>. It reads the broker URL + JWT the daemon saved
+        to <code>~/.dispatch/config.json</code> — once your daemon is set up there's nothing
+        else to configure.
+      </p>
+      <hr class="rule" />
+<pre><code><span class="c"># Setup / lifecycle:</span>
+dispatch login [--broker URL]            <span class="c"># device-code sign-in; saves config</span>
+dispatch update                          <span class="c"># update the package (+ plugin if changed)</span>
+dispatch tray                            <span class="c"># launch the menu-bar tray (hosts the daemon)</span>
+
+<span class="c"># Broker-backed:</span>
+dispatch whoami                          <span class="c"># who am I + which broker</span>
+dispatch contacts                        <span class="c"># trust edges + scopes</span>
+dispatch send &lt;recipient&gt; '&lt;task&gt;'       <span class="c"># create a dispatch (your daemon signs it)</span>
+dispatch sent                            <span class="c"># dispatches I've sent</span>
+dispatch inbox                           <span class="c"># dispatches addressed to me</span>
+dispatch status &lt;id&gt;                     <span class="c"># one dispatch: status + event trace</span>
+dispatch cancel &lt;id&gt;                     <span class="c"># cancel an in-flight dispatch</span>
+dispatch invite &lt;email&gt;                  <span class="c"># invite someone to dispatch to you</span>
+dispatch set-scope &lt;edge&gt; [--tools …]    <span class="c"># edit an edge's permissions</span>
+dispatch revoke &lt;edge&gt;                   <span class="c"># revoke an edge (cancels in-flight)</span>
+
+<span class="c"># Resolved by THIS machine's daemon (loopback API, not the broker):</span>
+dispatch accept &lt;id&gt; | decline &lt;id&gt;      <span class="c"># decide on an inbound dispatch</span>
+dispatch approvals                       <span class="c"># tool calls awaiting allow/deny</span>
+dispatch approve &lt;id&gt; &lt;request_id&gt;       <span class="c"># allow one pending tool call</span>
+dispatch deny &lt;id&gt; &lt;request_id&gt;          <span class="c"># deny one pending tool call</span></code></pre>
+      <p>
+        Add <code>--json</code> to any command for machine-readable output. The CLI never
+        holds a signing key: <code>send</code> needs your daemon online to sign, and
+        <code>accept</code>/<code>approve</code> hit your daemon's loopback API — the daemon
+        ignores decisions relayed by the broker, so a compromised broker can't fabricate your
+        approval.
+      </p>
+      <div class="callout">
+        Accepting a dispatch is not blanket approval: under a manual edge, each tool call
+        still needs <code>dispatch approve</code>/<code>deny</code> — or a click in the local UI.
+      </div>
+      <div class="page-foot"><a href="#scopes">← Scopes</a><a href="#claude-skill">Claude Code skill →</a></div>
+    </section>
+
+    <!-- ══════════ SKILL ══════════ -->
+    <section class="page" id="p-claude-skill">
+      <h1>Claude Code skill</h1>
+      <p class="lede">
+        Drive Dispatch from inside Claude Code with natural language — "dispatch this to
+        Edward", "what's in my dispatch inbox?", "accept that dispatch" — or the
+        <code>/dispatch</code> slash command.
+      </p>
+      <hr class="rule" />
+      <p>
+        The skill is pure instructions; the real work runs through the <code>dispatch</code>
+        CLI it calls. It ships with the plugin, or symlink it manually:
+      </p>
+<pre><code>mkdir -p ~/.claude/skills
+ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch</code></pre>
+      <p>
+        After that, Claude auto-invokes it on the trigger phrases above and walks you through
+        the send / inbox / accept flows — always confirming before it sends or accepts.
+        Tool-call approvals stay in the daemon's local approval UI: the skill points you
+        there rather than approving on your behalf.
+      </p>
+      <div class="page-foot"><a href="#cli">← The dispatch CLI</a><a href="#api">API &amp; signing →</a></div>
+    </section>
+
+    <!-- ══════════ API ══════════ -->
+    <section class="page" id="p-api">
+      <h1>API &amp; signing</h1>
+      <p class="lede">The broker's surface, and what a signature actually covers.</p>
+      <hr class="rule" />
+
+      <h2>HTTP</h2>
+      <table>
+        <tr><th>Verb</th><th>Path</th><th>Purpose</th></tr>
+        <tr><td><code>POST</code></td><td><code>/auth/device → /approve → /token</code></td><td>Device-code flow for the CLI (<code>dispatch login</code>).</td></tr>
+        <tr><td><code>POST</code></td><td><code>/devices/enroll</code></td><td>Register a device public key.</td></tr>
+        <tr><td><code>POST / GET</code></td><td><code>/invitations</code></td><td>Send / list invitations.</td></tr>
+        <tr><td><code>GET</code></td><td><code>/trust</code></td><td>My contacts (accepted edges + scopes).</td></tr>
+        <tr><td><code>PATCH / DELETE</code></td><td><code>/trust/{id}</code></td><td>Edit scopes (trustor only) / revoke.</td></tr>
+        <tr><td><code>POST</code></td><td><code>/dispatch</code> · <code>/dispatch/{id}/cancel</code></td><td>Create / cancel a dispatch.</td></tr>
+        <tr><td><code>GET</code></td><td><code>/dispatch/{id}</code>, <code>/dispatches</code></td><td>Record / history.</td></tr>
+        <tr><td><code>GET</code></td><td><code>/install.sh</code> · <code>/health</code></td><td>The daemon installer · liveness + DB check.</td></tr>
+      </table>
+
+      <h2>WebSockets</h2>
+      <ul>
+        <li>
+          <code>/agent/connect</code> — the daemon. Broker → daemon: <code>new_dispatch</code>,
+          <code>sign_request</code>, <code>cancel_dispatch</code>. Daemon → broker: <code>signed</code>,
+          <code>dispatch_status</code>, <code>dispatch_event</code>. Approval frames are deliberately
+          not on this socket — Layer 3 resolves on the daemon's own loopback API.
+        </li>
+        <li><code>/inbox</code> — the recipient's browser; streams inbox + per-dispatch events.</li>
+        <li><code>/dispatch/{id}/watch</code> — the sender's browser; streams events.</li>
+      </ul>
+
+      <h2>Signing</h2>
+      <p>
+        The signed canonical payload (deterministic sorted-key JSON) covers:
+        <code>instruction</code>, <code>sender_device</code>, <code>recipient_user</code>,
+        <code>target_device</code>, <code>nonce</code>, <code>created_at</code>.
+      </p>
+      <p>
+        The sender's daemon signs it (Ed25519); the recipient's daemon rebuilds the identical
+        bytes and verifies against the sender device's public key — pinned on first sight in
+        <code>~/.dispatch/pins.json</code>, so the broker can't swap a key later. Replay is
+        caught by a durable per-(device, nonce) guard that persists across restarts; a 30-day
+        freshness window bounds staleness while still letting a dispatch wait in the offline
+        queue for a recipient who's away.
+      </p>
+      <div class="page-foot"><a href="#claude-skill">← Claude Code skill</a><a href="#security">Security model →</a></div>
+    </section>
+
+    <!-- ══════════ SECURITY ══════════ -->
+    <section class="page" id="p-security">
+      <h1>Security model</h1>
+      <p class="lede">What the design guarantees — and its honest limitations.</p>
+      <hr class="rule" />
+
+      <h2>What the design does guarantee</h2>
+      <ul>
+        <li>No dispatch runs without an accepted, in-scope, unexpired trust edge.</li>
+        <li>A dispatch is cryptographically tied to a device of the named sender; a compromised broker cannot forge a sender or swap a pinned key.</li>
+        <li>The agent is confined to the edge's tools and (when set) path allowlist.</li>
+        <li>Revocation is immediate and cancels in-flight work.</li>
+      </ul>
+
+      <h2>What it does not — known limitations</h2>
+      <ul>
+        <li>
+          <strong>Signing proves origin, not authorship.</strong> Because composing happens in the
+          browser and the daemon signs what's relayed, a fully-compromised broker could get a
+          sender's daemon to sign a task the sender didn't type. Closing this needs a trusted
+          compose surface — composing in the daemon.
+        </li>
+        <li>
+          <strong>Key pinning is TOFU.</strong> A broker compromised before a device's first
+          contact could seed a wrong key. Pin-at-trust-establishment would harden it.
+        </li>
+        <li>
+          <strong>Bash is not path-checkable.</strong> The paths allowlist is enforced on
+          Read/Write/Edit/Glob/Grep; granting Bash grants shell, full stop.
+        </li>
+        <li>
+          <strong>No end-to-end encryption.</strong> The broker relays plaintext instructions.
+          E2E (libsodium sealed boxes) is deferred.
+        </li>
+        <li>
+          The replay-nonce guard is durable, so the 30-day freshness window doesn't widen
+          replay exposure — but a signed dispatch stays valid for delivery up to 30 days,
+          by design (offline queue).
+        </li>
+      </ul>
+      <div class="callout warn">
+        Want the full threat model?
+        <a href="mailto:castrumai@gmail.com?subject=Dispatch%20threat%20model">Ask for it</a> —
+        we'll send the design document.
+      </div>
+      <div class="page-foot"><a href="#api">← API &amp; signing</a><a href="#troubleshooting">Troubleshooting →</a></div>
+    </section>
+
+    <!-- ══════════ TROUBLESHOOTING ══════════ -->
+    <section class="page" id="p-troubleshooting">
+      <h1>Troubleshooting</h1>
+      <p class="lede">The failures you'll actually hit, and what they mean.</p>
+      <hr class="rule" />
+      <table>
+        <tr><th>Symptom</th><th>What to check</th></tr>
+        <tr><td><code>ModuleNotFoundError: dispatch</code></td><td>Broker: run with <code>--app-dir src</code>. Daemon: <code>python -m dispatch.daemon</code> from the repo root, or use the installed <code>dispatch-daemon</code>.</td></tr>
+        <tr><td><code>database: down</code> from /health</td><td><code>DATABASE_URL</code> unset or unreachable.</td></tr>
+        <tr><td>Daemon handshake failed / 1008</td><td>Token invalid/expired, or the broker has a different <code>DISPATCH_JWT_SECRET</code> than issued the token.</td></tr>
+        <tr><td><code>POST /dispatch → 403</code></td><td>No accepted trust edge to that recipient. Invite them and have them accept first.</td></tr>
+        <tr><td><code>POST /dispatch → 503</code></td><td>Your own daemon is offline; it has to sign.</td></tr>
+        <tr><td><code>SignatureRejected</code></td><td>Signature/nonce/freshness failed, or the sender device's key changed since it was pinned.</td></tr>
+        <tr><td>Recipient's inbox empty</td><td>Their daemon must be connected and they must be signed in to the broker as the same user.</td></tr>
+      </table>
+      <div class="page-foot"><a href="#security">← Security model</a><span></span></div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  const links = Array.from(document.querySelectorAll("#side a[data-page]"));
+  const pages = Array.from(document.querySelectorAll(".page"));
+  const DEFAULT = "what-is-dispatch";
+
+  function show(name) {
+    const page = document.getElementById("p-" + name) ? name : DEFAULT;
+    pages.forEach(p => p.classList.toggle("on", p.id === "p-" + page));
+    links.forEach(a => a.classList.toggle("on", a.dataset.page === page));
+    window.scrollTo(0, 0);
+    document.title = (document.querySelector("#p-" + page + " h1")?.textContent || "Docs") + " — Dispatch";
+  }
+
+  window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || DEFAULT);
+})();
+</script>
+
+</body>
+</html>
