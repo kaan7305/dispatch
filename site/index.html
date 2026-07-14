@@ -2166,9 +2166,33 @@
     letter-spacing: -0.01em;
     color: #F6F5F1;
     max-width: 640px;
-    flex: 1;
   }
+  /* the run itself, replayed as a small event log */
+  .us-feed {
+    background: #101010;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    padding: 13px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .us-line {
+    display: flex; align-items: baseline; gap: 11px;
+    font-family: var(--mono);
+    font-size: 12px; line-height: 1.5;
+    color: #B9B7B0;
+    opacity: 0; transform: translateY(4px);
+    transition: opacity 300ms, transform 300ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .us-line.show { opacity: 1; transform: none; }
+  .us-line .mk { width: 13px; flex-shrink: 0; text-align: center; font-weight: 700; }
+  .us-line.run .mk { color: #E5B567; }
+  .us-line.ok .mk { color: #5DBB63; }
+  .us-line.err .mk { color: #E0716C; }
+  .us-line.ask .mk { color: #8AB8DC; }
+  .us-line.deny .mk { color: #E0716C; }
+  .us-line.ask span:last-child { color: #D6D4CE; }
   .uc-result {
+    margin-top: auto;
     border-left: 2px solid #2E7D3A;
     background: rgba(255,255,255,0.045);
     border-radius: 0 8px 8px 0;
@@ -2819,6 +2843,21 @@
     .hood-item.on { border-bottom-color: var(--nt-strong); }
   }
 
+  /* the room's own timeline — hero language, on the light canvas */
+  .room-steps { margin-bottom: 16px; flex-wrap: wrap; row-gap: 6px; }
+  .room-steps li { font-size: 11px; color: var(--muted); gap: 4px; }
+  .room-steps li:not(.sep-holder) { cursor: default; }
+  .room-steps li:not(.sep-holder):hover { color: var(--muted); }
+  .room-steps li.cur { color: var(--ink-strong); }
+  .room-steps li.done { color: var(--ink); }
+  .room-steps li .n {
+    width: 18px; height: 18px; font-size: 9px;
+    background: var(--card); border-color: var(--hairline); color: var(--muted);
+  }
+  .room-steps li.cur .n { background: var(--ink-strong); border-color: var(--ink-strong); color: #fff; }
+  .room-steps li.done .n { background: var(--pale-green); border-color: transparent; color: var(--green-ink); }
+  .room-steps li.sep-holder { background: var(--hairline); margin: 0 6px; min-width: 4px; }
+
   /* the broker stays in the story, not on the canvas — lanes + packets remain */
   .broker-node, .broker-caption, .broker-checks, .relay-feed, .broker-note { display: none; }
 
@@ -3162,25 +3201,28 @@
             <button class="abtn" id="workshop-send">Send to 50</button>
           </div>
           <div class="fanout-note">One signature. The broker fans it out —<br/>it can't add a single name to the list.</div>
-          <div class="scoreboard" id="scoreboard" style="display:none;">
-            <div class="score-head"><span>Scoreboard</span><span id="score-count">0 in</span></div>
-            <div class="score-rows" id="score-rows"></div>
-          </div>
         </div>
 
         <!-- the room -->
         <div class="classroom">
           <div class="room-left">
-            <div class="task-steps">
-              <span><b>1</b> clone</span>
-              <span><b>2</b> venv</span>
-              <span><b>3</b> install</span>
-              <span><b>4</b> dataset</span>
-              <span><b>5</b> prepare</span>
-              <span><b>6</b> train</span>
-              <span><b>7</b> evaluate</span>
-              <span><b>8</b> reply score</span>
-            </div>
+            <ol class="steps room-steps" id="room-steps">
+              <li><span class="n">1</span><span class="lbl">clone</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">2</span><span class="lbl">venv</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">3</span><span class="lbl">install</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">4</span><span class="lbl">dataset</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">5</span><span class="lbl">prepare</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">6</span><span class="lbl">train</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">7</span><span class="lbl">evaluate</span></li>
+              <li class="sep-holder"></li>
+              <li><span class="n">8</span><span class="lbl">reply score</span></li>
+            </ol>
             <div class="class-grid" id="class-grid"></div>
             <div class="class-stats">
               <span class="stat"><span class="stat-dot done"></span><b id="st-done">0</b> replied with a score</span>
@@ -3436,6 +3478,7 @@
         </div>
         <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
         <div class="uc-steps" id="us-steps"></div>
+        <div class="us-feed" id="us-feed"></div>
         <div class="uc-result" id="us-result">Done — test call works.</div>
       </div>
     </div>
@@ -4871,9 +4914,6 @@ const roomFeedEl = document.getElementById("room-feed");
 const seatInspect = document.getElementById("seat-inspect");
 const stMed = document.getElementById("st-med");
 const stMedV = document.getElementById("st-med-v");
-const scoreboardEl = document.getElementById("scoreboard");
-const scoreCount = document.getElementById("score-count");
-const scoreRows = document.getElementById("score-rows");
 
 const SEAT_NAMES = ["Ada","Ben","Chloe","Deniz","Ege","Farah","Gus","Hana","Idil","Jon",
   "Kerem","Lena","Mert","Nora","Omar","Pia","Quinn","Rosa","Sam","Tuna",
@@ -4977,6 +5017,7 @@ function seatStep(i, step, feedChance, token) {
   if (m.status !== "running") return;
   m.step = step;
   m.el.style.setProperty("--p", step / TOTAL_STEPS);
+  updateRoomSteps();
   if (WS_STEPS[step - 1] && Math.random() < feedChance) {
     feedLine(`${m.name} · ${WS_STEPS[step - 1].feed}`);
   }
@@ -5043,6 +5084,21 @@ document.addEventListener("pointerdown", (e) => {
   }
 });
 
+const roomStepEls = Array.from(document.querySelectorAll("#room-steps li:not(.sep-holder)"));
+function updateRoomSteps() {
+  const act = seatMeta.filter(m => m.status === "running" || m.status === "done" || m.status === "stuck");
+  if (!act.length) { roomStepEls.forEach(li => li.classList.remove("cur", "done")); return; }
+  let cur = -1;
+  roomStepEls.forEach((li, i) => {
+    const passed = act.filter(m => (m.status === "done" ? TOTAL_STEPS : m.step) >= i + 1).length / act.length;
+    const done = passed >= 0.55;
+    li.classList.toggle("done", done);
+    if (!done && cur === -1) cur = i;
+  });
+  const live = seatMeta.some(m => m.status === "running" || m.status === "pending" || m.status === "stuck");
+  roomStepEls.forEach((li, i) => li.classList.toggle("cur", live && i === cur));
+}
+
 function tallyScale() {
   const done = classGrid.querySelectorAll(".seat.done").length;
   const dec = classGrid.querySelectorAll(".seat.declined").length;
@@ -5054,6 +5110,7 @@ function tallyScale() {
   document.getElementById("st-stuck").textContent = stuck;
   document.getElementById("st-stuck-wrap").style.display = stuck > 0 ? "inline-flex" : "none";
   classBar.style.width = (done / SEAT_COUNT * 100) + "%";
+  updateRoomSteps();
 }
 
 /* the click handler for "Send fix" inside an inspector — bound to the live run */
@@ -5089,9 +5146,6 @@ async function runScale() {
   inspectOpen = -1;
   roomFeedEl.innerHTML = "";
   stMed.style.display = "none";
-  scoreboardEl.style.display = "none";
-  scoreRows.innerHTML = "";
-  scoreCount.textContent = "0 in";
   document.getElementById("scale-cta").style.display = "none";
   workshopSend.disabled = false;
   stDone.textContent = "0";
@@ -5113,26 +5167,13 @@ async function runScale() {
   workshopSend.classList.add("burst");
   setTimeout(() => workshopSend.classList.remove("burst"), 600);
   feedLine("1 dispatch → 50 machines · signed once", "hl");
-  scoreboardEl.style.display = "block";
 
   const seats = Array.from(classGrid.children);
   const durations = [];
 
   /* the instructor's scoreboard: replies rank themselves as they land */
   const results = [];
-  function addResult(m) {
-    results.push(m);
-    scoreCount.textContent = `${results.length} in`;
-    const sorted = [...results].sort((a, b) => parseFloat(b.score) - parseFloat(a.score));
-    let h = sorted.slice(0, 5).map((r, idx) =>
-      `<div class="score-row${r.name === "you" ? " you-row" : ""}"><span class="rank">${idx + 1}</span><span class="nm">${r.name}</span><span class="sc">${r.score}%</span></div>`
-    ).join("");
-    const yi = sorted.findIndex(r => r.name === "you");
-    if (yi >= 5) {
-      h += `<div class="score-row you-row"><span class="rank">${yi + 1}</span><span class="nm">you</span><span class="sc">${sorted[yi].score}%</span></div>`;
-    }
-    scoreRows.innerHTML = h;
-  }
+  function addResult(m) { results.push(m); }
 
   /* outcomes: two decline, one expires, one retries, two get stuck and need help */
   const others = seats.map((_, i) => i).filter(i => i !== YOU_SEAT);
@@ -5405,23 +5446,55 @@ scaleObs.observe(classGrid);
 const USES = [
   { route: "kaan → dad's mac",
     quote: "Update Zoom before your call tonight.",
-    steps: [], result: "Done — test call works.", declined: false },
+    steps: [],
+    feed: [
+      { k: "run",  txt: "curl -O zoom.us/client/6.1.4/Zoom.pkg" },
+      { k: "ask",  txt: "installer needs admin — dad taps Allow" },
+      { k: "ok",   txt: "Zoom 6.1.4 installed · test call connects" },
+    ],
+    result: "Done — test call works.", declined: false },
   { route: "ege → kaan's mac",
     quote: "Run pytest on your machine — the bug only happens there.",
-    steps: [], result: "Trace attached — it's the locale.", declined: false },
+    steps: [],
+    feed: [
+      { k: "run",  txt: "pytest tests/test_dates.py -x" },
+      { k: "err",  txt: "FAILED — ValueError: day is out of range" },
+      { k: "ok",   txt: "repro'd with LC_TIME=tr_TR — locale, not code" },
+    ],
+    result: "Trace attached — it's the locale.", declined: false },
   { route: "maya → lab workstation",
     quote: "Run the survey query — send me only the totals.",
-    steps: [], result: "Totals sent. The dataset stayed on the workstation.", declined: false },
+    steps: [],
+    feed: [
+      { k: "run",  txt: "duckdb survey.db \"SELECT region, sum(n)…\"" },
+      { k: "ok",   txt: "9 rows → totals.csv" },
+      { k: "ok",   txt: "48,112 raw rows never leave the machine" },
+    ],
+    result: "Totals sent. The dataset stayed on the workstation.", declined: false },
   { route: "ops → jeff's office box",
     quote: "Restart the staging service real quick.",
-    steps: [], result: "“Not tonight — rewiring the rack.”", declined: true },
+    steps: [],
+    feed: [
+      { k: "ask",  txt: "restart staging? — waiting on Jeff" },
+      { k: "deny", txt: "Jeff declines — “rewiring the rack”" },
+      { k: "ok",   txt: "nothing ran · ops saw the no instantly" },
+    ],
+    result: "“Not tonight — rewiring the rack.”", declined: true },
   { route: "deniz → build mac",
     quote: "Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.",
     steps: ["build 2.4.0", "notarize", "upload · 3 artifacts", "checksum → thread"],
+    feed: [
+      { k: "ok",   txt: "notarization ticket stapled · Gatekeeper ✓" },
+      { k: "ok",   txt: "sha256 9f3c1a… posted to the thread" },
+    ],
     result: "2.4.0 live. Checksum posted — verify before you announce.", declined: false },
   { route: "tara → 30 student macs",
     quote: "Collect assignment.zip from every student, run the autograder, post scores to the sheet.",
     steps: ["collect 30 zips", "autograde", "post scores", "2 missing → threads"],
+    feed: [
+      { k: "run",  txt: "30 dispatches → 30 inboxes · signed once" },
+      { k: "ok",   txt: "28 zips in · autograded · mean 84.2" },
+    ],
     result: "28 graded and posted. 2 missing files — follow-up threads opened with both.", declined: false },
 ];
 
@@ -5430,6 +5503,7 @@ const usRoute = document.getElementById("us-route");
 const usBadge = document.getElementById("us-badge");
 const usQuote = document.getElementById("us-quote");
 const usSteps = document.getElementById("us-steps");
+const usFeed = document.getElementById("us-feed");
 const usResult = document.getElementById("us-result");
 let usToken = 0;
 let usAuto = null;
@@ -5452,21 +5526,29 @@ async function usShow(i) {
   usSteps.style.display = u.steps.length ? "flex" : "none";
   const chips = u.steps.map(s => el(`<span class="uc-step">${s}</span>`));
   chips.forEach(c => usSteps.appendChild(c));
+  const MK = { run: "$", ok: "✓", err: "!", ask: "?", deny: "✕" };
+  usFeed.innerHTML = "";
+  const lines = (u.feed || []).map(f =>
+    el(`<div class="us-line ${f.k}"><span class="mk">${MK[f.k]}</span><span>${f.txt}</span></div>`));
+  lines.forEach(l => usFeed.appendChild(l));
+  usFeed.style.display = lines.length ? "flex" : "none";
 
-  await sleep(900); if (tok !== usToken) return;
+  await sleep(700); if (tok !== usToken) return;
+  if (!u.declined) { usBadge.className = "badge running"; usBadge.textContent = "Running"; }
+  /* the pipeline chips first, then the log replays underneath */
+  for (const c of chips) {
+    c.classList.add("act");
+    await sleep(650); if (tok !== usToken) return;
+    c.classList.remove("act"); c.classList.add("on");
+  }
+  for (const [n, l] of lines.entries()) {
+    await sleep(n ? 700 : 350); if (tok !== usToken) return;
+    l.classList.add("show");
+  }
+  await sleep(350); if (tok !== usToken) return;
   if (u.declined) {
     usBadge.className = "badge destructive"; usBadge.textContent = "Rejected";
   } else {
-    usBadge.className = "badge running"; usBadge.textContent = "Running";
-    if (chips.length) {
-      for (const c of chips) {
-        c.classList.add("act");
-        await sleep(800); if (tok !== usToken) return;
-        c.classList.remove("act"); c.classList.add("on");
-      }
-    } else {
-      await sleep(1500); if (tok !== usToken) return;
-    }
     usBadge.className = "badge success"; usBadge.textContent = "Completed";
   }
   usResult.classList.add("show");
