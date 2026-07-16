@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Dispatch — Documentation</title>
-<meta name="description" content="Dispatch documentation — a peer-to-peer courier for agentic work." />
+<title>Talaria — Documentation</title>
+<meta name="description" content="Talaria documentation — a peer-to-peer courier for agentic work." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F0F0D'/%3E%3Cpath d='M29 4 C17 4.5 7.5 11 3.5 27 C7 25.5 9 24.5 11.5 22.5 L10 21.5 C12.5 21 15 19.8 17.3 18 L15.2 16.8 C18 15.8 20.8 13.8 23 11.2 L20.8 10.4 C24 8.6 27 6.5 29 4 Z' fill='%23F6F5F1'/%3E%3C/svg%3E" />
 <style>
   :root {
     --night: #0F0F0D;
@@ -44,7 +45,8 @@
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--line);
   }
-  .wordmark { font-family: var(--serif); font-size: 21px; color: var(--strong); letter-spacing: -0.02em; }
+  .wordmark { display: inline-flex; align-items: center; gap: 9px; font-family: var(--serif); font-size: 21px; color: var(--strong); letter-spacing: -0.02em; }
+  .wm-mark { width: 19px; height: 19px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
   .top-links { display: flex; align-items: center; gap: 22px; font-family: var(--sans); font-size: 13px; }
   .top-links a { color: var(--muted); }
@@ -217,18 +219,18 @@
 <body>
 
 <header>
-  <a class="wordmark" href="index.html">Dispatch<em>.</em></a>
+  <a class="wordmark" href="index.html"><svg class="wm-mark" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M29 4 C17 4.5 7.5 11 3.5 27 C7 25.5 9 24.5 11.5 22.5 L10 21.5 C12.5 21 15 19.8 17.3 18 L15.2 16.8 C18 15.8 20.8 13.8 23 11.2 L20.8 10.4 C24 8.6 27 6.5 29 4 Z"/></svg>Talaria</a>
   <div class="top-links">
     <a href="index.html">Home</a>
     <a href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
-    <a href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Get an invite</a>
+    <a href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
   </div>
 </header>
 
 <div class="docs">
   <nav class="side" id="side">
     <div class="side-group">Start</div>
-    <a href="#what-is-dispatch" data-page="what-is-dispatch">What is Dispatch?</a>
+    <a href="#what-is-dispatch" data-page="what-is-dispatch">What is Talaria?</a>
     <a href="#quickstart" data-page="quickstart">Quickstart</a>
     <a href="#running-the-broker" data-page="running-the-broker">Running the broker</a>
 
@@ -250,9 +252,9 @@
 
     <!-- ══════════ WHAT IS DISPATCH ══════════ -->
     <section class="page" id="p-what-is-dispatch">
-      <h1>What is Dispatch?</h1>
+      <h1>What is Talaria?</h1>
       <p class="lede">
-        Dispatch is a peer-to-peer courier for agentic work. One person describes a task in
+        Talaria is a peer-to-peer courier for agentic work. One person describes a task in
         natural language and names a recipient; the recipient's machine runs it with a local
         AI agent — but only if the two people have an explicit, scoped, revocable trust
         relationship, the dispatch is cryptographically signed by the sender's device, and
@@ -301,7 +303,7 @@
 
       <h2>A) Via Claude Code — the low-friction default</h2>
       <p>
-        Install the Dispatch plugin for Claude Code. It bundles the <code>/dispatch</code> skill and an
+        Install the Talaria plugin for Claude Code. It bundles the <code>/dispatch</code> skill and an
         MCP server that Claude Code launches each session. On startup it checks for a running
         daemon and, if there isn't one, spawns it detached.
       </p>
@@ -351,7 +353,7 @@ dispatch login --broker https://your-broker
         Revoke a contact any time — it cancels anything in flight on that edge and refuses
         new dispatches immediately.
       </p>
-      <div class="page-foot"><a href="#what-is-dispatch">← What is Dispatch?</a><a href="#running-the-broker">Running the broker →</a></div>
+      <div class="page-foot"><a href="#what-is-dispatch">← What is Talaria?</a><a href="#running-the-broker">Running the broker →</a></div>
     </section>
 
     <!-- ══════════ RUNNING THE BROKER ══════════ -->
@@ -539,7 +541,7 @@ dispatch deny &lt;id&gt; &lt;request_id&gt;          <span class="c"># deny one 
     <section class="page" id="p-claude-skill">
       <h1>Claude Code skill</h1>
       <p class="lede">
-        Drive Dispatch from inside Claude Code with natural language — "dispatch this to
+        Drive Talaria from inside Claude Code with natural language — "dispatch this to
         Edward", "what's in my dispatch inbox?", "accept that dispatch" — or the
         <code>/dispatch</code> slash command.
       </p>
@@ -649,7 +651,7 @@ ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch</code></pre>
       </ul>
       <div class="callout warn">
         Want the full threat model?
-        <a href="mailto:castrumai@gmail.com?subject=Dispatch%20threat%20model">Ask for it</a> —
+        <a href="mailto:castrumai@gmail.com?subject=Talaria%20threat%20model">Ask for it</a> —
         we'll send the design document.
       </div>
       <div class="page-foot"><a href="#api">← API &amp; signing</a><a href="#troubleshooting">Troubleshooting →</a></div>
@@ -687,7 +689,7 @@ ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch</code></pre>
     pages.forEach(p => p.classList.toggle("on", p.id === "p-" + page));
     links.forEach(a => a.classList.toggle("on", a.dataset.page === page));
     window.scrollTo(0, 0);
-    document.title = (document.querySelector("#p-" + page + " h1")?.textContent || "Docs") + " — Dispatch";
+    document.title = (document.querySelector("#p-" + page + " h1")?.textContent || "Docs") + " — Talaria";
   }
 
   window.addEventListener("hashchange", () => show(location.hash.slice(1)));

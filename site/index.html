@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dispatch — send a task to a machine you trust</title>
+<title>Talaria — send a task to a machine you trust</title>
 <meta name="description" content="Describe a task in plain language and name someone you know. Their machine runs it with a local AI agent — signed by your device, scoped by them, approved by hand." />
-<meta property="og:title" content="Dispatch — send a task to a machine you trust" />
+<meta property="og:title" content="Talaria — send a task to a machine you trust" />
 <meta property="og:description" content="A peer-to-peer courier for agentic work. Their machine does the work — with their say-so." />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
-<meta name="theme-color" content="#F7F6F3" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'%3E%3Crect width='28' height='28' rx='7' fill='%23111111'/%3E%3Ccircle cx='6.5' cy='14' r='2.3' fill='none' stroke='%23F7F6F3' stroke-width='1.5'/%3E%3Ccircle cx='21.5' cy='14' r='2.3' fill='none' stroke='%23F7F6F3' stroke-width='1.5'/%3E%3Ccircle cx='14' cy='14' r='3.2' fill='%23F7F6F3'/%3E%3C/svg%3E" />
+<meta name="theme-color" content="#0F0F0D" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F0F0D'/%3E%3Cpath d='M29 4 C17 4.5 7.5 11 3.5 27 C7 25.5 9 24.5 11.5 22.5 L10 21.5 C12.5 21 15 19.8 17.3 18 L15.2 16.8 C18 15.8 20.8 13.8 23 11.2 L20.8 10.4 C24 8.6 27 6.5 29 4 Z' fill='%23F6F5F1'/%3E%3C/svg%3E" />
 <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
 <style>html { color-scheme: light; }</style>
 <style>
@@ -103,12 +103,14 @@
     padding: 18px 0;
   }
   .wordmark {
+    display: inline-flex; align-items: center; gap: 9px;
     font-family: var(--serif);
     font-size: 22px;
     letter-spacing: -0.02em;
     color: var(--ink-strong);
     text-decoration: none;
   }
+  .wm-mark { width: 20px; height: 20px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
   nav a {
     font-size: 13px;
@@ -2975,14 +2977,14 @@
 
 <header>
   <div class="wrap header-row">
-    <a class="wordmark" href="#">Dispatch<em>.</em></a>
+    <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M29 4 C17 4.5 7.5 11 3.5 27 C7 25.5 9 24.5 11.5 22.5 L10 21.5 C12.5 21 15 19.8 17.3 18 L15.2 16.8 C18 15.8 20.8 13.8 23 11.2 L20.8 10.4 C24 8.6 27 6.5 29 4 Z"/></svg>Talaria</a>
     <nav>
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
       <a href="#parts">Under the hood</a>
       <a href="docs.html">Docs</a>
-      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Get an invite</a>
+      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
     </nav>
   </div>
 </header>
@@ -2993,11 +2995,11 @@
     <div class="hero-copy">
       <h1 class="reveal">Send a task to a person.<br/>Their machine does the work — <em>with their say-so.</em></h1>
       <div class="cta-row reveal">
-        <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation&body=I'd%20like%20an%20invite.">Get Started</a>
+        <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation&body=I'd%20like%20an%20invite.">Get Started</a>
         <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
       </div>
       <div class="onboard-box reveal">
-        <code id="onboard-cmd">Onboard me to Dispatch locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
+        <code id="onboard-cmd">Onboard me to Talaria locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
         <button class="onboard-copy" id="onboard-copy" aria-label="Copy to clipboard" title="Copy">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
         </button>
@@ -3034,7 +3036,7 @@
         </div>
         <div class="app">
           <div class="app-topbar">
-            <span class="brand">Dispatch</span>
+            <span class="brand">Talaria</span>
             <div class="app-search">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
               <span>Search dispatches and people</span>
@@ -3115,13 +3117,13 @@
         <div class="notif" id="recipient-notif">
           <span class="app-ic">D</span>
           <div>
-            <div class="t">Dispatch</div>
+            <div class="t">Talaria</div>
             <div class="b">kaan@castrum.ai sent a task — needs your approval</div>
           </div>
         </div>
         <div class="app">
           <div class="app-topbar">
-            <span class="brand">Dispatch</span>
+            <span class="brand">Talaria</span>
             <div class="app-search">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
               <span>Search dispatches and people</span>
@@ -3180,7 +3182,7 @@
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="replay-btn">Replay</button>
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
-      <a class="btn btn-primary demo-cta" id="demo-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Want this between real machines? Get an invite</a>
+      <a class="btn btn-primary demo-cta" id="demo-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Want this between real machines? Get an invite</a>
     </div>
     </div>
   </div>
@@ -3275,7 +3277,7 @@
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="scale-replay">Replay</button>
       <div class="demo-status" id="scale-status">Fifty machines, one task — watch the room decide.</div>
-      <a class="btn btn-primary demo-cta" id="scale-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20invitation">Run a real workshop like this — get an invite</a>
+      <a class="btn btn-primary demo-cta" id="scale-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Run a real workshop like this — get an invite</a>
     </div>
   </div>
 </section>
@@ -3464,7 +3466,7 @@
   <div class="wrap-wide">
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="bnd-replay">Replay</button>
-      <a class="btn btn-primary demo-cta" id="bnd-cta" href="mailto:castrumai@gmail.com?subject=Dispatch%20cross-org">Bridge two orgs like this — get an invite</a>
+      <a class="btn btn-primary demo-cta" id="bnd-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20cross-org">Bridge two orgs like this — get an invite</a>
       <div class="demo-status" id="bnd-status">Compose a dispatch on the left — it starts on scroll.</div>
     </div>
   </div>
@@ -3656,7 +3658,7 @@
         <!-- App: a dispatch lands, ripens, completes -->
         <div class="hood-pane">
           <div class="ha-window">
-            <div class="ha-titlebar"><span class="mdots"><i></i><i></i><i></i></span><span class="ha-title">Dispatch — Inbox</span></div>
+            <div class="ha-titlebar"><span class="mdots"><i></i><i></i><i></i></span><span class="ha-title">Talaria — Inbox</span></div>
             <div class="ha-body">
               <div class="ha-row new">
                 <span class="ha-av">KA</span>
