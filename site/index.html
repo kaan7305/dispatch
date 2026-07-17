@@ -1460,117 +1460,79 @@
   .room-left { min-width: 0; }
   .class-grid {
     display: grid;
-    grid-template-columns: repeat(10, minmax(0, 1fr));
-    gap: 9px;
-    max-width: 660px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 34px;
+    row-gap: 2px;
+    max-width: 640px;
   }
-  @media (max-width: 640px) { .class-grid { grid-template-columns: repeat(7, 1fr); } }
+  @media (max-width: 640px) {
+    .class-grid { grid-template-columns: 1fr; max-height: 420px; overflow-y: auto; }
+  }
 
-  /* each seat is a miniature Dispatch window — the product, 50 times over */
+  /* each seat is one line of the roster — the room, row by row */
   .seat {
     position: relative;
-    background: var(--card);
-    border: 1px solid var(--hairline);
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 7px;
     border-radius: 6px;
     cursor: pointer;
     user-select: none;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    transition: box-shadow 350ms, transform 350ms cubic-bezier(0.34,1.56,0.64,1), border-color 350ms, opacity 350ms;
+    font-family: var(--mono);
+    transition: background 250ms, opacity 350ms;
   }
-  .seat:hover { transform: scale(1.12); z-index: 3; }
-  .seat .stb {
-    display: flex; align-items: center; gap: 2.5px;
-    padding: 3.5px 5px;
-    background: #FBFBFA;
-    border-bottom: 1px solid var(--hairline);
-    border-radius: 5px 5px 0 0;
+  .seat:hover { background: rgba(17,17,17,0.05); }
+  .seat .st-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #D9D8D4; flex-shrink: 0;
+    transition: background 300ms;
   }
-  .seat .stb i { width: 3px; height: 3px; border-radius: 50%; background: #D9D8D4; flex-shrink: 0; }
-  .seat .stb span {
-    margin-left: 2px; min-width: 0;
-    font-family: var(--mono); font-size: 7px; color: var(--muted);
+  .seat .st-nm {
+    font-size: 11.5px; color: var(--ink);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .seat .sbd {
-    position: relative; height: 24px;
-    display: grid; place-items: center;
-    border-radius: 0 0 5px 5px;
-    background: var(--card);
-    transition: background 350ms;
+  .seat .st-lead {
+    flex: 1; min-width: 10px;
+    border-bottom: 1px dotted rgba(17,17,17,0.16);
+    transform: translateY(2px);
   }
-  .seat .sic { font-size: 10px; font-weight: 700; line-height: 1; }
-  .seat .sprog {
-    position: absolute; left: 5px; right: 5px; bottom: 3px; height: 2.5px;
-    border-radius: 2px; background: rgba(22,163,74,0.15);
-    opacity: 0; transition: opacity 250ms;
+  .seat .st-bar {
+    width: 56px; height: 3px; border-radius: 2px;
+    background: rgba(22,163,74,0.15);
+    display: none; flex-shrink: 0;
   }
-  .seat .sprog i {
+  .seat .st-bar i {
     display: block; height: 100%; border-radius: 2px; background: #16A34A;
     width: calc(var(--p, 0) * 100%);
     transition: width 300ms;
   }
+  .seat .st-val { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
   /* deciding — the ask landed, a person is looking at it */
-  .seat.pending .sbd { background: var(--pale-yellow); }
-  .seat.pending .sic::before { content: "…"; color: var(--yellow-ink); }
-  .seat.pending { animation: seat-think 1.6s ease-in-out infinite; }
-  @keyframes seat-think {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(149,100,0,0.18); }
-    50% { box-shadow: 0 0 0 4px rgba(149,100,0,0.08); }
-  }
-  /* running — the agent works the steps, progress along the bottom */
-  .seat.running { border-color: #BBF7D0; }
-  .seat.running .sprog { opacity: 1; }
-  .seat.running .sic::before { content: "▸"; color: #16A34A; font-size: 9px; }
-  .task-steps {
-    display: flex; gap: 16px; flex-wrap: wrap;
-    margin-bottom: 12px;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted);
-  }
-  .task-steps b {
-    display: inline-grid; place-items: center;
-    width: 15px; height: 15px;
-    border: 1px solid var(--hairline);
-    border-radius: 50%;
-    font-size: 9px; font-weight: 600;
-    margin-right: 5px;
-    background: var(--card);
-    color: var(--ink);
-  }
-  /* done — replied with a score */
-  .seat.done { border-color: #A7DDB5; animation: none; }
-  .seat.done .sbd { background: var(--pale-green); }
-  .seat.done .sic::before { content: "✓"; color: var(--green-ink); }
+  .seat.pending .st-dot { background: #FBBF24; animation: dot-think 1.5s ease-in-out infinite; }
+  .seat.pending .st-val::before { content: "deciding…"; color: var(--yellow-ink); }
+  @keyframes dot-think { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  /* running — progress creeps along the line */
+  .seat.running .st-dot { background: #22C55E; animation: dot-think 1.2s ease-in-out infinite; }
+  .seat.running .st-bar { display: block; }
+  /* done — the score lands (text set by the sim) */
+  .seat.done .st-dot { background: #22C55E; animation: none; }
+  .seat.done .st-val { color: var(--green-ink); font-weight: 600; }
   /* stuck — hit an error, waiting for help */
-  .seat.stuck { border-color: #F5B5B2; animation: stuck-pulse 1.3s ease-in-out infinite; }
-  .seat.stuck .sbd { background: var(--pale-red); }
-  .seat.stuck .sic::before { content: "!"; color: #B91C1C; font-size: 11px; }
-  @keyframes stuck-pulse {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.35); }
-    50% { box-shadow: 0 0 0 6px rgba(239,68,68,0.1); }
-  }
-  /* declined — a person said no */
-  .seat.declined { border-color: #E8C6C4; animation: none; }
-  .seat.declined .sbd { background: var(--pale-red); }
-  .seat.declined .sic::before { content: "×"; color: var(--red-ink); font-size: 11px; }
-  /* expired — never answered */
-  .seat.expired { animation: none; opacity: 0.62; }
-  .seat.expired .sic::before { content: "—"; color: #A7A6A2; }
+  .seat.stuck .st-dot { background: #EF4444; animation: dot-think 0.9s ease-in-out infinite; }
+  .seat.stuck .st-val::before { content: "stuck — help"; color: #B91C1C; font-weight: 600; }
+  /* declined / expired */
+  .seat.declined .st-dot { background: #FCA5A5; animation: none; }
+  .seat.declined .st-val::before { content: "said no"; color: var(--red-ink); }
+  .seat.expired { opacity: 0.55; }
+  .seat.expired .st-val::before { content: "expired"; }
 
-  .seat.you {
-    border-color: var(--ink-strong);
-    box-shadow: 0 0 0 1.5px var(--ink-strong);
-    z-index: 2;
-  }
-  .seat.you::before {
-    content: "you";
-    position: absolute;
-    top: -17px; left: 50%;
-    transform: translateX(-50%);
-    font-size: 9px; font-weight: 600;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--ink-strong);
+  .seat.you { background: var(--pale-yellow); }
+  .seat.you:hover { background: var(--pale-yellow); }
+  .seat.you .st-nm { color: var(--ink-strong); font-weight: 700; }
+  .seat.you .st-nm::after {
+    content: "YOU";
+    margin-left: 7px;
+    font-size: 8px; font-weight: 700; letter-spacing: 0.1em;
+    color: var(--yellow-ink);
   }
 
   .class-stats {
@@ -4964,8 +4926,7 @@ function buildRoom() {
       ? "you"
       : SEAT_NAMES[i % SEAT_NAMES.length] + (i >= SEAT_NAMES.length ? " K." : "");
     const seat = el(`<div class="seat${i === YOU_SEAT ? " you" : ""}" data-i="${i}">
-      <div class="stb"><i></i><i></i><i></i><span>${name}</span></div>
-      <div class="sbd"><span class="sic"></span><span class="sprog"><i></i></span></div>
+      <span class="st-dot"></span><span class="st-nm">${name}</span><span class="st-lead"></span><span class="st-bar"><i></i></span><span class="st-val"></span>
     </div>`);
     classGrid.appendChild(seat);
     seatMeta.push({ name, el: seat, status: "idle", step: 0, acceptDelay: null, dur: null, reason: null });
@@ -5256,6 +5217,7 @@ async function runScale() {
       if (token !== scaleToken) return;
       m.step = TOTAL_STEPS;
       m.el.className = "seat done" + (i === YOU_SEAT ? " you" : "");
+      m.el.querySelector(".st-val").textContent = m.score + "%";
       m.status = "done";
       m.durS = 210 + Math.floor(Math.random() * 90);
       durations.push(m.durS);
@@ -5348,6 +5310,7 @@ async function runScale() {
         if (token !== scaleToken) return;
         m.step = TOTAL_STEPS;
         s.className = "seat done";
+        s.querySelector(".st-val").textContent = m.score + "%";
         m.status = "done";
         m.durS = 95 + Math.floor(Math.random() * 160) + (m.retried ? 55 : 0);
         durations.push(m.durS);
@@ -5420,6 +5383,7 @@ async function runScale() {
       youMeta.step = TOTAL_STEPS;
       you.classList.remove("running");
       you.classList.add("done");
+      you.querySelector(".st-val").textContent = youMeta.score + "%";
       youMeta.status = "done";
       youMeta.durS = 100 + Math.floor(Math.random() * 60);
       durations.push(youMeta.durS);
