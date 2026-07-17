@@ -2880,6 +2880,15 @@
   /* the broker stays in the story, not on the canvas — lanes + packets remain */
   .broker-node, .broker-caption, .broker-checks, .relay-feed, .broker-note { display: none; }
 
+  /* ── type harmony: the page speaks serif, machines speak mono,
+     the app mocks keep their own app sans ── */
+  nav a, .btn, .section-kicker, .steps li, .hood-cap, .ov-link { font-family: var(--serif); }
+  nav a { font-size: 14.5px; }
+  .btn { font-size: 15px; }
+  .steps li { font-size: 15px; }
+  .steps li .n { font-family: var(--serif); }
+  .room-steps li { font-size: 11.5px; }
+
   /* across orgs — the backstage strip (audit/CRM chips, dashed relay, daemon pill)
      leaves the canvas; the two laptops tell the story on their own */
   .sys-row, .backend { display: none; }
