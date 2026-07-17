@@ -1743,7 +1743,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 72px;
-    padding: 30px 4px 84px;
+    padding: 30px 4px 8px;
   }
   @media (max-width: 900px) { .bnd { grid-template-columns: 1fr; gap: 44px; } }
 
@@ -2879,6 +2879,10 @@
 
   /* the broker stays in the story, not on the canvas — lanes + packets remain */
   .broker-node, .broker-caption, .broker-checks, .relay-feed, .broker-note { display: none; }
+
+  /* across orgs — the backstage strip (audit/CRM chips, dashed relay, daemon pill)
+     leaves the canvas; the two laptops tell the story on their own */
+  .sys-row, .backend { display: none; }
 
   /* across orgs — labels that sit directly on the dark canvas */
   .org-head .who { color: var(--nt-muted); }
