@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(50px, 5vw, 74px);
+    font-size: clamp(32px, 2.7vw, 42px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -193,8 +193,8 @@
   }
   h1 em { font-style: italic; }
   .hero p.lede {
-    margin-top: 28px;
-    font-size: 24px;
+    margin-top: 20px;
+    font-size: 17.5px;
     line-height: 1.65;
     color: var(--ink);
     max-width: 640px;
@@ -211,14 +211,16 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: minmax(360px, 5fr) 7fr;
-    gap: 48px;
+    grid-template-columns: 1fr 72vw;
+    gap: 36px;
     align-items: start;
+    max-width: none;
+    padding: 0 40px;
   }
-  .hero-copy { padding-top: 40px; }
+  .hero-copy { padding-top: 8px; }
   .hero h1 { font-size: clamp(28px, 2.6vw, 40px); }
   .hero .btn { padding: 10px 20px; font-size: 14px; }
-  .hero .cta-row { margin-top: 32px; }
+  .hero .cta-row { margin-top: 32px; flex-wrap: wrap; }
   .hero .onboard-box { padding: 15px 17px; margin-top: 20px; }
   .hero .onboard-box code { font-size: 12.5px; }
   @media (max-width: 1000px) { .hero > .wrap-wide { padding: 0 24px; } }
@@ -628,11 +630,11 @@
     justify-content: center;
     align-items: center;
     gap: 6px;
-    height: 54px;
-    font-size: 20px;
+    height: 58px;
+    font-size: 21px;
     font-weight: 600;
     font-family: var(--geist);
-    padding: 14px 28px;
+    padding: 15px 30px;
     border-radius: 4px;
     text-decoration: none;
     text-align: center;
@@ -656,6 +658,10 @@
   }
   #replay-btn:hover, #scale-replay:hover, #bnd-replay:hover {
     color: var(--ink-strong); border-color: #C5C0B1;
+  }
+  #replay-btn:disabled, #scale-replay:disabled, #bnd-replay:disabled {
+    opacity: 0.4; cursor: not-allowed;
+    color: var(--muted); border-color: var(--hairline);
   }
 
   /* ── agent onboarding one-liner (hero) ── */
@@ -720,10 +726,20 @@
   }
   .hero-demo .stage-desk::before,
   .hero-demo .stage-desk::after {
-    content: ""; position: absolute; top: 0; bottom: 0; width: 50.5%;
+    content: ""; position: absolute; top: 0; bottom: 0;
   }
-  .hero-demo .stage-desk::before { left: 0; background: url("assets/sky.jpg") center 30% / cover no-repeat; }
-  .hero-demo .stage-desk::after { right: 0; background: url("assets/sky-warm.jpg") center 8% / cover no-repeat; }
+  .hero-demo .stage-desk::after {
+    right: 0; width: 58%;
+    background: url("assets/sky-warm.jpg") center 8% / cover no-repeat;
+    filter: contrast(1.22) saturate(1.35) hue-rotate(-8deg);
+  }
+  .hero-demo .stage-desk::before {
+    left: 0; width: 57%; z-index: 1;
+    background: url("assets/sky.jpg") center 30% / cover no-repeat;
+    filter: contrast(1.18) saturate(0.72);
+    -webkit-mask-image: linear-gradient(to right, #000 72%, transparent 98%);
+    mask-image: linear-gradient(to right, #000 72%, transparent 98%);
+  }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
   /* the demo's own mouse cursor — it walks to buttons and clicks them */
@@ -2997,7 +3013,7 @@
         <div class="term-titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
         </div>
-        <div class="term-body" id="term-body"></div>
+        <div class="term-body" id="term-body"><div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">✳ Welcome to Claude Code. Agent idle.</div></div>
       </div>
       </div>
 
@@ -3013,7 +3029,7 @@
     </div>
 
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="replay-btn">Replay</button>
+      <button class="btn btn-ghost" id="replay-btn" disabled>Replay</button>
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
     </div>
     </div>
@@ -3089,7 +3105,7 @@
     </div>
 
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="scale-replay">Replay</button>
+      <button class="btn btn-ghost" id="scale-replay" disabled>Replay</button>
       <div class="demo-status" id="scale-status">Fifty machines, one task — watch the room decide.</div>
     </div>
   </div>
@@ -3275,7 +3291,7 @@
 
   <div class="wrap-wide">
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="bnd-replay">Replay</button>
+      <button class="btn btn-ghost" id="bnd-replay" disabled>Replay</button>
       <div class="demo-status" id="bnd-status">Compose a dispatch on the left — it starts on scroll.</div>
     </div>
   </div>
@@ -4383,6 +4399,7 @@ function startExpiry(elSpan) {
 /* ── the run ── */
 async function runDemo() {
   const token = ++runToken;
+  replayBtn.disabled = true;
   clearInterval(expiryTimer);
   lastTs.sender = lastTs.recipient = null;
 
@@ -4400,7 +4417,7 @@ async function runDemo() {
   recipientNotif.classList.remove("show");
   /* the terminal stays on the desktop — idle until the agent starts */
   terminalEl.classList.add("open");
-  termBody.innerHTML = "";
+  termBody.innerHTML = '<div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">✳ Welcome to Claude Code. Agent idle.</div>';
   cursorHide();
 
   demoStatus.className = "demo-status";
@@ -4658,6 +4675,7 @@ async function runDemo() {
   demoStatus.textContent = permAllowed
     ? "Completed. Kaan watched every event stream live — and you held the keys the whole time."
     : "Completed — read-only, because you said so. That's the point.";
+  replayBtn.disabled = false;
 }
 
 replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
@@ -4909,6 +4927,7 @@ function positionSeatPop(seat) {
 
 async function runScale() {
   const token = ++scaleToken;
+  document.getElementById('scale-replay').disabled = true;
   buildRoom();
   seatPop.classList.remove("show");
   seatInspect.classList.remove("show");
@@ -5197,6 +5216,7 @@ async function runScale() {
       .reduce((a, m) => Math.max(a, parseFloat(m.score)), 0);
     scaleStatus.className = "demo-status";
     scaleStatus.textContent = `${done} models trained — best ${best.toFixed(1)}%. ${rescued} hit errors and finished after a follow-up fix. ${dec} said no.`;
+    document.getElementById('scale-replay').disabled = false;
   }, 900);
 }
 
@@ -5571,7 +5591,7 @@ usesObs.observe(document.querySelector(".uses-show"));
   /* ══ the dispatch, either direction — with per-task data ══ */
   async function sendDispatch(from, task) {
     if (busy) return;
-    busy = true;
+    busy = true; replayBtn.disabled = true;
     const to = from.otherSide, tok = token;
     closePops();
     hideCompose(A); hideCompose(B);
@@ -5584,7 +5604,7 @@ usesObs.observe(document.querySelector(".uses-show"));
     st.short = task.replace(/^(ask|have)\s+Team [AB]\s+(to\s+)?/i, "");
     const outDir = from.key === "a" ? "a2b" : "b2a";
     const backDir = from.key === "a" ? "b2a" : "a2b";
-    const done = () => { busy = false; };
+    const done = () => { busy = false; replayBtn.disabled = false; };
 
     // sender signs + sends
     from.win.classList.add("lit");
@@ -5675,7 +5695,7 @@ usesObs.observe(document.querySelector(".uses-show"));
     finishRun();
 
     function finishRun() {
-      busy = false;
+      busy = false; replayBtn.disabled = false;
       from.win.classList.remove("lit");
       showCompose(A); showCompose(B);
     }
