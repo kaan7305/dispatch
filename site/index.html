@@ -4088,7 +4088,7 @@ function makeCamera(stage, desk) {
   async function to(target, opts) {
     if (!enabled()) { off(); return; }
     if (!target) return;   /* a dynamic element that never arrived — skip the move */
-    const dur = (opts && opts.dur) || 950;
+    const dur = (opts && opts.dur) || 760;
     write(shotFor(target, opts), dur);
     cam.target = target;
     cam.opts = opts || null;
@@ -4096,7 +4096,7 @@ function makeCamera(stage, desk) {
   }
 
   /* back to the wide shot — both machines side by side */
-  async function reset(dur = 950) {
+  async function reset(dur = 760) {
     if (!enabled()) { off(); return; }
     cam.target = null;
     cam.opts = null;
@@ -4558,7 +4558,6 @@ async function chCompose(token) {
   /* the camera opens on Kaan's machine, then leans into Compose */
   await dsleep(250); if (token !== runToken) return;
   senderWindow.classList.add("attn");
-  await camTo(senderWindow, { pad: 18 }); if (token !== runToken) return;
 
   /* Kaan's cursor walks to Compose and clicks it */
   cursorShow();
@@ -4673,10 +4672,7 @@ async function chApprove(token) {
   recipientWindow.classList.add("attn");
   showNotif();
 
-  /* the camera crosses the desk: your machine, then the notification that
-     just landed, then the row waiting on your answer */
-  await camTo(recipientWindow, { pad: 18 }); if (token !== runToken) return;
-  await dsleep(600); if (token !== runToken) return;
+  /* one move: straight to the row waiting on your answer */
   await camTo(newRow, { pad: 32 }); if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
@@ -4693,10 +4689,9 @@ async function chApprove(token) {
   recipientWindow.classList.remove("attn");
   recipientNotif.classList.remove("show");
   setChapter(accepted ? 2 : 3);   /* the pill moves before the camera does */
-  /* decided — split the work again, both machines back in frame */
-  await camReset(); if (token !== runToken) return;
 
   if (!accepted) {
+    await camReset(); if (token !== runToken) return;
     /* a reject ends the story right here */
     setStatus("denied");
     newRow.classList.remove("emphasized");
@@ -4828,8 +4823,6 @@ async function chDone(token) {
   const replyBlock = sStream ? sStream.lastElementChild : null;
   if (replyBlock) {
     await camTo(replyBlock, { pad: 30, maxZoom: 1.8 }); if (token !== runToken) return;
-    await dsleep(1800); if (token !== runToken) return;
-    await camReset(); if (token !== runToken) return;
   }
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
@@ -5903,40 +5896,41 @@ usesObs.observe(document.querySelector(".uses-show"));
     if (side.bar) side.bar.classList.add("gone");
     side.scrEl.innerHTML = "";
     if (side.cur) { side.cur.style.opacity = "0"; side.cur.style.transform = "translate(0,0)"; }
-    await bsleep(200); if (tok !== token) return;
     await bootLines(tok);
   }
   async function bootA(tok) {
+    const zz = () => sleep(0);
     w(A, '<span class="star">✻</span> Welcome to Claude Code', "welcome");
-    await bsleep(500); if (tok !== token) return;
+    await zz(500); if (tok !== token) return;
     w(A, '  <span class="dim">~/finance · team-a</span>', "welcome");
-    await bsleep(750); if (tok !== token) return;
+    await zz(750); if (tok !== token) return;
     w(A, '<span class="dim">›</span> /plugin install dispatch');
-    await bsleep(1000); if (tok !== token) return;
+    await zz(1000); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> <span class="ok">dispatch@0.1 installed</span>');
-    await bsleep(750); if (tok !== token) return;
+    await zz(750); if (tok !== token) return;
     w(A, '<span class="dim">›</span> connecting <span class="mcp">MCP: dispatch</span>…');
-    await bsleep(1250); if (tok !== token) return;
+    await zz(1250); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
-    await bsleep(750); if (tok !== token) return;
+    await zz(750); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> daemon <span class="ok">running</span> · pid 4821 · key a41f…9c2e');
-    await bsleep(500); if (tok !== token) return;
+    await zz(500); if (tok !== token) return;
   }
   async function bootB(tok) {
+    const zz = () => sleep(0);
     w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex mcp add dispatch</span>');
-    await bsleep(900); if (tok !== token) return;
+    await zz(900); if (tok !== token) return;
     w(B, '  <span class="ok">✓</span> added MCP server <span class="mcp">dispatch</span> <span class="dim">· dispatch@0.1</span>');
-    await bsleep(700); if (tok !== token) return;
+    await zz(700); if (tok !== token) return;
     w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex</span>');
-    await bsleep(650); if (tok !== token) return;
+    await zz(650); if (tok !== token) return;
     w(B, '<span class="ex">&gt;_</span> OpenAI Codex <span class="dim">(v0.48.0)</span>', "welcome");
-    await bsleep(450); if (tok !== token) return;
+    await zz(450); if (tok !== token) return;
     w(B, '  <span class="dim">model gpt-5-codex · C:\\team-b</span>', "welcome");
-    await bsleep(800); if (tok !== token) return;
+    await zz(800); if (tok !== token) return;
     w(B, '<span class="bar">▌</span> <span class="mcp">MCP: dispatch</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
-    await bsleep(800); if (tok !== token) return;
+    await zz(800); if (tok !== token) return;
     w(B, '<span class="bar">▌</span> daemon <span class="ok">listening</span> · key <span class="dim">b7e2…41d0</span>');
-    await bsleep(500); if (tok !== token) return;
+    await zz(500); if (tok !== token) return;
   }
 
   async function begin() {
