@@ -19,7 +19,7 @@
 <style>html { color-scheme: light; }</style>
 <style>
   :root {
-    --paper: #FAF9F6;
+    --paper: #F5F3EE;
     --card: #FFFFFF;
     --ink: #36342E;
     --ink-strong: #201515;
@@ -102,7 +102,7 @@
   /* ── header ── */
   header {
     border-bottom: 1px solid var(--hairline);
-    background: rgba(250,249,246,0.85);
+    background: rgba(245,243,238,0.85);
     backdrop-filter: blur(8px);
     position: sticky; top: 0; z-index: 20;
   }
@@ -2865,7 +2865,7 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
-  #boundary, #scopes, #overview { background: #F2EFE8; }
+  #boundary, #scopes, #overview { background: #ECE9E1; }
   #scale, #boundary, #uses, #layers, #scopes, #overview, footer { border-top: none; }
 
   /* no gradient washes on the page */
@@ -3433,18 +3433,17 @@
 
     <div class="uses-show reveal">
       <div class="uses-nav" id="uses-nav">
-        <button class="us-item on" data-us="0"><b>Every step approved by dad</b><span>to his dad's Mac</span></button>
-        <button class="us-item" data-us="1"><b>Debug where the bug lives</b><span>to a teammate's Mac</span></button>
-        <button class="us-item" data-us="2"><b>The answer travels, not the files</b><span>to the lab workstation</span></button>
-        <button class="us-item" data-us="3"><b>No is always an option</b><span>to a colleague's office box</span></button>
-        <button class="us-item" data-us="4"><b>One thread, whole release</b><span>to the build Mac</span></button>
-        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b><span>to 30 student Macs</span></button>
+        <button class="us-item on" data-us="0"><b>Every step approved by dad</b></button>
+        <button class="us-item" data-us="1"><b>Debug where the bug lives</b></button>
+        <button class="us-item" data-us="2"><b>The answer travels, not the files</b></button>
+        <button class="us-item" data-us="3"><b>No is always an option</b></button>
+        <button class="us-item" data-us="4"><b>One thread, whole release</b></button>
+        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b></button>
       </div>
 
       <div class="uses-stage">
         <div class="sky-bg" data-sky="uses"></div>
         <div class="us-top">
-          <span class="us-route" id="us-route">kaan → dad's mac</span>
           <span class="badge warning" id="us-badge">Pending</span>
         </div>
         <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
@@ -5305,7 +5304,6 @@ const USES = [
 ];
 
 const usItems = Array.from(document.querySelectorAll(".us-item"));
-const usRoute = document.getElementById("us-route");
 const usBadge = document.getElementById("us-badge");
 const usQuote = document.getElementById("us-quote");
 const usSteps = document.getElementById("us-steps");
@@ -5321,8 +5319,6 @@ async function usShow(i) {
   usIdx = i;
   const u = USES[i];
   usItems.forEach((b, k) => b.classList.toggle("on", k === i));
-
-  usRoute.textContent = u.route;
   usQuote.textContent = u.quote;
   usResult.textContent = u.result;
   usResult.classList.remove("show");
