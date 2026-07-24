@@ -5475,8 +5475,8 @@ usesObs.observe(document.querySelector(".uses-show"));
   const bsleep = (ms) => sleep(ms * PACE);
   /* nobody can click for the far side any more, so the far side decides on
      a beat — long enough to read the ask, short enough to keep moving */
-  const APPROVE_MS = 1800;   // accept the incoming dispatch
-  const WRITE_MS = 1650;     // allow the one destructive write
+  const APPROVE_MS = 1200;   // accept the incoming dispatch
+  const WRITE_MS = 1100;     // allow the one destructive write
 
   /* two heights, and that's the whole grammar: tight on the terminal that's
      talking, and a hair inside the wide shot for the hand-off between them.
@@ -5867,9 +5867,10 @@ usesObs.observe(document.querySelector(".uses-show"));
       if (tok !== token) { if (box) box.classList.remove("focus"); return false; }
       side.input.value = text.slice(0, c);
       const ch = text[c - 1];
-      let d = 38 + Math.random() * 52;
-      if (ch === " ") d += 30;
-      if (ch === "," || ch === "." || ch === "?") d += 140;
+      /* half again quicker than the hero's hands — this typist is warmed up */
+      let d = 25 + Math.random() * 35;
+      if (ch === " ") d += 20;
+      if (ch === "," || ch === "." || ch === "?") d += 93;
       await bsleep(d);
     }
     if (box) box.classList.remove("focus");
