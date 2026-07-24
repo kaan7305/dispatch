@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(40px, 3.3vw, 52px);
+    font-size: clamp(50px, 4.1vw, 65px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -211,7 +211,7 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: 1fr 62vw;
+    grid-template-columns: 1fr 66vw;
     gap: 36px;
     align-items: start;
     max-width: none;
@@ -727,7 +727,7 @@
   .hero-demo .stage-desk::before {
     content: ""; position: absolute; inset: 0;
     background: url("assets/sky.jpg") center 30% / cover no-repeat;
-    filter: contrast(1.35) saturate(0.45) brightness(1.05);
+    filter: contrast(1.62) saturate(0.5) brightness(1.08);
   }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
@@ -783,7 +783,7 @@
     background: var(--card);
     border: 1px solid var(--hairline);
     border-radius: 10px;
-    box-shadow: 0 10px 28px rgba(32,21,21,0.08);
+    box-shadow: 0 18px 44px rgba(32,21,21,0.18);
     overflow: hidden;
     position: relative;
     display: flex; flex-direction: column;
@@ -903,7 +903,7 @@
     font-size: 14px;
     color: var(--afg);
     /* scale with the viewport so the whole scene fits on one screen */
-    height: clamp(400px, calc(100vh - 460px), 560px);
+    height: clamp(430px, calc(100vh - 430px), 620px);
     display: flex; flex-direction: column;
     background: #fff;
   }
@@ -1359,7 +1359,7 @@
     border: 1px solid var(--hairline);
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 10px 28px rgba(32,21,21,0.10);
+    box-shadow: 0 22px 52px rgba(0,0,0,0.30);
   }
   .room-app { font-family: var(--geist); font-size: 14px; color: var(--afg); background: #fff; }
   .room-topbar {
@@ -1376,23 +1376,90 @@
   }
   .room-stats { margin-left: auto; font-size: 12.5px; color: var(--amfg); white-space: nowrap; }
   .room-stats b { color: var(--afg); font-weight: 600; }
-  .room-table { height: 430px; overflow-y: auto; }
-  .room-row {
-    display: grid; grid-template-columns: 26px 1fr auto;
-    align-items: center; gap: 10px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--amuted);
+  .room-tabs {
+    display: flex; gap: 4px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--ab);
   }
-  .room-row:last-child { border-bottom: none; }
-  .room-row .rr-name { font-size: 13.5px; color: var(--afg); }
-  .room-row .avatar { width: 22px; height: 22px; font-size: 8.5px; }
+  .rtab {
+    font-family: var(--geist); font-size: 12.5px; font-weight: 500;
+    color: var(--amfg);
+    background: transparent; border: none; cursor: pointer;
+    padding: 5px 11px; border-radius: 999px;
+    transition: background 150ms, color 150ms;
+  }
+  .rtab:hover { background: var(--amuted); }
+  .rtab.on { background: var(--afg); color: #fff; }
+  .room-body { display: grid; grid-template-columns: 1fr; }
+  .room-body.split { grid-template-columns: 1.25fr 1fr; }
+  .room-table { overflow: hidden; }
+  .room-row {
+    display: grid; grid-template-columns: 34px 1fr auto;
+    align-items: center; gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--amuted);
+    cursor: pointer;
+    transition: background 150ms;
+  }
+  .room-row:hover { background: #FAFAF9; }
+  .room-row.open { background: var(--amuted); }
+  .room-row .face {
+    width: 34px; height: 34px; border-radius: 50%;
+    object-fit: cover; display: block;
+  }
+  .room-row .rr-name { font-size: 15px; font-weight: 500; color: var(--afg); line-height: 1.25; }
+  .room-row .rr-sub { display: block; font-size: 12px; font-weight: 400; color: var(--amfg); margin-top: 1px; }
+  .room-more {
+    padding: 11px 18px; font-size: 12.5px; color: var(--amfg);
+  }
+  .room-detail {
+    border-left: 1px solid var(--ab);
+    display: none;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .room-body.split .room-detail { display: flex; }
+  .rd-head {
+    display: flex; align-items: center; gap: 9px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--ab);
+  }
+  .rd-head img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .rd-head .rd-name { font-size: 13.5px; font-weight: 600; }
+  .rd-head .badge { margin-left: auto; }
+  .rd-log { padding: 10px 14px; overflow: hidden; flex: 1; }
+  .rlog {
+    display: flex; gap: 8px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.7;
+    color: var(--afg);
+  }
+  .rlog .t { color: var(--amfg); flex-shrink: 0; }
+  .rlog.err .x { color: #B91C1C; }
+  .rlog.fix .x { color: #1D4ED8; }
+  .rlog.ok .x { color: #15803D; }
+
+  /* screen-studio moves: the window leans in, a cursor does the clicking */
+  .room-window { transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .room-window.zoomed { transform: scale(1.14); }
+  .scale-cursor {
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 60;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(80px, 80px);
+    transition: transform 750ms cubic-bezier(0.22, 1, 0.36, 1), opacity 250ms;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  }
+  .scale-cursor svg { display: block; transition: transform 120ms; transform-origin: 4px 4px; }
+  .scale-cursor.press svg { transform: scale(0.82); }
 
   /* the scale desk goes evil: inverted storm + film grain */
   #scale .stage-desk { border: none; background: #C7D0DC; }
   #scale .stage-desk::before {
     content: ""; position: absolute; inset: 0;
     background: url("assets/sky-dark.jpg") center 35% / cover no-repeat;
-    filter: hue-rotate(155deg) contrast(1.3) saturate(0.85) brightness(1.12);
+    filter: saturate(2.1) brightness(1.5) contrast(1.12) hue-rotate(-18deg);
   }
   #scale .stage-desk::after {
     content: ""; position: absolute; inset: 0;
@@ -1405,7 +1472,7 @@
     background: #fff;
     border: 1px solid var(--ab);
     border-radius: 12px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.06);
+    box-shadow: 0 18px 44px rgba(0,0,0,0.28);
     padding: 18px;
     font-family: -apple-system, "Helvetica Neue", sans-serif;
     font-size: 13px;
@@ -3109,9 +3176,24 @@
               <span class="room-title">CS.511 Workshop</span><span class="count-badge">50</span>
               <span class="room-stats" id="room-stats"></span>
             </div>
-            <div class="room-table" id="room-table"></div>
+            <div class="room-tabs" id="room-tabs">
+              <button class="rtab on" data-f="all">All</button>
+              <button class="rtab" data-f="running">Running</button>
+              <button class="rtab" data-f="done">Completed</button>
+              <button class="rtab" data-f="declined">Declined</button>
+              <button class="rtab" data-f="failed">Failed</button>
+            </div>
+            <div class="room-body" id="room-body">
+              <div class="room-table" id="room-table"></div>
+              <div class="room-detail" id="room-detail"></div>
+            </div>
           </div>
         </div>
+      </div>
+      <div class="scale-cursor" id="scale-cursor">
+        <svg width="21" height="21" viewBox="0 0 24 24">
+          <path d="M4 3 L20 12.5 L11.5 14 L7.5 21.5 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
       </div>
     </div>
 
@@ -4717,13 +4799,23 @@ demoObs.observe(senderWindow);
 const workshopSend = document.getElementById("workshop-send");
 const roomTable = document.getElementById("room-table");
 const roomStats = document.getElementById("room-stats");
+const roomBody = document.getElementById("room-body");
+const roomDetail = document.getElementById("room-detail");
+const roomTabs = document.getElementById("room-tabs");
+const roomWindow = document.querySelector(".room-window");
+const scaleCursor = document.getElementById("scale-cursor");
 
 const SEAT_NAMES = ["Ada","Ben","Chloe","Deniz","Ege","Farah","Gus","Hana","Idil","Jon",
   "Kerem","Lena","Mert","Nora","Omar","Pia","Quinn","Rosa","Sam","Tuna",
   "Uma","Vera","Wes","Xin","Yusuf"];
 const SEAT_COUNT = 50;
+const VISIBLE = 11;
+const MACHINES = ["MacBook Pro", "MacBook Air", "Mac mini", "ThinkPad X1", "XPS 13", "MacBook Pro", "Framework 13"];
 let scaleToken = 0;
 let seatMeta = [];
+let roomFilter = "all";
+let openSeatIdx = -1;
+let scaleTouched = false;
 
 const BADGE_FOR = {
   idle: ["muted", "Idle"], pending: ["warning", "Pending"], running: ["running", "Running"],
@@ -4731,38 +4823,127 @@ const BADGE_FOR = {
   failed: ["destructive", "Failed"], expired: ["muted", "Expired"],
 };
 
+const RS_STEPS = [
+  { cmd: "git clone github.com/atelier/ws-2026", sub: "cloning the repo" },
+  { cmd: "python -m venv .venv && source .venv/bin/activate", sub: "fresh virtualenv" },
+  { cmd: "pip install -r requirements.txt", sub: "installing deps" },
+  { cmd: "python fetch_data.py", sub: "fetching the dataset" },
+  { cmd: "python prepare.py", sub: "preparing data" },
+  { cmd: "python train.py", sub: "training" },
+  { cmd: "python evaluate.py --plots", sub: "evaluating" },
+];
+
 function fmtDur(sec) {
   return sec >= 60 ? `${Math.floor(sec / 60)}m ${sec % 60}s` : `${sec}s`;
 }
-function initialsOf(name) {
-  const p = name.split(" ");
-  return (p[0][0] + (p[1] ? p[1][0] : (p[0][1] || ""))).toUpperCase();
+function fakeClock(i) {
+  const t = 14 * 60 + 22 + i * 7;
+  return `16:${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
+
+function subFor(m) {
+  if (m.status === "pending") return "deciding…";
+  if (m.status === "running") return `${m.machine} · step ${m.step}/${RS_STEPS.length} · ${RS_STEPS[Math.max(0, m.step - 1)].sub}`;
+  if (m.status === "done") return `finished in ${fmtDur(m.durS)}`;
+  if (m.status === "declined") return "said no · nothing ran";
+  if (m.status === "failed") return m.err || "hit an error";
+  if (m.status === "expired") return "no answer · nothing ran";
+  return m.machine;
 }
 
 function buildRoom() {
   roomTable.innerHTML = "";
+  roomDetail.innerHTML = "";
+  roomBody.classList.remove("split");
+  openSeatIdx = -1;
   seatMeta = [];
   for (let i = 0; i < SEAT_COUNT; i++) {
     const name = SEAT_NAMES[i % SEAT_NAMES.length] + (i >= SEAT_NAMES.length ? " K." : "");
-    const row = el(`<div class="room-row">
-      <span class="avatar">${initialsOf(name)}</span>
-      <span class="rr-name">${name}</span>
-      <span class="badge muted">Idle</span>
-    </div>`);
-    roomTable.appendChild(row);
-    seatMeta.push({ name, el: row, status: "idle", durS: null });
+    const m = { name, el: null, status: "idle", step: 0, durS: null, err: null, log: [], machine: MACHINES[i % MACHINES.length], face: `assets/faces/f${(i % VISIBLE) + 1}.jpg` };
+    if (i < VISIBLE) {
+      const row = el(`<div class="room-row" data-i="${i}">
+        <img class="face" src="${m.face}" alt="" />
+        <span class="rr-name">${name}<span class="rr-sub">${m.machine}</span></span>
+        <span class="badge muted">Idle</span>
+      </div>`);
+      roomTable.appendChild(row);
+      m.el = row;
+    }
+    seatMeta.push(m);
   }
+  roomTable.appendChild(el(`<div class="room-more">+ ${SEAT_COUNT - VISIBLE} more seats</div>`));
+  applyFilter();
   tallyScale();
 }
+
+function pushLog(i, cls, text, token) {
+  if (token !== undefined && token !== scaleToken) return;
+  const m = seatMeta[i];
+  m.log.push({ cls, text, t: fakeClock(m.log.length) });
+  if (openSeatIdx === i) renderDetail(i);
+}
+
+function renderDetail(i) {
+  const m = seatMeta[i];
+  const [bCls, bLbl] = BADGE_FOR[m.status];
+  const lines = m.log.slice(-11).map(l =>
+    `<div class="rlog ${l.cls}"><span class="t">${l.t}</span><span class="x">${l.text}</span></div>`).join("");
+  roomDetail.innerHTML = `
+    <div class="rd-head">
+      <img src="${m.face}" alt="" />
+      <span class="rd-name">${m.name}</span>
+      <span class="badge ${bCls}">${bLbl}</span>
+    </div>
+    <div class="rd-log">${lines || '<div class="rlog"><span class="x">no activity yet</span></div>'}</div>`;
+}
+
+function openSeat(i) {
+  if (i < 0 || i >= VISIBLE) return;
+  openSeatIdx = i;
+  roomBody.classList.add("split");
+  roomTable.querySelectorAll(".room-row").forEach(r => r.classList.toggle("open", Number(r.dataset.i) === i));
+  renderDetail(i);
+}
+
+function applyFilter() {
+  roomTable.querySelectorAll(".room-row").forEach(r => {
+    const m = seatMeta[Number(r.dataset.i)];
+    const show = roomFilter === "all" || m.status === roomFilter;
+    r.style.display = show ? "" : "none";
+  });
+  const hiddenCount = SEAT_COUNT - VISIBLE;
+  const more = roomTable.querySelector(".room-more");
+  if (more) more.style.display = roomFilter === "all" ? "" : "none";
+}
+
+roomTabs.addEventListener("click", (e) => {
+  const b = e.target.closest(".rtab");
+  if (!b) return;
+  if (e.isTrusted) { scaleTouched = true; cursorOff(); }
+  roomFilter = b.dataset.f;
+  roomTabs.querySelectorAll(".rtab").forEach(t => t.classList.toggle("on", t === b));
+  applyFilter();
+});
+roomTable.addEventListener("click", (e) => {
+  const r = e.target.closest(".room-row");
+  if (!r) return;
+  if (e.isTrusted) { scaleTouched = true; cursorOff(); }
+  openSeat(Number(r.dataset.i));
+});
 
 function setSeat(i, status, token) {
   if (token !== undefined && token !== scaleToken) return;
   const m = seatMeta[i];
   m.status = status;
-  const [cls, label] = BADGE_FOR[status];
-  const b = m.el.querySelector(".badge");
-  b.className = "badge " + cls;
-  b.textContent = label;
+  if (m.el) {
+    const [cls, label] = BADGE_FOR[status];
+    const b = m.el.querySelector(".badge");
+    b.className = "badge " + cls;
+    b.textContent = label;
+    m.el.querySelector(".rr-sub").textContent = subFor(m);
+    if (roomFilter !== "all") applyFilter();
+  }
+  if (openSeatIdx === i) renderDetail(i);
   tallyScale();
 }
 
@@ -4777,17 +4958,56 @@ function tallyScale() {
 }
 buildRoom();
 
+/* ── the screen-studio moves: a cursor that shows off the room ── */
+function cursorOff() {
+  scaleCursor.style.opacity = "0";
+  roomWindow.classList.remove("zoomed");
+}
+async function cursorGo(target, token, ms = 750) {
+  if (token !== scaleToken || scaleTouched) return false;
+  const desk = scaleCursor.parentElement;
+  const dr = desk.getBoundingClientRect();
+  const r = target.getBoundingClientRect();
+  const x = r.left - dr.left + r.width * 0.55;
+  const y = r.top - dr.top + r.height * 0.55;
+  scaleCursor.style.opacity = "1";
+  scaleCursor.style.transform = `translate(${x}px, ${y}px)`;
+  await sleep(ms + 90);
+  return token === scaleToken && !scaleTouched;
+}
+async function cursorClick(target, token) {
+  if (!(await cursorGo(target, token))) return false;
+  scaleCursor.classList.add("press");
+  await sleep(140);
+  scaleCursor.classList.remove("press");
+  if (token !== scaleToken || scaleTouched) return false;
+  target.click();
+  await sleep(220);
+  return token === scaleToken && !scaleTouched;
+}
+function zoomToward(target) {
+  const wr = roomWindow.getBoundingClientRect();
+  const r = target.getBoundingClientRect();
+  const ox = ((r.left + r.width / 2 - wr.left) / wr.width * 100).toFixed(1);
+  const oy = ((r.top + r.height / 2 - wr.top) / wr.height * 100).toFixed(1);
+  roomWindow.style.transformOrigin = `${ox}% ${oy}%`;
+  roomWindow.classList.add("zoomed");
+}
+
 async function runScale() {
   const token = ++scaleToken;
   document.getElementById("scale-replay").disabled = true;
+  scaleTouched = false;
+  roomFilter = "all";
+  roomTabs.querySelectorAll(".rtab").forEach(t => t.classList.toggle("on", t.dataset.f === "all"));
+  cursorOff();
   buildRoom();
   workshopSend.disabled = false;
 
-  /* send: presses itself shortly, or the visitor clicks it */
   await new Promise((res) => {
     const go = () => { workshopSend.removeEventListener("click", go); res(); };
     workshopSend.addEventListener("click", go);
-    setTimeout(() => { if (token === scaleToken) workshopSend.click(); }, 2000);
+    setTimeout(() => { if (token === scaleToken) workshopSend.click(); }, 1800);
   });
   if (token !== scaleToken) return;
   workshopSend.disabled = true;
@@ -4796,50 +5016,119 @@ async function runScale() {
 
   /* outcomes: two decline, one never answers, two fail and get a follow-up fix */
   const order = seatMeta.map((_, i) => i).sort(() => Math.random() - 0.5);
-  const declines = new Set(order.slice(0, 2));
-  const expire = order[2];
-  const fails = new Set(order.slice(3, 5));
+  const declines = new Set([order.find(i => i >= VISIBLE), 3]);
+  const expire = order.find(i => i >= VISIBLE && !declines.has(i));
+  const failSeat = 6;            /* Gus fails on camera */
+  const virtFail = order.find(i => i >= VISIBLE && !declines.has(i) && i !== expire);
+  const heroSeat = 1;            /* Ben is the seat the cursor opens */
 
   seatMeta.forEach((m, i) => {
-    /* the dispatch reaches every seat as a wave */
-    setTimeout(() => setSeat(i, "pending", token), 250 + i * 45 + Math.random() * 250);
+    setTimeout(() => setSeat(i, "pending", token), 250 + i * 30 + Math.random() * 250);
+    const decideAt = 1700 + Math.random() * 1500;
+    if (declines.has(i)) { setTimeout(() => setSeat(i, "declined", token), decideAt + 600); return; }
+    if (i === expire) { setTimeout(() => setSeat(i, "expired", token), 9000); return; }
 
-    const decideAt = 1900 + Math.random() * 1600;
-    if (declines.has(i)) {
-      setTimeout(() => setSeat(i, "declined", token), decideAt + 600);
-      return;
-    }
-    if (i === expire) {
-      setTimeout(() => setSeat(i, "expired", token), 8000);
-      return;
-    }
-    setTimeout(() => setSeat(i, "running", token), decideAt);
-    const workS = 95 + Math.floor(Math.random() * 160);
-    if (fails.has(i)) {
-      /* it hits a real error, then a follow-up dispatch fixes it */
-      setTimeout(() => setSeat(i, "failed", token), decideAt + 2400 + Math.random() * 1600);
-      setTimeout(() => setSeat(i, "running", token), decideAt + 7200 + Math.random() * 1800);
-      setTimeout(() => {
-        if (token !== scaleToken) return;
-        seatMeta[i].durS = workS + 110;
-        setSeat(i, "done", token);
-      }, decideAt + 11500 + Math.random() * 2000);
-      return;
-    }
     setTimeout(() => {
       if (token !== scaleToken) return;
-      seatMeta[i].durS = workS;
-      setSeat(i, "done", token);
-    }, decideAt + 3200 + Math.random() * 6000);
+      setSeat(i, "running", token);
+      pushLog(i, "", "dispatch accepted · fresh agent started", token);
+    }, decideAt);
+
+    const isFail = i === failSeat || i === virtFail;
+    const stepGap = () => 900 + Math.random() * 900;
+    let t = decideAt + 500;
+    RS_STEPS.forEach((st, k) => {
+      const stepN = k + 1;
+      if (isFail && stepN === 3) {
+        setTimeout(() => {
+          if (token !== scaleToken || seatMeta[i].status !== "running") return;
+          seatMeta[i].step = stepN;
+          pushLog(i, "", "$ " + st.cmd, token);
+          pushLog(i, "err", "pip: numpy 2.1 conflicts with pandas 1.5", token);
+          seatMeta[i].err = "error: numpy 2.1 conflicts with pandas 1.5";
+          setSeat(i, "failed", token);
+        }, t);
+        const tFix = t + 5200 + Math.random() * 1200;
+        setTimeout(() => {
+          if (token !== scaleToken || seatMeta[i].status !== "failed") return;
+          pushLog(i, "fix", 'follow-up dispatch: "pin numpy<2"', token);
+          pushLog(i, "", "$ pip install 'numpy<2'", token);
+          setSeat(i, "running", token);
+        }, tFix);
+        let t2 = tFix + 700;
+        for (let k2 = k; k2 < RS_STEPS.length; k2++) {
+          const s2n = k2 + 1, cmd2 = RS_STEPS[k2].cmd;
+          setTimeout(() => {
+            if (token !== scaleToken || seatMeta[i].status !== "running") return;
+            seatMeta[i].step = s2n;
+            if (k2 > k) pushLog(i, "", "$ " + cmd2, token);
+            setSeat(i, "running", token);
+          }, t2);
+          t2 += 800;
+        }
+        setTimeout(() => {
+          if (token !== scaleToken) return;
+          seatMeta[i].durS = 210 + Math.floor(Math.random() * 80);
+          pushLog(i, "ok", "replied · " + fmtDur(seatMeta[i].durS) + " · agent gone", token);
+          setSeat(i, "done", token);
+        }, t2 + 600);
+        return;
+      }
+      if (isFail && stepN > 3) return;
+      setTimeout(() => {
+        if (token !== scaleToken || seatMeta[i].status !== "running") return;
+        seatMeta[i].step = stepN;
+        pushLog(i, "", "$ " + st.cmd, token);
+        setSeat(i, "running", token);
+      }, t);
+      t += stepGap();
+    });
+    if (!isFail) {
+      setTimeout(() => {
+        if (token !== scaleToken || seatMeta[i].status !== "running") return;
+        seatMeta[i].durS = 95 + Math.floor(Math.random() * 160);
+        pushLog(i, "ok", "replied · " + fmtDur(seatMeta[i].durS) + " · agent gone", token);
+        setSeat(i, "done", token);
+      }, t + 500 + Math.random() * 800);
+    }
   });
 
-  /* re-enable replay once every seat has settled */
+  /* the cursor tour: filter to Running, open a seat, watch the fix land */
+  (async () => {
+    await sleep(4200);
+    if (token !== scaleToken || scaleTouched) return;
+    const runningTab = roomTabs.querySelector('[data-f="running"]');
+    if (!(await cursorClick(runningTab, token))) return;
+    await sleep(500);
+    const benRow = seatMeta[heroSeat].el;
+    if (!benRow || benRow.style.display === "none") return;
+    zoomToward(benRow);
+    if (!(await cursorClick(benRow, token))) { cursorOff(); return; }
+    await sleep(4600);
+    if (token !== scaleToken || scaleTouched) { cursorOff(); return; }
+    const failedTab = roomTabs.querySelector('[data-f="failed"]');
+    if (!(await cursorClick(failedTab, token))) { cursorOff(); return; }
+    await sleep(400);
+    const gusRow = seatMeta[failSeat].el;
+    if (gusRow && gusRow.style.display !== "none") {
+      zoomToward(gusRow);
+      if (!(await cursorClick(gusRow, token))) { cursorOff(); return; }
+      await sleep(5200);
+    }
+    if (token !== scaleToken || scaleTouched) { cursorOff(); return; }
+    roomWindow.classList.remove("zoomed");
+    const allTab = roomTabs.querySelector('[data-f="all"]');
+    await cursorClick(allTab, token);
+    scaleCursor.style.opacity = "0";
+  })();
+
   const settleWatch = setInterval(() => {
     if (token !== scaleToken) { clearInterval(settleWatch); return; }
     const busy = seatMeta.some(m => m.status === "pending" || m.status === "running" || m.status === "failed" || m.status === "idle");
     if (busy) return;
     clearInterval(settleWatch);
     tallyScale();
+    cursorOff();
     document.getElementById("scale-replay").disabled = false;
   }, 700);
 }
