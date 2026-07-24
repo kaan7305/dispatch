@@ -220,6 +220,8 @@
   }
   .hero-copy { padding-top: 8px; }
   .hero .cta-row { margin-top: 32px; flex-wrap: wrap; }
+  .hero .btn { height: 40px; padding: 8px 16px; font-size: 15px; gap: 5px; }
+  .hero .btn svg { width: 15px; height: 15px; }
   .hero .onboard-box { padding: 15px 17px; margin-top: 20px; }
   .hero .onboard-box code { font-size: 12.5px; }
   @media (max-width: 1000px) { .hero > .wrap-wide { padding: 0 24px; } }
@@ -4824,32 +4826,33 @@ demoObs.observe(senderWindow);
 const SKY_IMGS = ["assets/sky.jpg","assets/sky-warm.jpg","assets/sky-dark.jpg","assets/sky-sea.jpg","assets/sky-storm2.jpg","assets/sky-rays.jpg"];
 const SKY_FILTERS = [
   ["clean", "none"],
+  ["negative", "invert(1) contrast(1.06) saturate(1.1)"],
+  ["rose", "grayscale(1) sepia(1) hue-rotate(280deg) saturate(1.9) contrast(1.06)"],
+  ["sage", "grayscale(1) sepia(1) hue-rotate(55deg) saturate(0.85) brightness(1.08)"],
+  ["magma", "saturate(3) contrast(1.9) hue-rotate(-50deg) brightness(0.92)"],
   ["steel", "contrast(1.3) saturate(0.55) brightness(0.9)"],
   ["hell", "saturate(1.7) contrast(1.3) brightness(0.9) hue-rotate(-25deg)"],
   ["hypercolor", "saturate(2.3) contrast(1.3) brightness(1.05)"],
-  ["acid", "saturate(2) hue-rotate(140deg) contrast(1.2)"],
-  ["ghost", "invert(0.9) hue-rotate(180deg) contrast(1.15)"],
-  ["noir", "grayscale(0.85) contrast(1.35) brightness(0.8)"],
   ["ember-dim", "saturate(0.8) brightness(0.45) contrast(1.15)"],
   ["washed", "saturate(0.6) brightness(1.3) contrast(0.95)"],
 ];
 const SKY_DEFAULTS = {
   hero:  { img: 0, f: 1, x: 50, y: 30 },
-  scale: { img: 2, f: 3, x: 50, y: 35 },
-  uses:  { img: 4, f: 7, x: 50, y: 40 },
-  scopes:{ img: 1, f: 1, x: 50, y: 25 },
-  bnd:   { img: 5, f: 3, x: 50, y: 45 },
-  hood:  { img: 3, f: 8, x: 50, y: 50 },
+  scale: { img: 2, f: 4, x: 50, y: 35 },
+  uses:  { img: 4, f: 2, x: 50, y: 40 },
+  scopes:{ img: 0, f: 3, x: 50, y: 20 },
+  bnd:   { img: 3, f: 3, x: 50, y: 45 },
+  hood:  { img: 3, f: 9, x: 50, y: 50 },
 };
 document.querySelectorAll(".sky-bg").forEach((bg) => {
   const id = bg.dataset.sky;
   let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
-  try { const sv = JSON.parse(localStorage.getItem("sky-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
+  try { const sv = JSON.parse(localStorage.getItem("sky2-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
   const apply = () => {
     bg.style.backgroundImage = `url("${SKY_IMGS[st.img]}")`;
     bg.style.filter = SKY_FILTERS[st.f][1];
     bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
-    try { localStorage.setItem("sky-" + id, JSON.stringify(st)); } catch (e) {}
+    try { localStorage.setItem("sky2-" + id, JSON.stringify(st)); } catch (e) {}
     console.log(`[sky] ${id}: ${SKY_IMGS[st.img].split("/").pop()} · ${SKY_FILTERS[st.f][0]} · ${st.x.toFixed(0)}%/${st.y.toFixed(0)}%`);
   };
   apply();
