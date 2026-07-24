@@ -1593,27 +1593,27 @@
   .sky-bg[data-sky="hero"] {
     background-image: url("assets/hd-ochre.jpg");
     background-position: 92% 87%;
-    filter: saturate(3) contrast(1.9) hue-rotate(-50deg) brightness(0.92);
+    filter: saturate(3.3) contrast(1.95) hue-rotate(-50deg) brightness(0.92);
   }
   .sky-bg[data-sky="scale"] {
     background-image: url("assets/hd-fire.jpg");
     background-position: 81% 100%;
-    filter: invert(1) contrast(1.06) saturate(1.1);
+    filter: invert(1) contrast(1.12) saturate(1.25);
   }
   .sky-bg[data-sky="uses"] {
     background-image: url("assets/hd-poster.jpg");
     background-position: 0% 100%;
-    filter: grayscale(1) sepia(1) hue-rotate(280deg) saturate(1.9) contrast(1.06);
+    filter: grayscale(1) sepia(1) hue-rotate(280deg) saturate(2.1) contrast(1.12);
   }
   .sky-bg[data-sky="scopes"] {
     background-image: url("assets/hd-ochre.jpg");
     background-position: 22% 84%;
-    filter: saturate(0.6) brightness(1.3) contrast(0.95);
+    filter: saturate(0.72) brightness(1.28) contrast(1.02);
   }
   .sky-bg[data-sky="bnd"] {
     background-image: url("assets/hd-fire.jpg");
     background-position: 63% 58%;
-    filter: saturate(0.6) brightness(1.3) contrast(0.95);
+    filter: saturate(0.72) brightness(1.28) contrast(1.02);
   }
   .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
   .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
@@ -1623,10 +1623,10 @@
 
   /* the scale desk goes evil: inverted storm + film grain */
   #scale .stage-desk { border: none; background: #C7D0DC; box-shadow: var(--win-shadow); }
-  #scale .stage-desk::after {
+  #scale .stage-desk::after, .hero-demo .stage-desk::after, .uses-stage::after, .scopes-grid::after, .bnd-bleed::after {
     content: ""; position: absolute; inset: 0;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
-    opacity: 0.16; mix-blend-mode: overlay; pointer-events: none;
+    opacity: 0.22; mix-blend-mode: overlay; pointer-events: none;
   }
   #scale .scale-stage { position: relative; z-index: 1; }
 
@@ -2191,8 +2191,8 @@
     transition: transform 950ms cubic-bezier(0.22,1,0.36,1);
   }
   .laptop.open .lap-screen { transform: rotateX(0) scale(1); }
-  .laptop.mac .lap-screen { border: 2px solid #2b2b30; }
-  .laptop.win .lap-screen { border: 2px solid #1d1d24; border-radius: 9px 9px 4px 4px; background: #060609; }
+  .laptop.mac .lap-screen { border: 2px solid #3A3A40; border-radius: 13px 13px 6px 6px; }
+  .laptop.win .lap-screen { border: 5px solid #10131C; border-radius: 4px 4px 2px 2px; background: #0B1526; box-shadow: inset 0 0 0 1px #1E2A44, var(--win-shadow); }
   .lap-screen::after {   /* mac notch / win webcam */
     content: ""; position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
     width: 5px; height: 5px; border-radius: 50%; background: #17171b; z-index: 6;
@@ -3313,9 +3313,6 @@
 
       <div class="uses-stage">
         <div class="sky-bg" data-sky="uses"></div>
-        <div class="us-top">
-          <span class="badge warning" id="us-badge">Pending</span>
-        </div>
         <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
         <div class="uc-steps" id="us-steps"></div>
         <div class="us-feed" id="us-feed"></div>
@@ -3360,7 +3357,7 @@
             <div class="sr-main"><span class="sr-name">Your connected tools</span><span class="sr-sub">which of your MCP servers this sender may use</span></div>
             <span class="seg">
               <button id="sc-mcp-none" class="on">none</button>
-              <button id="sc-mcp-some">gog · notion</button>
+              <button id="sc-mcp-some">notion</button>
               <button id="sc-mcp-all">all</button>
             </span>
           </div>
@@ -4637,8 +4634,7 @@ async function chCompose(token) {
   composeOverlay.style.display = "none";
 
   senderContent.innerHTML = senderInboxView(true, task);
-  /* sent — pull back to the wide shot for the broker beat */
-  await camReset(); if (token !== runToken) return;
+  /* sent — the camera slides straight across the desk, no pull-back */
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Signed and sent — the broker is checking policy.";
 
@@ -4785,7 +4781,6 @@ async function chAgent(token) {
       scene.permAllowed = permAllowed;
       recipientWindow.classList.remove("attn");
       block.querySelector(".ev-actions").style.opacity = "0.4";
-      await camReset(); if (token !== runToken) return;
 
       demoStatus.className = "demo-status";
       demoStatus.textContent = permAllowed ? "Allowed — the agent continues." : "Denied — the agent adapts and finishes without it.";
@@ -5372,7 +5367,6 @@ const USES = [
 ];
 
 const usItems = Array.from(document.querySelectorAll(".us-item"));
-const usBadge = document.getElementById("us-badge");
 const usQuote = document.getElementById("us-quote");
 const usSteps = document.getElementById("us-steps");
 const usFeed = document.getElementById("us-feed");
@@ -5391,7 +5385,6 @@ async function usShow(i) {
   usResult.textContent = u.result;
   usResult.classList.remove("show");
   usResult.classList.toggle("no", u.declined);
-  usBadge.className = "badge warning"; usBadge.textContent = "Pending";
   usSteps.innerHTML = "";
   usSteps.style.display = u.steps.length ? "flex" : "none";
   const chips = u.steps.map(s => el(`<span class="uc-step">${s}</span>`));
@@ -5404,7 +5397,6 @@ async function usShow(i) {
   usFeed.style.display = lines.length ? "flex" : "none";
 
   await sleep(700); if (tok !== usToken) return;
-  if (!u.declined) { usBadge.className = "badge running"; usBadge.textContent = "Running"; }
   /* the pipeline chips first, then the log replays underneath */
   for (const c of chips) {
     c.classList.add("act");
@@ -5417,9 +5409,7 @@ async function usShow(i) {
   }
   await sleep(350); if (tok !== usToken) return;
   if (u.declined) {
-    usBadge.className = "badge destructive"; usBadge.textContent = "Rejected";
   } else {
-    usBadge.className = "badge success"; usBadge.textContent = "Completed";
   }
   usResult.classList.add("show");
 }
