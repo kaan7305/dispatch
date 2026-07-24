@@ -1468,9 +1468,36 @@
     z-index: 0;
     background-size: cover;
     background-repeat: no-repeat;
-    cursor: pointer;
-    pointer-events: auto;
-    touch-action: none;
+    pointer-events: none;
+  }
+  .sky-bg[data-sky="hero"] {
+    background-image: url("assets/hd-ochre.jpg");
+    background-position: 92% 87%;
+    filter: saturate(3) contrast(1.9) hue-rotate(-50deg) brightness(0.92);
+  }
+  .sky-bg[data-sky="scale"] {
+    background-image: url("assets/hd-fire.jpg");
+    background-position: 81% 100%;
+    filter: invert(1) contrast(1.06) saturate(1.1);
+  }
+  .sky-bg[data-sky="uses"] {
+    background-image: url("assets/hd-poster.jpg");
+    background-position: 0% 100%;
+    filter: grayscale(1) sepia(1) hue-rotate(280deg) saturate(1.9) contrast(1.06);
+  }
+  .sky-bg[data-sky="scopes"] {
+    background-image: url("assets/hd-ochre.jpg");
+    background-position: 22% 84%;
+    filter: saturate(0.6) brightness(1.3) contrast(0.95);
+  }
+  .sky-bg[data-sky="bnd"] {
+    background-image: url("assets/hd-fire.jpg");
+    background-position: 63% 58%;
+    filter: saturate(0.6) brightness(1.3) contrast(0.95);
+  }
+  .sky-bg[data-sky="hood"] {
+    background-image: url("assets/hd-sunburst.jpg");
+    background-position: 50% 45%;
   }
   .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
   .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
@@ -4823,78 +4850,6 @@ const demoObs = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.55 });
 demoObs.observe(senderWindow);
-
-/* ── sky lab: click a backdrop to swap the image, shift-click to swap the
-   treatment, drag to reframe the crop. State persists in localStorage and
-   logs to the console so a keeper can be hardcoded later. ── */
-const SKY_IMGS = ["assets/hd-ochre.jpg","assets/hd-fire.jpg","assets/hd-ir.jpg","assets/hd-poster.jpg","assets/hd-sunburst.jpg","assets/hd-dune.jpg"];
-const SKY_FILTERS = [
-  ["clean", "none"],
-  ["negative", "invert(1) contrast(1.06) saturate(1.1)"],
-  ["rose", "grayscale(1) sepia(1) hue-rotate(280deg) saturate(1.9) contrast(1.06)"],
-  ["sage", "grayscale(1) sepia(1) hue-rotate(55deg) saturate(0.85) brightness(1.08)"],
-  ["magma", "saturate(3) contrast(1.9) hue-rotate(-50deg) brightness(0.92)"],
-  ["steel", "contrast(1.3) saturate(0.55) brightness(0.9)"],
-  ["hell", "saturate(1.7) contrast(1.3) brightness(0.9) hue-rotate(-25deg)"],
-  ["hypercolor", "saturate(2.3) contrast(1.3) brightness(1.05)"],
-  ["ember-dim", "saturate(0.8) brightness(0.45) contrast(1.15)"],
-  ["washed", "saturate(0.6) brightness(1.3) contrast(0.95)"],
-];
-const SKY_DEFAULTS = {
-  hero:  { img: 0, f: 4, x: 92, y: 87 },
-  scale: { img: 1, f: 1, x: 81, y: 100 },
-  uses:  { img: 3, f: 2, x: 0, y: 100 },
-  scopes: { img: 0, f: 9, x: 22, y: 84 },
-  bnd:  { img: 1, f: 9, x: 63, y: 58 },
-  hood:  { img: 4, f: 0, x: 50, y: 45 },
-};
-try {
-  const dump = {};
-  document.querySelectorAll(".sky-bg").forEach((bg) => {
-    const v = localStorage.getItem("sky4-" + bg.dataset.sky);
-    if (v) dump[bg.dataset.sky] = JSON.parse(v);
-  });
-  if (Object.keys(dump).length) new Image().src = "/sky-state/" + encodeURIComponent(JSON.stringify(dump));
-} catch (e) {}
-document.querySelectorAll(".sky-bg").forEach((bg) => {
-  const id = bg.dataset.sky;
-  let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
-  try { const sv = JSON.parse(localStorage.getItem("sky4-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
-  const apply = () => {
-    bg.style.backgroundImage = `url("${SKY_IMGS[st.img]}")`;
-    bg.style.filter = SKY_FILTERS[st.f][1];
-    bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
-    try { localStorage.setItem("sky4-" + id, JSON.stringify(st)); } catch (e) {}
-    console.log(`[sky] ${id}: ${SKY_IMGS[st.img].split("/").pop()} · ${SKY_FILTERS[st.f][0]} · ${st.x.toFixed(0)}%/${st.y.toFixed(0)}%`);
-  };
-  apply();
-  bg.addEventListener("pointerdown", (e) => {
-    if (!e.isTrusted) return;
-    e.preventDefault();
-    const px = e.clientX, py = e.clientY, sx = st.x, sy = st.y;
-    let moved = false;
-    const mv = (ev) => {
-      const dx = ev.clientX - px, dy = ev.clientY - py;
-      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
-      if (moved) {
-        st.x = Math.max(0, Math.min(100, sx - dx / Math.max(1, bg.clientWidth) * 130));
-        st.y = Math.max(0, Math.min(100, sy - dy / Math.max(1, bg.clientHeight) * 130));
-        bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
-      }
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", mv);
-      window.removeEventListener("pointerup", up);
-      if (!moved) {
-        if (e.shiftKey) st.f = (st.f + 1) % SKY_FILTERS.length;
-        else st.img = (st.img + 1) % SKY_IMGS.length;
-      }
-      apply();
-    };
-    window.addEventListener("pointermove", mv);
-    window.addEventListener("pointerup", up);
-  });
-});
 
 /* ═════════════════ AT SCALE: fifty seats, one status table ═════════════════ */
 const workshopSend = document.getElementById("workshop-send");
