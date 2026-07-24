@@ -4823,7 +4823,7 @@ demoObs.observe(senderWindow);
 /* ── sky lab: click a backdrop to swap the image, shift-click to swap the
    treatment, drag to reframe the crop. State persists in localStorage and
    logs to the console so a keeper can be hardcoded later. ── */
-const SKY_IMGS = ["assets/sky-ochre.jpg","assets/sky-fire.jpg","assets/sky-ir.jpg","assets/sky-poster.jpg","assets/sky-sunburst.jpg","assets/sky-dune.jpg"];
+const SKY_IMGS = ["assets/hd-ochre.jpg","assets/hd-fire.jpg","assets/hd-ir.jpg","assets/hd-poster.jpg","assets/hd-sunburst.jpg","assets/hd-dune.jpg"];
 const SKY_FILTERS = [
   ["clean", "none"],
   ["negative", "invert(1) contrast(1.06) saturate(1.1)"],
@@ -4847,12 +4847,12 @@ const SKY_DEFAULTS = {
 document.querySelectorAll(".sky-bg").forEach((bg) => {
   const id = bg.dataset.sky;
   let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
-  try { const sv = JSON.parse(localStorage.getItem("sky3-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
+  try { const sv = JSON.parse(localStorage.getItem("sky4-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
   const apply = () => {
     bg.style.backgroundImage = `url("${SKY_IMGS[st.img]}")`;
     bg.style.filter = SKY_FILTERS[st.f][1];
     bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
-    try { localStorage.setItem("sky3-" + id, JSON.stringify(st)); } catch (e) {}
+    try { localStorage.setItem("sky4-" + id, JSON.stringify(st)); } catch (e) {}
     console.log(`[sky] ${id}: ${SKY_IMGS[st.img].split("/").pop()} · ${SKY_FILTERS[st.f][0]} · ${st.x.toFixed(0)}%/${st.y.toFixed(0)}%`);
   };
   apply();
