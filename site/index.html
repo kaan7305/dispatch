@@ -185,21 +185,19 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(54px, 6.5vw, 92px);
+    font-size: clamp(50px, 5vw, 74px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
-    max-width: 1020px;
-    margin-inline: auto;
+    max-width: 720px;
   }
   h1 em { font-style: italic; }
   .hero p.lede {
     margin-top: 28px;
-    font-size: 26px;
+    font-size: 24px;
     line-height: 1.65;
     color: var(--ink);
-    max-width: 680px;
-    margin-inline: auto;
+    max-width: 640px;
   }
   .hero .fine {
     margin-top: 16px;
@@ -211,11 +209,12 @@
 
   /* ── hero: compact copy far left, the live demo big on the right ── */
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
-  .hero-grid { display: block; }
-  .hero-copy { max-width: 1020px; margin: 0 auto; text-align: center; }
-  .hero .cta-row { justify-content: center; }
-  .hero .onboard-box { margin-left: auto; margin-right: auto; }
-  .hero-demo { width: 75vw; margin: 56px 0 0 calc(50% - 37.5vw); }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(360px, 5fr) 7fr;
+    gap: 48px;
+    align-items: start;
+  }
   .hero-copy { padding-top: 40px; }
   .hero h1 { font-size: clamp(28px, 2.6vw, 40px); }
   .hero .btn { padding: 10px 20px; font-size: 14px; }
@@ -231,8 +230,8 @@
   .demo-fit-inner { transform-origin: top left; }
   @media (min-width: 1001px) { .demo-fit-inner { width: 1010px; } }
   @media (max-width: 1000px) {
-    .hero-copy { padding-top: 0; text-align: left; }
-    .hero-demo { width: 100%; margin: 40px 0 0; }
+    .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+    .hero-copy { padding-top: 0; }
   }
   .hs-path { position: absolute; inset: 0; }
   .hs-card {
