@@ -33,7 +33,7 @@
     --pale-yellow: #FBF3DB; --yellow-ink: #956400;
     --serif: "Newsreader", "Iowan Old Style", Georgia, "Times New Roman", serif;
     --geist: "Geist", "Inter", -apple-system, sans-serif;
-    --sans: "Helvetica Neue", -apple-system, "Segoe UI", sans-serif;
+    --sans: "Geist", "Inter", -apple-system, "Segoe UI", sans-serif;
     --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
 
     /* the real app's palette (shadcn zinc) — used inside the machine panes */
@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(48px, 6vw, 72px);
+    font-size: clamp(50px, 5.5vw, 78px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -194,7 +194,7 @@
   h1 em { font-style: italic; }
   .hero p.lede {
     margin-top: 28px;
-    font-size: 23px;
+    font-size: 24px;
     line-height: 1.65;
     color: var(--ink);
     max-width: 620px;
@@ -211,7 +211,7 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: minmax(320px, 3.4fr) 8fr;
+    grid-template-columns: minmax(360px, 4.5fr) 7fr;
     gap: 56px;
     align-items: start;
   }
@@ -228,7 +228,7 @@
   .hero-demo .stage-desk { pointer-events: none; }
   .demo-fit { position: relative; }
   .demo-fit-inner { transform-origin: top left; }
-  @media (min-width: 1001px) { .demo-fit-inner { width: 1232px; } }
+  @media (min-width: 1001px) { .demo-fit-inner { width: 1010px; } }
   @media (max-width: 1000px) {
     .hero-grid { grid-template-columns: 1fr; gap: 40px; }
     .hero-copy { padding-top: 0; }
@@ -650,6 +650,13 @@
   .btn-ghost:hover { color: #36342E; border-color: #C5C0B1; }
   .btn-green { background: var(--accent); border-color: var(--accent); color: #FFFEFB; }
   .btn-green:hover { background: var(--accent-down); border-color: var(--accent-down); }
+  #replay-btn, #scale-replay, #bnd-replay {
+    height: 34px; padding: 5px 13px; font-size: 13.5px;
+    color: var(--muted); border-color: var(--hairline);
+  }
+  #replay-btn:hover, #scale-replay:hover, #bnd-replay:hover {
+    color: var(--ink-strong); border-color: #C5C0B1;
+  }
 
   /* ── agent onboarding one-liner (hero) ── */
   .onboard-box {
@@ -698,10 +705,20 @@
     position: relative;
     border: 1px solid var(--hairline);
     border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(32,21,21,0.10);
     padding: 22px;
     background-color: rgba(255,255,255,0.45);
     background-image: radial-gradient(rgba(32,21,21,0.055) 1px, transparent 1px);
     background-size: 22px 22px;
+  }
+  /* hero demo sits on a sky backdrop, Zapier-style; windows carry the shadow */
+  .hero-demo .stage-desk {
+    background-color: #8FA5BF;
+    background-image: url("assets/sky.jpg");
+    background-size: cover;
+    background-position: center 30%;
+    border: none;
+    padding: 30px;
   }
 
   /* the demo's own mouse cursor — it walks to buttons and clicks them */
@@ -732,8 +749,8 @@
   }
   .demo-stage {
     display: grid;
-    grid-template-columns: 1fr 70px 1fr;
-    gap: 18px;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
     align-items: start;
   }
   @media (max-width: 1000px) {
@@ -756,6 +773,7 @@
     background: var(--card);
     border: 1px solid var(--hairline);
     border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(32,21,21,0.08);
     overflow: hidden;
     position: relative;
     display: flex; flex-direction: column;
@@ -871,8 +889,8 @@
 
   /* the app inside a pane — mirrors web/desktop */
   .app {
-    font-family: -apple-system, "Helvetica Neue", "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-family: var(--geist);
+    font-size: 14px;
     color: var(--afg);
     /* scale with the viewport so the whole scene fits on one screen */
     height: clamp(400px, calc(100vh - 460px), 560px);
@@ -1216,42 +1234,6 @@
     display: grid; place-items: center;
     margin-top: 64px;
   }
-  .lane {
-    position: absolute;
-    left: -40px; right: -40px;   /* reach across the grid gap to touch both panes */
-    height: 1px;
-    background: rgba(32,21,21,0.10);
-    z-index: 0;
-  }
-  .lane-task   { top: calc(50% - 15px); }
-  .lane-events { top: calc(50% + 15px); }
-  .lane .pkt {
-    position: absolute;
-    top: -2.5px;
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--ink-strong);
-    opacity: 0;
-    display: none;
-  }
-  .lane.on .pkt { display: block; }
-  .lane-task.on .pkt { animation: pkt-right 1.2s cubic-bezier(0.45,0,0.55,1) infinite; }
-  .lane-events .pkt { background: var(--green-ink); width: 5px; height: 5px; top: -2px; }
-  .lane-events.on .pkt { animation: pkt-left 1.5s linear infinite; }
-  .lane .pkt.d2 { animation-delay: 0.4s !important; }
-  .lane .pkt.d3 { animation-delay: 0.8s !important; }
-  @keyframes pkt-right {
-    0%   { left: 0%;   opacity: 0; }
-    12%  { opacity: 1; }
-    88%  { opacity: 1; }
-    100% { left: 100%; opacity: 0; }
-  }
-  @keyframes pkt-left {
-    0%   { left: 100%; opacity: 0; }
-    12%  { opacity: 1; }
-    88%  { opacity: 1; }
-    100% { left: 0%;   opacity: 0; }
-  }
 
   .broker-node {
     position: relative; z-index: 2;
@@ -1326,7 +1308,6 @@
   /* stacked layout: the broker column becomes a compact card between the windows.
      Must come after the desktop broker rules so it wins at narrow widths. */
   @media (max-width: 1000px) {
-    .lane { display: none; }
     .broker-col {
       display: grid;
       grid-template-columns: auto 1fr;
@@ -2941,8 +2922,6 @@
       <!-- BROKER -->
       <div class="broker-col">
         <div class="hub">
-          <div class="lane lane-task" id="wire-task"><span class="pkt"></span><span class="pkt d2"></span><span class="pkt d3"></span></div>
-          <div class="lane lane-events" id="wire-events"><span class="pkt"></span><span class="pkt d2"></span><span class="pkt d3"></span></div>
           <div class="broker-node" id="broker-node">
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
               <circle cx="4.5" cy="14" r="2.5" stroke="currentColor" stroke-width="1.5"/>
@@ -3612,7 +3591,7 @@ document.querySelectorAll(".reveal").forEach(el => revealObs.observe(el));
   const fit = document.querySelector(".demo-fit");
   const inner = document.querySelector(".demo-fit-inner");
   if (!fit || !inner) return;
-  const DESIGN = 1232;   /* the demo's natural width (wrap-wide minus padding) */
+  const DESIGN = 1010;   /* the demo's natural width (wrap-wide minus padding) */
   function apply() {
     if (window.innerWidth <= 1000) {
       inner.style.transform = ""; fit.style.height = "";
@@ -4014,8 +3993,6 @@ const taskInput = document.getElementById("task-input");
 const presetRow = document.getElementById("preset-row");
 const brokerBox = document.getElementById("broker-box");
 const relayFeed = document.getElementById("relay-feed");
-const wireTask = document.getElementById("wire-task");
-const wireEvents = document.getElementById("wire-events");
 const demoStatus = document.getElementById("demo-status");
 const replayBtn = document.getElementById("replay-btn");
 const senderWindow = document.getElementById("sender-window");
@@ -4070,7 +4047,7 @@ function showNotif() {
 
 /* ── the demo's own cursor: walks to a control, clicks it ── */
 /* fast-forward: clicking a step re-runs the demo, warping time until that step */
-const dsleep = (ms) => sleep(ms);
+const dsleep = (ms) => sleep(ms * 0.6);
 
 const demoCursor = document.getElementById("demo-cursor");
 const stageDesk = document.querySelector(".stage-desk");
@@ -4110,6 +4087,27 @@ let expiryTimer = null;
 /* ── the scripted agent runs, one per preset ── */
 const PRESETS = [
   {
+    chip: "Diagnose the failing deploy",
+    task: "The staging deploy keeps failing on your machine. Find out why, don't fix anything.",
+    steps: [
+      { type: "tool", name: "Read", input: { file_path: "~/work/app/deploy.log" },
+        term: { cmd: "tail -n 120 ~/work/app/deploy.log", out: [
+          "release v2.4.1 → staging",
+          "!ERROR migration 0042_add_orders_index timed out (60s)",
+          "…120 lines read",
+        ] } },
+      { type: "perm", name: "Bash", input: { command: "cd ~/work/app && alembic upgrade head --sql | head" },
+        term: { cmd: "cd ~/work/app && alembic upgrade head --sql | head", out: [
+          "CREATE INDEX ix_orders_created_at ON orders (created_at);",
+          "!-- no CONCURRENTLY — takes a full table lock",
+        ] },
+        denyText: "Didn't run anything — from the log alone, migration 0042 times out while building an index; it's almost certainly locking the orders table." },
+      { type: "result", text: "migration 0042 builds ix_orders_created_at without CONCURRENTLY — locks orders, deploy window times out", afterPermOnly: true },
+      { type: "agent", text: "Found it: migration 0042 creates an index on orders without CONCURRENTLY, so it takes a full table lock and blows the deploy's 60-second window. Rewrite it as CREATE INDEX CONCURRENTLY and the deploy goes through.", afterPermOnly: true },
+    ],
+    doneText: "Migration 0042 locks the orders table — add CONCURRENTLY and the deploy passes.",
+  },
+  {
     chip: "Pull Friday's sales for the board deck",
     task: "Total Friday's sales from the register export on your Desktop and give me one line for the board deck",
     steps: [
@@ -4146,27 +4144,6 @@ const PRESETS = [
       { type: "result", text: "Q2-invoices.zip on your Desktop — 23 invoices, $148,200 billed", afterPermOnly: true },
     ],
     doneText: "23 Q2 invoices zipped for finance — $148,200 billed in total.",
-  },
-  {
-    chip: "Diagnose the failing deploy",
-    task: "The staging deploy keeps failing on your machine. Find out why — don't fix anything.",
-    steps: [
-      { type: "tool", name: "Read", input: { file_path: "~/work/app/deploy.log" },
-        term: { cmd: "tail -n 120 ~/work/app/deploy.log", out: [
-          "release v2.4.1 → staging",
-          "!ERROR migration 0042_add_orders_index timed out (60s)",
-          "…120 lines read",
-        ] } },
-      { type: "perm", name: "Bash", input: { command: "cd ~/work/app && alembic upgrade head --sql | head" },
-        term: { cmd: "cd ~/work/app && alembic upgrade head --sql | head", out: [
-          "CREATE INDEX ix_orders_created_at ON orders (created_at);",
-          "!-- no CONCURRENTLY — takes a full table lock",
-        ] },
-        denyText: "Didn't run anything — from the log alone, migration 0042 times out while building an index; it's almost certainly locking the orders table." },
-      { type: "result", text: "migration 0042 builds ix_orders_created_at without CONCURRENTLY — locks orders, deploy window times out", afterPermOnly: true },
-      { type: "agent", text: "Found it: migration 0042 creates an index on orders without CONCURRENTLY, so it takes a full table lock and blows the deploy's 60-second window. Rewrite it as CREATE INDEX CONCURRENTLY and the deploy goes through.", afterPermOnly: true },
-    ],
-    doneText: "Migration 0042 locks the orders table — add CONCURRENTLY and the deploy passes.",
   },
 ];
 
@@ -4408,8 +4385,6 @@ async function runDemo() {
   recipientContent.innerHTML = recipientInboxView();
   brokerBox.innerHTML = "";
   relayFeed.innerHTML = "";
-  wireTask.classList.remove("on");
-  wireEvents.classList.remove("on");
   composeOverlay.style.display = "none";
   composeOverlay.classList.remove("show");
   taskInput.value = "";
@@ -4491,7 +4466,7 @@ async function runDemo() {
       if (userTouched || token !== runToken) return;
       await cursorPress(token);
       composeSend.click();
-    }, 1500);
+    }, 900);
   });
   if (token !== runToken) return;
   cursorHide();
@@ -4512,7 +4487,6 @@ async function runDemo() {
 
   /* broker checks */
   brokerNode.classList.add("busy");
-  wireTask.classList.add("on");
   await dsleep(500); if (token !== runToken) return;
   brokerCheck(`<span class="mark">✓</span> trust edge kaan → you: accepted`);
   await dsleep(480); if (token !== runToken) return;
@@ -4522,7 +4496,6 @@ async function runDemo() {
   await dsleep(480); if (token !== runToken) return;
   brokerCheck(`→ routed to your daemon`);
   relay("new_dispatch → your daemon");
-  wireTask.classList.remove("on");
   brokerNode.classList.remove("busy");
 
   /* sender navigates to detail view */
@@ -4583,7 +4556,6 @@ async function runDemo() {
   setStatus("running");
   await dsleep(400); if (token !== runToken) return;
   recipientContent.innerHTML = recipientDetailView(task);
-  wireEvents.classList.add("on");
 
   /* the terminal opens on your desktop — this is where the work happens */
   terminalEl.classList.add("open");
@@ -4677,7 +4649,6 @@ async function runDemo() {
   pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(doneText)));
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
-  wireEvents.classList.remove("on");
   demoStatus.className = "demo-status";
   demoStatus.textContent = permAllowed
     ? "Completed. Kaan watched every event stream live — and you held the keys the whole time."
