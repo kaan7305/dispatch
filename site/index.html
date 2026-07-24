@@ -24,6 +24,8 @@
     --ink-strong: #201515;
     --muted: #787774;
     --hairline: #ECEAE3;
+    --accent: #1BB157;
+    --accent-down: #149A48;
     --pale-red: #FDEBEC;    --red-ink: #9F2F2D;
     --pale-blue: #E1F3FE;   --blue-ink: #1F6C9F;
     --pale-green: #EDF3EC;  --green-ink: #346538;
@@ -55,14 +57,14 @@
     background: var(--paper);
     color: var(--ink);
     line-height: 1.6;
-    font-size: 16px;
+    font-size: 15px;
     -webkit-font-smoothing: antialiased;
   }
 
   ::selection { background: var(--pale-yellow); }
 
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
-  .wrap-wide { max-width: 1280px; margin: 0 auto; padding: 0 24px; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+  .wrap-wide { max-width: 1150px; margin: 0 auto; padding: 0 24px; }
 
   /* ── ambient drift behind hero ── */
   .ambient {
@@ -104,27 +106,27 @@
   /* Zapier toolbar spec: 56px bar, full-bleed, 40px side padding on desktop */
   .header-row {
     display: flex; align-items: center; justify-content: space-between;
-    height: 56px;
+    height: 48px;
     padding: 0 40px;
   }
   @media (max-width: 1023px) { .header-row { padding: 0 16px 0 20px; } }
   .wordmark {
-    display: inline-flex; align-items: center; gap: 9px;
+    display: inline-flex; align-items: center; gap: 8px;
     font-family: var(--serif);
-    font-size: 22px;
+    font-size: 19px;
     letter-spacing: -0.02em;
     color: var(--ink-strong);
     text-decoration: none;
   }
-  .wm-mark { width: 24px; height: 21px; flex-shrink: 0; }
+  .wm-mark { width: 21px; height: 18px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
-  nav { display: flex; align-items: center; gap: 8px; }
+  nav { display: flex; align-items: center; gap: 6px; }
   nav a {
     display: inline-flex; align-items: center;
-    height: 36px;
-    padding: 0 10px;
+    height: 32px;
+    padding: 0 9px;
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 13.5px;
     color: var(--ink-strong);
     text-decoration: none;
     transition: background 250ms, color 250ms;
@@ -133,17 +135,17 @@
   nav a.nav-cta {
     justify-content: center;
     color: #FFFEFB;
-    background: #16A34A;
-    padding: 6px 12px;
+    background: var(--accent);
+    padding: 5px 12px;
     font-weight: 600;
     border-radius: 4px;
     transition: background 250ms;
   }
-  nav a.nav-cta:hover { color: #FFFEFB; background: #15803D; }
+  nav a.nav-cta:hover { color: #FFFEFB; background: var(--accent-down); }
   @media (max-width: 720px) { nav a:not(.nav-cta) { display: none; } }
 
   /* ── hero ── */
-  .hero { padding: 72px 0 24px; overflow: hidden; }
+  .hero { padding: 56px 0 20px; overflow: hidden; }
   .kicker {
     font-size: 11px;
     letter-spacing: 0.14em;
@@ -166,7 +168,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(38px, 6vw, 60px);
+    font-size: clamp(34px, 5vw, 52px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -175,7 +177,7 @@
   h1 em { font-style: italic; }
   .hero p.lede {
     margin-top: 28px;
-    font-size: 19px;
+    font-size: 17px;
     line-height: 1.65;
     color: var(--ink);
     max-width: 620px;
@@ -308,7 +310,7 @@
     position: absolute;
     width: 9px; height: 9px;
     border-radius: 50%;
-    background: #16A34A;
+    background: var(--accent);
     z-index: 3;
     offset-path: path("M 80 90 C 160 140, 110 190, 185 210 C 260 230, 230 270, 272 322");
     animation: hs-ret 8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
@@ -495,7 +497,7 @@
   }
   .fan-scr:hover { transform: scale(1.1); z-index: 6; }
   .fan-scr.hit {
-    border-color: #16A34A !important;
+    border-color: var(--accent) !important;
     box-shadow: 0 0 0 4px rgba(22,163,74,0.22) !important;
   }
   /* a machine that said no: red, quiet, and receiving nothing */
@@ -558,7 +560,7 @@
   .fan-scr .wk i {
     display: block; height: 100%; width: 0;
     border-radius: 2px;
-    background: #16A34A;
+    background: var(--accent);
     transition: width 750ms linear;
   }
   /* your seat: the poll waits for your yes */
@@ -591,7 +593,7 @@
     position: absolute;
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: #16A34A;
+    background: var(--accent);
     z-index: 3;
     opacity: 0;
     offset-rotate: 0deg;
@@ -609,11 +611,11 @@
     justify-content: center;
     align-items: center;
     gap: 6px;
-    height: 40px;
+    height: 44px;
     font-size: 16px;
     font-weight: 600;
     font-family: var(--sans);
-    padding: 8px 16px;
+    padding: 10px 20px;
     border-radius: 4px;
     text-decoration: none;
     text-align: center;
@@ -629,8 +631,8 @@
     border-color: var(--ink-strong);
   }
   .btn-ghost:hover { color: #36342E; border-color: #C5C0B1; }
-  .btn-green { background: #16A34A; border-color: #16A34A; color: #FFFEFB; }
-  .btn-green:hover { background: #15803D; border-color: #15803D; }
+  .btn-green { background: var(--accent); border-color: var(--accent); color: #FFFEFB; }
+  .btn-green:hover { background: var(--accent-down); border-color: var(--accent-down); }
 
   /* ── agent onboarding one-liner (hero) ── */
   .onboard-box {
@@ -655,11 +657,11 @@
     transition: color 150ms, background 150ms;
   }
   .onboard-copy:hover { color: var(--ink-strong); background: rgba(32,21,21,0.05); }
-  .onboard-copy.ok { color: #16A34A; }
+  .onboard-copy.ok { color: var(--accent); }
 
 
   /* ── section scaffolding ── */
-  section { padding: 96px 0; }
+  section { padding: 80px 0; }
   .section-kicker {
     font-size: 11px;
     letter-spacing: 0.14em;
@@ -670,7 +672,7 @@
   h2 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(28px, 4vw, 38px);
+    font-size: clamp(25px, 3.5vw, 34px);
     letter-spacing: -0.02em;
     line-height: 1.15;
     color: var(--ink-strong);
@@ -728,51 +730,6 @@
     .demo-stage { grid-template-columns: 1fr; }
   }
 
-  /* step timeline above the stage — spans the stage edge to edge */
-  .demo-topline {
-    display: flex; align-items: center;
-    margin-bottom: 24px;
-  }
-  .steps {
-    display: flex; align-items: center;
-    list-style: none; gap: 0;
-    width: 100%;
-  }
-  .steps li {
-    display: flex; align-items: center; gap: 9px;
-    font-size: 14px; color: var(--muted);
-    transition: color 350ms;
-    white-space: nowrap;
-  }
-  .steps li:not(.sep-holder) { cursor: pointer; }
-  .steps li:not(.sep-holder):hover { color: var(--ink-strong); }
-  .steps li .n {
-    width: 27px; height: 27px; border-radius: 50%;
-    border: 1px solid var(--hairline);
-    display: grid; place-items: center;
-    font-family: var(--mono); font-size: 11px;
-    background: var(--card);
-    color: var(--muted);
-    transition: background 350ms, color 350ms, border-color 350ms, transform 350ms;
-  }
-  .steps li.cur { color: var(--ink-strong); }
-  .steps li.cur .n {
-    background: var(--ink-strong); color: #fff; border-color: var(--ink-strong);
-    transform: scale(1.12);
-  }
-  .steps li.done .n {
-    background: var(--pale-green); color: var(--green-ink); border-color: transparent;
-  }
-  .steps li.sep-holder {
-    flex: 1; min-width: 14px; height: 1px;
-    background: var(--hairline);
-    margin: 0 16px;
-  }
-  @media (max-width: 800px) {
-    .steps li span.lbl { display: none; }
-    .steps li.cur span.lbl { display: inline; }
-    .steps li.sep-holder { min-width: 8px; margin: 0 8px; }
-  }
   .live-chip {
     display: inline-flex; align-items: center; gap: 7px;
     font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;
@@ -1517,11 +1474,11 @@
   }
   .seat .st-bar {
     width: 56px; height: 3px; border-radius: 2px;
-    background: rgba(22,163,74,0.15);
+    background: rgba(27,177,87,0.15);
     display: none; flex-shrink: 0;
   }
   .seat .st-bar i {
-    display: block; height: 100%; border-radius: 2px; background: #16A34A;
+    display: block; height: 100%; border-radius: 2px; background: var(--accent);
     width: calc(var(--p, 0) * 100%);
     transition: width 300ms;
   }
@@ -2382,7 +2339,7 @@
     background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     transition: left 180ms;
   }
-  .sw-wrap input:checked + .sw { background: #16A34A; }
+  .sw-wrap input:checked + .sw { background: var(--accent); }
   .sw-wrap input:checked + .sw::after { left: 16px; }
   .sw-wrap input:disabled + .sw { background: #86C79A; cursor: not-allowed; }
   .sp-foot {
@@ -2528,7 +2485,7 @@
     z-index: 1;
   }
   .hb-pkt.task { background: var(--ink-strong); animation: hbtask 3.2s cubic-bezier(0.45,0,0.55,1) infinite; }
-  .hb-pkt.evt { background: #16A34A; animation: hbevt 3.2s cubic-bezier(0.45,0,0.55,1) infinite 1.6s; }
+  .hb-pkt.evt { background: var(--accent); animation: hbevt 3.2s cubic-bezier(0.45,0,0.55,1) infinite 1.6s; }
   @keyframes hbtask {
     0% { left: 62px; opacity: 0; }
     12% { opacity: 1; }
@@ -2719,7 +2676,7 @@
   .hg-ring {
     position: absolute;
     width: 88px; height: 88px; border-radius: 50%;
-    background: conic-gradient(#16A34A calc(var(--p, 0) * 360deg), rgba(22,163,74,0.15) 0);
+    background: conic-gradient(var(--accent) calc(var(--p, 0) * 360deg), rgba(27,177,87,0.15) 0);
     -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
     mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
     animation: vgring 4.4s infinite;
@@ -2759,8 +2716,6 @@
   .foot-links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
   .foot-links a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 1px; }
   .foot-links a:hover { border-bottom-color: var(--ink); }
-  /* Zapier "xsmall" size */
-  .demo-cta { display: none; height: 36px; font-size: 14px; padding: 6px 12px; }
 
   /* ── footer ── */
   footer {
@@ -2777,32 +2732,18 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
-  #scale, #overview, footer { border-top: none; }
+  #scale, #boundary, #uses, #layers, #scopes, #overview, footer { border-top: none; }
 
   /* no gradient washes on the page */
   .ambient { display: none; }
 
   /* marketing copy speaks serif — product UI stays sans */
-  .section-intro { font-family: var(--serif); font-size: 18px; }
+  .section-intro { font-family: var(--serif); font-size: 17px; }
   .section-intro .aside { font-family: var(--serif); }
 
   /* narration lines under the demos are retired; the animation carries it */
   .demo-status { display: none; }
 
-  /* the room's own timeline — hero language, on the light canvas */
-  .room-steps { margin-bottom: 16px; flex-wrap: wrap; row-gap: 6px; }
-  .room-steps li { font-size: 11.5px; color: var(--muted); gap: 4px; }
-  .room-steps li:not(.sep-holder) { cursor: default; }
-  .room-steps li:not(.sep-holder):hover { color: var(--muted); }
-  .room-steps li.cur { color: var(--ink-strong); }
-  .room-steps li.done { color: var(--ink); }
-  .room-steps li .n {
-    width: 18px; height: 18px; font-size: 9px;
-    background: var(--card); border-color: var(--hairline); color: var(--muted);
-  }
-  .room-steps li.cur .n { background: var(--ink-strong); border-color: var(--ink-strong); color: #fff; }
-  .room-steps li.done .n { background: var(--pale-green); border-color: transparent; color: var(--green-ink); }
-  .room-steps li.sep-holder { background: var(--hairline); margin: 0 6px; min-width: 4px; }
 
   /* the broker stays in the story, not on the canvas — lanes + packets remain */
   .broker-node, .broker-caption, .broker-checks, .relay-feed, .broker-note { display: none; }
@@ -2811,7 +2752,7 @@
   .sys-row, .backend { display: none; }
 
   /* ── overview + safe by default ── */
-  .ov-title { font-size: clamp(34px, 3.4vw, 48px); margin-bottom: 44px; }
+  .ov-title { font-size: clamp(30px, 3vw, 42px); margin-bottom: 44px; }
   .ov-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2836,7 +2777,7 @@
     margin-top: 96px;
   }
   @media (max-width: 900px) { .ov-split { grid-template-columns: 1fr; gap: 40px; } }
-  .ov-copy h2 { font-size: clamp(30px, 3vw, 44px); margin-bottom: 18px; }
+  .ov-copy h2 { font-size: clamp(26px, 2.6vw, 38px); margin-bottom: 18px; }
   .ov-copy p { font-family: var(--serif); font-size: 17.5px; line-height: 1.6; color: var(--ink); max-width: 480px; }
   .ov-link {
     display: inline-block;
@@ -2931,19 +2872,6 @@
 
     <!-- ── the interactive two-machine demo, scaled to sit beside the copy ── -->
     <div class="hero-demo" id="demo">
-    <div class="demo-topline reveal">
-      <ol class="steps" id="demo-steps">
-        <li><span class="n">1</span><span class="lbl">Compose</span></li>
-        <li class="sep-holder"></li>
-        <li><span class="n">2</span><span class="lbl">Broker checks</span></li>
-        <li class="sep-holder"></li>
-        <li><span class="n">3</span><span class="lbl">Your approval</span></li>
-        <li class="sep-holder"></li>
-        <li><span class="n">4</span><span class="lbl">Agent runs</span></li>
-        <li class="sep-holder"></li>
-        <li><span class="n">5</span><span class="lbl">Done</span></li>
-      </ol>
-    </div>
 
     <div class="demo-fit reveal">
     <div class="demo-fit-inner">
@@ -3105,7 +3033,6 @@
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="replay-btn">Replay</button>
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
-      <a class="btn btn-primary demo-cta" id="demo-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Want this between real machines? Get an invite</a>
     </div>
     </div>
   </div>
@@ -3148,23 +3075,6 @@
         <!-- the room -->
         <div class="classroom">
           <div class="room-left">
-            <ol class="steps room-steps" id="room-steps">
-              <li><span class="n">1</span><span class="lbl">clone</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">2</span><span class="lbl">venv</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">3</span><span class="lbl">install</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">4</span><span class="lbl">dataset</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">5</span><span class="lbl">prepare</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">6</span><span class="lbl">train</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">7</span><span class="lbl">evaluate</span></li>
-              <li class="sep-holder"></li>
-              <li><span class="n">8</span><span class="lbl">reply score</span></li>
-            </ol>
             <div class="class-grid" id="class-grid"></div>
             <div class="class-stats">
               <span class="stat"><span class="stat-dot done"></span><b id="st-done">0</b> replied with a score</span>
@@ -3200,7 +3110,6 @@
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="scale-replay">Replay</button>
       <div class="demo-status" id="scale-status">Fifty machines, one task — watch the room decide.</div>
-      <a class="btn btn-primary demo-cta" id="scale-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Run a real workshop like this — get an invite</a>
     </div>
   </div>
 </section>
@@ -3389,7 +3298,6 @@
   <div class="wrap-wide">
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="bnd-replay">Replay</button>
-      <a class="btn btn-primary demo-cta" id="bnd-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20cross-org">Bridge two orgs like this — get an invite</a>
       <div class="demo-status" id="bnd-status">Compose a dispatch on the left — it starts on scroll.</div>
     </div>
   </div>
@@ -4125,16 +4033,6 @@ const senderWindow = document.getElementById("sender-window");
 const recipientWindow = document.getElementById("recipient-window");
 const brokerNode = document.getElementById("broker-node");
 const recipientNotif = document.getElementById("recipient-notif");
-const stepEls = Array.from(document.querySelectorAll("#demo-steps li:not(.sep-holder)"));
-
-function setStep(n) {
-  if (demoWarp && n >= demoWarp) demoWarp = 0;
-  stepEls.forEach((li, i) => {
-    li.classList.toggle("cur", i === n - 1);
-    li.classList.toggle("done", i < n - 1);
-  });
-}
-function clearSteps() { stepEls.forEach(li => li.classList.remove("cur", "done")); }
 
 /* ── the recipient's terminal: what actually runs on the machine ── */
 const terminalEl = document.getElementById("terminal");
@@ -4183,13 +4081,7 @@ function showNotif() {
 
 /* ── the demo's own cursor: walks to a control, clicks it ── */
 /* fast-forward: clicking a step re-runs the demo, warping time until that step */
-let demoWarp = 0;
-const dsleep = (ms) => sleep(demoWarp ? 8 : ms);
-function seekDemo(n) {
-  userTouched = false;
-  demoWarp = n <= 1 ? 0 : n;
-  runDemo();
-}
+const dsleep = (ms) => sleep(ms);
 
 const demoCursor = document.getElementById("demo-cursor");
 const stageDesk = document.querySelector(".stage-desk");
@@ -4200,7 +4092,6 @@ function cursorHide() { demoCursor.style.opacity = "0"; }
 
 async function cursorTo(target, token, dur = 600) {
   if (!target) return;
-  if (demoWarp) dur = 0;
   const dr = stageDesk.getBoundingClientRect();
   const r = target.getBoundingClientRect();
   /* the hero scales the stage down — convert visual px back to local px */
@@ -4501,7 +4392,7 @@ function waitChoice(yesBtn, noBtn, token, { autopilotMs = null, autoPick = "yes"
         if (userTouched || token !== runToken) return;
         (autoPick === "yes" ? yesBtn : noBtn).click();
         userTouched = false; // the click above set it; autopilot doesn't count
-      }, demoWarp ? 60 : autopilotMs);
+      }, autopilotMs);
     }
   });
 }
@@ -4534,7 +4425,6 @@ async function runDemo() {
   composeOverlay.classList.remove("show");
   taskInput.value = "";
   composeSend.disabled = true;
-  clearSteps();
   senderWindow.classList.remove("attn");
   recipientWindow.classList.remove("attn");
   brokerNode.classList.remove("busy");
@@ -4544,14 +4434,12 @@ async function runDemo() {
   termBody.innerHTML = "";
   termSys("~ waiting for a dispatch — nothing runs without your yes");
   cursorHide();
-  document.getElementById("demo-cta").style.display = "none";
 
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Kaan is composing a dispatch…";
 
   /* Kaan's cursor walks to Compose and clicks it */
   await dsleep(250); if (token !== runToken) return;
-  setStep(1);
   senderWindow.classList.add("attn");
   cursorShow();
   await cursorTo(composeBtn, token, 650); if (token !== runToken) return;
@@ -4615,7 +4503,7 @@ async function runDemo() {
       if (userTouched || token !== runToken) return;
       await cursorPress(token);
       composeSend.click();
-    }, demoWarp ? 60 : 1500);
+    }, 1500);
   });
   if (token !== runToken) return;
   cursorHide();
@@ -4626,7 +4514,6 @@ async function runDemo() {
 
   /* close dialog, show sent row */
   senderWindow.classList.remove("attn");
-  setStep(2);
   composeOverlay.classList.remove("show");
   await dsleep(300); if (token !== runToken) return;
   composeOverlay.style.display = "none";
@@ -4675,7 +4562,6 @@ async function runDemo() {
     </div>`);
   rowlist.prepend(newRow);
   startExpiry(document.getElementById("expiry-span"));
-  setStep(3);
   recipientWindow.classList.add("attn");
   showNotif();
 
@@ -4694,7 +4580,6 @@ async function runDemo() {
   recipientNotif.classList.remove("show");
 
   if (!accepted) {
-    setStep(5);
     setStatus("denied");
     newRow.classList.remove("emphasized");
     relay("dispatch_decision: reject");
@@ -4706,7 +4591,6 @@ async function runDemo() {
   }
 
   /* accepted: recipient opens detail, agent starts */
-  setStep(4);
   relay("dispatch_decision: accept");
   setStatus("running");
   await dsleep(400); if (token !== runToken) return;
@@ -4803,8 +4687,6 @@ async function runDemo() {
 
   const sStream = document.getElementById("s-stream");
   pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(doneText)));
-
-  setStep(5);
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
   wireEvents.classList.remove("on");
@@ -4812,11 +4694,9 @@ async function runDemo() {
   demoStatus.textContent = permAllowed
     ? "Completed. Kaan watched every event stream live — and you held the keys the whole time."
     : "Completed — read-only, because you said so. That's the point.";
-  document.getElementById("demo-cta").style.display = "inline-flex";
 }
 
 replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
-stepEls.forEach((li, i) => li.addEventListener("click", () => seekDemo(i + 1)));
 composeBtn.addEventListener("click", () => {
   if (composeOverlay.style.display === "none") { userTouched = false; runDemo(); }
 });
@@ -4958,7 +4838,6 @@ function seatStep(i, step, feedChance, token) {
   if (m.status !== "running") return;
   m.step = step;
   m.el.style.setProperty("--p", step / TOTAL_STEPS);
-  updateRoomSteps();
   if (WS_STEPS[step - 1] && Math.random() < feedChance) {
     feedLine(`${m.name} · ${WS_STEPS[step - 1].feed}`);
   }
@@ -5025,20 +4904,6 @@ document.addEventListener("pointerdown", (e) => {
   }
 });
 
-const roomStepEls = Array.from(document.querySelectorAll("#room-steps li:not(.sep-holder)"));
-function updateRoomSteps() {
-  const act = seatMeta.filter(m => m.status === "running" || m.status === "done" || m.status === "stuck");
-  if (!act.length) { roomStepEls.forEach(li => li.classList.remove("cur", "done")); return; }
-  let cur = -1;
-  roomStepEls.forEach((li, i) => {
-    const passed = act.filter(m => (m.status === "done" ? TOTAL_STEPS : m.step) >= i + 1).length / act.length;
-    const done = passed >= 0.55;
-    li.classList.toggle("done", done);
-    if (!done && cur === -1) cur = i;
-  });
-  const live = seatMeta.some(m => m.status === "running" || m.status === "pending" || m.status === "stuck");
-  roomStepEls.forEach((li, i) => li.classList.toggle("cur", live && i === cur));
-}
 
 function tallyScale() {
   const done = classGrid.querySelectorAll(".seat.done").length;
@@ -5051,7 +4916,6 @@ function tallyScale() {
   document.getElementById("st-stuck").textContent = stuck;
   document.getElementById("st-stuck-wrap").style.display = stuck > 0 ? "inline-flex" : "none";
   classBar.style.width = (done / SEAT_COUNT * 100) + "%";
-  updateRoomSteps();
 }
 
 /* the click handler for "Send fix" inside an inspector — bound to the live run */
@@ -5087,7 +4951,6 @@ async function runScale() {
   inspectOpen = -1;
   roomFeedEl.innerHTML = "";
   stMed.style.display = "none";
-  document.getElementById("scale-cta").style.display = "none";
   workshopSend.disabled = false;
   stDone.textContent = "0";
   stDeclined.textContent = "0";
@@ -5370,7 +5233,6 @@ async function runScale() {
       .reduce((a, m) => Math.max(a, parseFloat(m.score)), 0);
     scaleStatus.className = "demo-status";
     scaleStatus.textContent = `${done} models trained — best ${best.toFixed(1)}%. ${rescued} hit errors and finished after a follow-up fix. ${dec} said no.`;
-    document.getElementById("scale-cta").style.display = "inline-flex";
   }, 900);
 }
 
@@ -5533,7 +5395,6 @@ usesObs.observe(document.querySelector(".uses-show"));
   const envPop = document.getElementById("bnd-env");
   const nodePop = document.getElementById("bnd-node");
   const bnd = document.querySelector(".bnd");
-  const cta = document.getElementById("bnd-cta");
   if (!termA || !termB) return;
 
   const $ = (s) => document.querySelector(s);
@@ -5751,7 +5612,6 @@ usesObs.observe(document.querySelector(".uses-show"));
     closePops();
     hideCompose(A); hideCompose(B);
     [sysAudit, sysDb, sysCrm].forEach(n => { n.classList.remove("hit", "touched"); });
-    if (cta) cta.style.display = "none";
 
     // resolve the bespoke execution script for this exact task
     const preset = from.presets.find(p => p.task === task);
@@ -5854,7 +5714,6 @@ usesObs.observe(document.querySelector(".uses-show"));
       busy = false;
       from.win.classList.remove("lit");
       showCompose(A); showCompose(B);
-      if (cta) cta.style.display = "inline-flex";
     }
   }
 
@@ -5956,7 +5815,6 @@ usesObs.observe(document.querySelector(".uses-show"));
   async function begin() {
     const tok = ++token;
     busy = false;
-    if (cta) cta.style.display = "none";
     hideCompose(A); hideCompose(B);
     [sysAudit, sysDb, sysCrm].forEach(n => n.classList.remove("hit", "touched"));
     setLog("idle");
