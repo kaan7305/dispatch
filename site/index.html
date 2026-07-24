@@ -3307,9 +3307,8 @@
         <button class="us-item on" data-us="0"><b>Every step approved by dad</b></button>
         <button class="us-item" data-us="1"><b>Debug where the bug lives</b></button>
         <button class="us-item" data-us="2"><b>The answer travels, not the files</b></button>
-        <button class="us-item" data-us="3"><b>No is always an option</b></button>
-        <button class="us-item" data-us="4"><b>One thread, whole release</b></button>
-        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b></button>
+        <button class="us-item" data-us="3"><b>One thread, whole release</b></button>
+        <button class="us-item" data-us="4"><b>Fan-out with follow-ups</b></button>
       </div>
 
       <div class="uses-stage">
@@ -5361,15 +5360,6 @@ const USES = [
       { k: "ok",   txt: "48,112 raw rows never leave the machine" },
     ],
     result: "Totals sent. The dataset stayed on the workstation.", declined: false },
-  { route: "to a colleague's office box",
-    quote: "Restart the staging service real quick.",
-    steps: [],
-    feed: [
-      { k: "ask",  txt: "restart staging? — waiting on Jeff" },
-      { k: "deny", txt: "Jeff declines — “rewiring the rack”" },
-      { k: "ok",   txt: "nothing ran · ops saw the no instantly" },
-    ],
-    result: "“Not tonight — rewiring the rack.”", declined: true },
   { route: "to the build Mac",
     quote: "Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.",
     steps: ["build 2.4.0", "notarize", "upload · 3 artifacts", "checksum → thread"],
@@ -5486,17 +5476,21 @@ usesObs.observe(document.querySelector(".uses-show"));
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let token = 0;      // bumps on replay — aborts stale async
   let busy = false;   // a dispatch is in flight (either direction)
+  /* the scene was staged a third too slow — one dial speeds every beat of it,
+     and every scripted wait in here goes through bsleep */
+  const PACE = 0.75;
+  const bsleep = (ms) => sleep(ms * PACE);
   /* nobody can click for the far side any more, so the far side decides on
      a beat — long enough to read the ask, short enough to keep moving */
-  const APPROVE_MS = 2400;   // accept the incoming dispatch
-  const WRITE_MS = 2200;     // allow the one destructive write
+  const APPROVE_MS = 1800;   // accept the incoming dispatch
+  const WRITE_MS = 1650;     // allow the one destructive write
 
   /* two heights, and that's the whole grammar: tight on the terminal that's
      talking, and a hair inside the wide shot for the hand-off between them.
      the light shell retired the backstage strip and the system nodes, so
      there is nothing else on this canvas worth framing */
-  const SHOT_TERM = { pad: 26 };
-  const SHOT_MID = { zoom: 1.11 };
+  const SHOT_TERM = { pad: 26, dur: 710 };
+  const SHOT_MID = { zoom: 1.11, dur: 710 };
 
   const sysMap = (k) => ({ db: sysDb, crm: sysCrm, audit: sysAudit }[k] || null);
 
@@ -5567,6 +5561,16 @@ usesObs.observe(document.querySelector(".uses-show"));
   };
   A.otherSide = B; B.otherSide = A;
 
+  /* the scene opens on two machines that are already up: lids open, terminals
+     on screen, docks out of the way. doing it here rather than in the boot
+     means the one lid-swing happens off camera, long before anyone scrolls */
+  [A, B].forEach((side) => {
+    side.lap.classList.add("open");
+    side.pow.classList.add("on");
+    side.win.classList.add("open");
+    if (side.bar) side.bar.classList.add("gone");
+  });
+
   const st = { from: null, to: null, short: "", exec: null, readNode: null, wrote: false, status: "idle" };
 
   /* ---- terminal writers (Claude Code vs Codex skins) ---- */
@@ -5588,8 +5592,10 @@ usesObs.observe(document.querySelector(".uses-show"));
   function hit(node, keep) { if (!node) return; node.classList.add("hit"); if (keep) node.classList.add("touched"); setTimeout(() => node.classList.remove("hit"), 1500); }
   const setLog = (h) => { beLog.innerHTML = h; };
 
-  /* ---- OS cursor (boot only) ---- */
-  async function curMove(side, target, dur = 620) {
+  /* ---- OS cursor: nothing calls these since the boot stopped miming a
+     person opening a laptop. kept, retimed, in case the scene ever needs a
+     hand on screen again ---- */
+  async function curMove(side, target, dur = 465) {
     const cur = side.cur; if (!cur) return;
     const sr = side.scr.getBoundingClientRect(), tr = target.getBoundingClientRect();
     /* the cursor is translated in screen-local px, but the whole cockpit may
@@ -5598,8 +5604,9 @@ usesObs.observe(document.querySelector(".uses-show"));
     cur._x = (tr.left - sr.left + tr.width / 2) / k - 3;
     cur._y = (tr.top - sr.top + tr.height / 2) / k - 2;
     cur.style.opacity = "1";
-    cur.style.transition = "transform 620ms cubic-bezier(0.22,1,0.36,1), opacity 250ms";
+    cur.style.transition = "transform 465ms cubic-bezier(0.22,1,0.36,1), opacity 250ms";
     cur.style.transform = `translate(${cur._x}px, ${cur._y}px)`;
+    /* dur already carries the pace — this waits out the css move, nothing more */
     await sleep(dur + 40);
   }
   async function curPress(side) {
@@ -5621,12 +5628,15 @@ usesObs.observe(document.querySelector(".uses-show"));
          camera may be holding a zoom over the whole strip */
       const wpx = backend.offsetWidth;
       const from = dir === "a2b" ? 40 : wpx - 50, to = dir === "a2b" ? wpx - 50 : 40;
+      /* the css move and the wait are the same number, paced once — let them
+         drift apart and the packet fades out mid-flight */
+      const travel = 950 * PACE;
       pkt.style.left = from + "px"; pkt.style.opacity = "1";
-      pkt.style.transition = "left 950ms cubic-bezier(0.45,0,0.55,1), opacity 300ms";
+      pkt.style.transition = `left ${travel}ms cubic-bezier(0.45,0,0.55,1), opacity 300ms`;
       requestAnimationFrame(() => requestAnimationFrame(() => { pkt.style.left = to + "px"; }));
-      await sleep(950); if (tok !== token) return;
+      await sleep(travel); if (tok !== token) return;
       pkt.style.opacity = "0"; setTimeout(() => pkt.remove(), 300);
-    } else { await sleep(400); }
+    } else { await bsleep(400); }
     if (cross) cross.classList.remove("hot");
     if (line) line.classList.remove("hot");
     beNode.classList.remove("busy");
@@ -5727,15 +5737,15 @@ usesObs.observe(document.querySelector(".uses-show"));
     // sender signs + sends — the camera is already tight on its terminal
     from.win.classList.add("lit");
     pPrompt(from, task);
-    await sleep(430); if (tok !== token) return done();
+    await bsleep(430); if (tok !== token) return done();
     pAction(from, "I'll dispatch this to " + to.label + " and log it here.");
-    await sleep(430); if (tok !== token) return done();
+    await bsleep(430); if (tok !== token) return done();
     pMcp(from, "- dispatch_send(to: " + to.email + ")");
-    await sleep(360); if (tok !== token) return done();
+    await bsleep(360); if (tok !== token) return done();
     pRes(from, "signed · ed25519 · device " + from.dev);
     const [logN, logM] = from.senderLog;
     pRes(from, '<span class="ok">' + logM + '</span>'); hit(logN, true);
-    await sleep(520); if (tok !== token) return done();
+    await bsleep(520); if (tok !== token) return done();
     pRes(from, '<span class="dim">waiting for ' + to.label + ' to accept…</span>');
     setLog('<span class="a2b">→ new_dispatch &nbsp;' + from.key.toUpperCase() + " → " + to.key.toUpperCase() + '&nbsp; [signed]</span>');
     from.win.classList.remove("lit");
@@ -5752,7 +5762,7 @@ usesObs.observe(document.querySelector(".uses-show"));
     pRes(to, "from " + from.email + " · signature valid · nonce fresh · in scope");
     statusEl.className = "demo-status hot";
     statusEl.textContent = to.label + "'s machine has it — nothing runs until that side says yes.";
-    await sleep(620); if (tok !== token) return done();
+    await bsleep(620); if (tok !== token) return done();
     const ok = await askApprove(to.scrEl, tok, "approve", "deny", APPROVE_MS);
     if (tok !== token) return done();
 
@@ -5765,8 +5775,8 @@ usesObs.observe(document.querySelector(".uses-show"));
       to.win.classList.remove("lit"); from.win.classList.add("lit");
       await bcam.to(from.win, SHOT_TERM); if (tok !== token) return done();
       pAction(from, '<span class="warn">' + to.label + " declined. Nothing touched their systems.</span>");
-      await sleep(900); if (tok !== token) return done();
-      await bcam.reset(); if (tok !== token) return done();
+      await bsleep(900); if (tok !== token) return done();
+      await bcam.reset(710); if (tok !== token) return done();
       statusEl.className = "demo-status";
       statusEl.textContent = "Declined — " + to.label + "'s systems were never touched. Replay to watch it again.";
       return finishRun();
@@ -5775,15 +5785,15 @@ usesObs.observe(document.querySelector(".uses-show"));
     st.status = "accepted";
     setLog('<span class="b2a">← accepted</span>');
     pAction(to, '<span class="ok">accepted</span> · ' + ex.plan);
-    await sleep(500); if (tok !== token) return done();
+    await bsleep(500); if (tok !== token) return done();
 
     // read step (specific to the task)
     pExec(to, ex.read.cmd);
-    await sleep(680); if (tok !== token) return done();
+    await bsleep(680); if (tok !== token) return done();
     st.readNode = ex.read.node;
     hit(sysMap(ex.read.node), true);
     pRes(to, "→ " + ex.read.out);
-    await sleep(650); if (tok !== token) return done();
+    await bsleep(650); if (tok !== token) return done();
 
     // per-call write approval (the one destructive step) — we hold the shot:
     // everything that matters is printing inside this one terminal
@@ -5797,17 +5807,17 @@ usesObs.observe(document.querySelector(".uses-show"));
       st.wrote = true;
       pExec(to, ex.write.cmd + ' <span class="ok">· allowed</span>');
       hit(sysMap(ex.write.node), true);
-      await sleep(600); if (tok !== token) return done();
+      await bsleep(600); if (tok !== token) return done();
       pRes(to, "→ " + ex.write.ok);
-      await sleep(350); if (tok !== token) return done();
+      await bsleep(350); if (tok !== token) return done();
       pAction(to, '<span class="ok">dispatch_act: completed</span> · replied to ' + from.label);
     } else {
       pRes(to, '<span class="warn">write denied · returning a read-only report</span>');
-      await sleep(420); if (tok !== token) return done();
+      await bsleep(420); if (tok !== token) return done();
       pAction(to, '<span class="ok">dispatch_act: completed</span> · report only');
     }
     st.status = "completed";
-    await sleep(420); if (tok !== token) return done();
+    await bsleep(420); if (tok !== token) return done();
 
     setLog('<span class="b2a">← done &nbsp;' + to.key.toUpperCase() + " → " + from.key.toUpperCase() + '</span>');
     to.win.classList.remove("lit");
@@ -5820,13 +5830,13 @@ usesObs.observe(document.querySelector(".uses-show"));
     pAction(from, '<span class="ok">' + to.label + " completed.</span>");
     pRes(from, st.wrote ? ex.done : "read-only report returned — nothing written");
     pRes(from, '<span class="ok">result recorded in Audit log</span>');
-    await sleep(950); if (tok !== token) return done();
+    await bsleep(950); if (tok !== token) return done();
     if (from.key === "a") hit(sysAudit, true);
     /* the pull-back to the wide shot is the closing line: two machines,
        two companies, one dispatch, both still standing */
     statusEl.className = "demo-status";
     statusEl.textContent = "Done — signed by " + from.label + ", approved by " + to.label + ", logged on both sides. Replay to watch it again.";
-    await bcam.reset(); if (tok !== token) return done();
+    await bcam.reset(710); if (tok !== token) return done();
     finishRun();
 
     function finishRun() {
@@ -5867,7 +5877,7 @@ usesObs.observe(document.querySelector(".uses-show"));
       let d = 38 + Math.random() * 52;
       if (ch === " ") d += 30;
       if (ch === "," || ch === "." || ch === "?") d += 140;
-      await sleep(d);
+      await bsleep(d);
     }
     if (box) box.classList.remove("focus");
     return true;
@@ -5880,70 +5890,53 @@ usesObs.observe(document.querySelector(".uses-show"));
     return sendDispatch(side, v);
   }
 
-  /* ---- boot a laptop (open → power → terminal → pick agent → plugin/MCP/daemon) ---- */
+  /* ---- bring a side up: the machine is already on and the terminal is
+     already there, so this only clears the screen and starts typing. no lid,
+     no power-on, no walk to the dock, no agent picker — the story starts at
+     the first line of the transcript ---- */
   async function bootSide(side, tok, bootLines) {
-    side.lap.classList.remove("open"); side.pow.classList.remove("on");
-    side.win.classList.remove("open", "lit"); side.pick.classList.remove("show");
-    if (side.bar) side.bar.classList.remove("gone");
+    side.lap.classList.add("open");
+    side.pow.classList.add("on");
+    side.win.classList.add("open");
+    side.win.classList.remove("lit");
+    side.pick.classList.remove("show");
+    if (side.bar) side.bar.classList.add("gone");
     side.scrEl.innerHTML = "";
     if (side.cur) { side.cur.style.opacity = "0"; side.cur.style.transform = "translate(0,0)"; }
-    await sleep(200); if (tok !== token) return;
-    side.lap.classList.add("open");
-    await sleep(700); if (tok !== token) return;
-    side.pow.classList.add("on");
-    await sleep(1050); if (tok !== token) return;
-    if (!calm && side.dock) { await curMove(side, side.dock); if (tok !== token) return; await curPress(side); }
-    side.win.classList.add("open");
-    if (side.bar) side.bar.classList.add("gone");
-    await sleep(800); if (tok !== token) return;
-    side.pick.classList.add("show");
-    const rec = side.pick.querySelector(".pick-opt.on"); rec.classList.add("pulse");
-    await new Promise((res) => {
-      let d = false;
-      const finish = () => { if (d || tok !== token) return; d = true; res(); };
-      rec.addEventListener("click", finish);
-      /* the OS cursor walks over and launches it — 1200ms of "someone is
-         sitting there", then the click */
-      (async () => { await sleep(1200); if (d || tok !== token) return; if (!calm && side.cur) { await curMove(side, rec); if (d) return; await curPress(side); } finish(); })();
-      setTimeout(finish, 9000);
-    });
-    if (tok !== token) return;
-    rec.classList.remove("pulse"); side.pick.classList.remove("show");
-    if (side.cur) side.cur.style.opacity = "0";
-    await sleep(450); if (tok !== token) return;
+    await bsleep(200); if (tok !== token) return;
     await bootLines(tok);
   }
   async function bootA(tok) {
     w(A, '<span class="star">✻</span> Welcome to Claude Code', "welcome");
-    await sleep(500); if (tok !== token) return;
+    await bsleep(500); if (tok !== token) return;
     w(A, '  <span class="dim">~/finance · team-a</span>', "welcome");
-    await sleep(750); if (tok !== token) return;
+    await bsleep(750); if (tok !== token) return;
     w(A, '<span class="dim">›</span> /plugin install dispatch');
-    await sleep(1000); if (tok !== token) return;
+    await bsleep(1000); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> <span class="ok">dispatch@0.1 installed</span>');
-    await sleep(750); if (tok !== token) return;
+    await bsleep(750); if (tok !== token) return;
     w(A, '<span class="dim">›</span> connecting <span class="mcp">MCP: dispatch</span>…');
-    await sleep(1250); if (tok !== token) return;
+    await bsleep(1250); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
-    await sleep(750); if (tok !== token) return;
+    await bsleep(750); if (tok !== token) return;
     w(A, '  <span class="res">⎿</span> daemon <span class="ok">running</span> · pid 4821 · key a41f…9c2e');
-    await sleep(500); if (tok !== token) return;
+    await bsleep(500); if (tok !== token) return;
   }
   async function bootB(tok) {
     w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex mcp add dispatch</span>');
-    await sleep(900); if (tok !== token) return;
+    await bsleep(900); if (tok !== token) return;
     w(B, '  <span class="ok">✓</span> added MCP server <span class="mcp">dispatch</span> <span class="dim">· dispatch@0.1</span>');
-    await sleep(700); if (tok !== token) return;
+    await bsleep(700); if (tok !== token) return;
     w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex</span>');
-    await sleep(650); if (tok !== token) return;
+    await bsleep(650); if (tok !== token) return;
     w(B, '<span class="ex">&gt;_</span> OpenAI Codex <span class="dim">(v0.48.0)</span>', "welcome");
-    await sleep(450); if (tok !== token) return;
+    await bsleep(450); if (tok !== token) return;
     w(B, '  <span class="dim">model gpt-5-codex · C:\\team-b</span>', "welcome");
-    await sleep(800); if (tok !== token) return;
+    await bsleep(800); if (tok !== token) return;
     w(B, '<span class="bar">▌</span> <span class="mcp">MCP: dispatch</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
-    await sleep(800); if (tok !== token) return;
+    await bsleep(800); if (tok !== token) return;
     w(B, '<span class="bar">▌</span> daemon <span class="ok">listening</span> · key <span class="dim">b7e2…41d0</span>');
-    await sleep(500); if (tok !== token) return;
+    await bsleep(500); if (tok !== token) return;
   }
 
   async function begin() {
@@ -5955,22 +5948,22 @@ usesObs.observe(document.querySelector(".uses-show"));
     setLog("idle");
     if (cross) { cross.classList.remove("hot"); cross.textContent = "dispatch ›"; }
     statusEl.className = "demo-status";
-    statusEl.textContent = "Two managers, two machines — powering up…";
-    /* a slow, almost-invisible creep while both lids open: the studio tic
+    statusEl.textContent = "Two managers, two machines — both agents connect…";
+    /* a slow, almost-invisible creep under the opening lines: the studio tic
        that says we're going somewhere. not awaited — the boot runs under it */
-    bcam.to(bnd, { zoom: 1.05, dur: 6000 });
+    bcam.to(bnd, { zoom: 1.05, dur: 3400 });
     await Promise.all([bootSide(A, tok, bootA), bootSide(B, tok, bootB)]);
     if (tok !== token) return;
     showCompose(A); showCompose(B);
     statusEl.className = "demo-status";
     statusEl.textContent = "Both machines are live — Manager A hands a task to Claude Code…";
-    await sleep(900); if (tok !== token) return;
+    await bsleep(900); if (tok !== token) return;
 
     /* nobody is going to type this — the scene types it itself */
     const task = A.presets[0].task;
     await bcam.to(A.win, SHOT_TERM); if (tok !== token) return;
     if (!await typeInto(A, task, tok)) return;
-    await sleep(520); if (tok !== token) return;
+    await bsleep(520); if (tok !== token) return;
     statusEl.className = "demo-status hot";
     statusEl.textContent = "Claude Code signs it with Manager A's Mac and hands it to the daemon…";
     await submit(A);
