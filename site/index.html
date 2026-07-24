@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(36px, 3vw, 46px);
+    font-size: clamp(40px, 3.3vw, 52px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -211,7 +211,7 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: 1fr 66vw;
+    grid-template-columns: 1fr 62vw;
     gap: 36px;
     align-items: start;
     max-width: none;
@@ -724,20 +724,10 @@
     padding: 30px;
     overflow: hidden;
   }
-  .hero-demo .stage-desk::before,
-  .hero-demo .stage-desk::after {
-    content: ""; position: absolute; top: 0; bottom: 0;
-  }
-  .hero-demo .stage-desk::after {
-    right: 0; width: 100%;
-    background: url("assets/sky-warm.jpg") center 8% / cover no-repeat;
-    filter: contrast(1.4) saturate(1.7) hue-rotate(-14deg);
-  }
   .hero-demo .stage-desk::before {
-    left: 0; width: 58%; z-index: 1;
+    content: ""; position: absolute; inset: 0;
     background: url("assets/sky.jpg") center 30% / cover no-repeat;
     filter: contrast(1.35) saturate(0.45) brightness(1.05);
-    clip-path: polygon(0 0, 96% 0, 82% 100%, 0 100%);
   }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
@@ -1359,9 +1349,57 @@
     display: grid;
     grid-template-columns: 300px 1fr;
     gap: 28px;
-    align-items: center;
+    align-items: start;
   }
   @media (max-width: 900px) { .scale-stage { grid-template-columns: 1fr; } }
+
+  /* the room as a product pane */
+  .room-window {
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 10px 28px rgba(32,21,21,0.10);
+  }
+  .room-app { font-family: var(--geist); font-size: 14px; color: var(--afg); background: #fff; }
+  .room-topbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--ab);
+  }
+  .room-title { font-weight: 600; font-size: 14.5px; }
+  .count-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--geist); font-size: 11px; font-weight: 600;
+    background: var(--amuted); color: var(--amfg);
+    border-radius: 999px; padding: 2px 8px;
+  }
+  .room-stats { margin-left: auto; font-size: 12.5px; color: var(--amfg); white-space: nowrap; }
+  .room-stats b { color: var(--afg); font-weight: 600; }
+  .room-table { height: 430px; overflow-y: auto; }
+  .room-row {
+    display: grid; grid-template-columns: 26px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--amuted);
+  }
+  .room-row:last-child { border-bottom: none; }
+  .room-row .rr-name { font-size: 13.5px; color: var(--afg); }
+  .room-row .avatar { width: 22px; height: 22px; font-size: 8.5px; }
+
+  /* the scale desk goes evil: inverted storm + film grain */
+  #scale .stage-desk { border: none; background: #C7D0DC; }
+  #scale .stage-desk::before {
+    content: ""; position: absolute; inset: 0;
+    background: url("assets/sky-dark.jpg") center 35% / cover no-repeat;
+    filter: invert(0.88) hue-rotate(185deg) contrast(1.25) saturate(1.15);
+  }
+  #scale .stage-desk::after {
+    content: ""; position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
+    opacity: 0.16; mix-blend-mode: overlay; pointer-events: none;
+  }
+  #scale .scale-stage { position: relative; z-index: 1; }
 
   .workshop-card {
     background: #fff;
@@ -3040,7 +3078,7 @@
   <div class="wrap-wide">
     <h2 class="reveal">One dispatch, fifty machines.</h2>
     <p class="section-intro reveal">
-      An instructor sends one task to the whole room. Each seat decides for itself. One of them is yours.
+      An instructor sends one task to the whole room. Each seat decides for itself. Track the status of each dispatch, for each seat.
     </p>
 
     <div class="stage-desk reveal">
@@ -3054,53 +3092,27 @@
             <span class="avatar-stack">
               <span class="avatar">AL</span><span class="avatar">BE</span><span class="avatar">CA</span>
             </span>
-            Workshop — 50 people
+            CS.511 Workshop <span class="count-badge">50</span>
           </span>
           <div class="field-label">Task</div>
           <div class="workshop-task">Set up the workshop project from scratch — fresh venv, deps, dataset — then prepare, train, evaluate with plots, and reply with your accuracy score.</div>
           <div class="dialog-foot">
-            <span class="sig-chip">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9M17 6l3 3"/></svg>
-              signed once
-            </span>
             <button class="abtn" id="workshop-send">Send to 50</button>
           </div>
-          <div class="fanout-note">One signature. The broker fans it out<br/>and can't add a name to the list.</div>
         </div>
 
-        <!-- the room -->
-        <div class="classroom">
-          <div class="room-left">
-            <div class="class-grid" id="class-grid"></div>
-            <div class="class-stats">
-              <span class="stat"><span class="stat-dot done"></span><b id="st-done">0</b> replied with a score</span>
-              <span class="stat"><span class="stat-dot pending"></span><b id="st-waiting">0</b> deciding</span>
-              <span class="stat"><span class="stat-dot declined"></span><b id="st-declined">0</b> said no</span>
-              <span class="stat" id="st-stuck-wrap" style="display:none;"><span class="stat-dot stuckdot"></span><b id="st-stuck">0</b> stuck — click to help</span>
-              <span class="stat" id="st-med" style="display:none;">median <b id="st-med-v">–</b></span>
-              <div class="class-bar"><div class="class-bar-fill" id="class-bar"></div></div>
+        <!-- the room, as the product would show it -->
+        <div class="room-window">
+          <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div></div>
+          <div class="room-app">
+            <div class="room-topbar">
+              <span class="room-title">CS.511 Workshop</span><span class="count-badge">50</span>
+              <span class="room-stats" id="room-stats"></span>
             </div>
-            <div class="class-hint">Click any seat to see that machine.</div>
-          </div>
-          <div class="room-feed-wrap">
-            <div class="feed-label">From the room · simulated</div>
-            <div class="room-feed" id="room-feed"></div>
+            <div class="room-table" id="room-table"></div>
           </div>
         </div>
-
       </div>
-
-      <!-- your seat's decision popover -->
-      <div class="seat-pop" id="seat-pop">
-        <div class="seat-pop-title">This seat is you</div>
-        <div class="approve-mini">
-          <button class="abtn" id="seat-accept">Accept</button>
-          <button class="abtn outline" id="seat-decline">Decline</button>
-        </div>
-      </div>
-
-      <!-- click-a-seat inspector -->
-      <div class="seat-pop inspect" id="seat-inspect"></div>
     </div>
 
     <div class="demo-controls reveal">
@@ -4701,522 +4713,135 @@ const demoObs = new IntersectionObserver((entries) => {
 }, { threshold: 0.55 });
 demoObs.observe(senderWindow);
 
-/* ═════════════════ AT SCALE: the workshop of fifty ═════════════════ */
-const classGrid = document.getElementById("class-grid");
-const seatPop = document.getElementById("seat-pop");
-const seatAccept = document.getElementById("seat-accept");
-const seatDecline = document.getElementById("seat-decline");
-const scaleStatus = document.getElementById("scale-status");
+/* ═════════════════ AT SCALE: fifty seats, one status table ═════════════════ */
 const workshopSend = document.getElementById("workshop-send");
-const stDone = document.getElementById("st-done");
-const stWaiting = document.getElementById("st-waiting");
-const stDeclined = document.getElementById("st-declined");
-const classBar = document.getElementById("class-bar");
-
-const roomFeedEl = document.getElementById("room-feed");
-const seatInspect = document.getElementById("seat-inspect");
-const stMed = document.getElementById("st-med");
-const stMedV = document.getElementById("st-med-v");
+const roomTable = document.getElementById("room-table");
+const roomStats = document.getElementById("room-stats");
 
 const SEAT_NAMES = ["Ada","Ben","Chloe","Deniz","Ege","Farah","Gus","Hana","Idil","Jon",
   "Kerem","Lena","Mert","Nora","Omar","Pia","Quinn","Rosa","Sam","Tuna",
   "Uma","Vera","Wes","Xin","Yusuf"];
-const DECLINE_REASONS = ['"in a meeting — later"', '"not on this laptop"', '"doing it by hand"'];
 const SEAT_COUNT = 50;
-const YOU_SEAT = 24;
 let scaleToken = 0;
 let seatMeta = [];
 
+const BADGE_FOR = {
+  idle: ["muted", "Idle"], pending: ["warning", "Pending"], running: ["running", "Running"],
+  done: ["success", "Completed"], declined: ["destructive", "Declined"],
+  failed: ["destructive", "Failed"], expired: ["muted", "Expired"],
+};
+
+function fmtDur(sec) {
+  return sec >= 60 ? `${Math.floor(sec / 60)}m ${sec % 60}s` : `${sec}s`;
+}
+function initialsOf(name) {
+  const p = name.split(" ");
+  return (p[0][0] + (p[1] ? p[1][0] : (p[0][1] || ""))).toUpperCase();
+}
+
 function buildRoom() {
-  classGrid.innerHTML = "";
+  roomTable.innerHTML = "";
   seatMeta = [];
   for (let i = 0; i < SEAT_COUNT; i++) {
-    const name = i === YOU_SEAT
-      ? "you"
-      : SEAT_NAMES[i % SEAT_NAMES.length] + (i >= SEAT_NAMES.length ? " K." : "");
-    const seat = el(`<div class="seat${i === YOU_SEAT ? " you" : ""}" data-i="${i}">
-      <span class="st-dot"></span><span class="st-nm">${name}</span><span class="st-lead"></span><span class="st-bar"><i></i></span><span class="st-val"></span>
+    const name = SEAT_NAMES[i % SEAT_NAMES.length] + (i >= SEAT_NAMES.length ? " K." : "");
+    const row = el(`<div class="room-row">
+      <span class="avatar">${initialsOf(name)}</span>
+      <span class="rr-name">${name}</span>
+      <span class="badge muted">Idle</span>
     </div>`);
-    classGrid.appendChild(seat);
-    seatMeta.push({ name, el: seat, status: "idle", step: 0, acceptDelay: null, dur: null, reason: null });
+    roomTable.appendChild(row);
+    seatMeta.push({ name, el: row, status: "idle", durS: null });
   }
+  tallyScale();
+}
+
+function setSeat(i, status, token) {
+  if (token !== undefined && token !== scaleToken) return;
+  const m = seatMeta[i];
+  m.status = status;
+  const [cls, label] = BADGE_FOR[status];
+  const b = m.el.querySelector(".badge");
+  b.className = "badge " + cls;
+  b.textContent = label;
+  tallyScale();
+}
+
+function tallyScale() {
+  const c = { done: 0, running: 0, pending: 0, declined: 0, failed: 0, expired: 0, idle: 0 };
+  seatMeta.forEach(m => { c[m.status] = (c[m.status] || 0) + 1; });
+  const durs = seatMeta.filter(m => m.durS != null).map(m => m.durS).sort((a, b) => a - b);
+  const med = durs.length ? fmtDur(durs[Math.floor(durs.length / 2)]) : "–";
+  roomStats.innerHTML =
+    `<b>${c.done}</b> Completed · <b>${c.running}</b> Running · <b>${c.pending}</b> Pending · ` +
+    `<b>${c.declined}</b> Declined · <b>${c.failed}</b> Failed · Median <b>${med}</b>`;
 }
 buildRoom();
 
-/* the workshop task, step by step — what every seat's agent actually runs */
-const WS_STEPS = [
-  { feed: "repo cloned",     cmd: "git clone github.com/atelier/ws-2026",  result: "Cloning… done · 214 files" },
-  { feed: "venv ready",      cmd: "python -m venv .venv && source .venv/bin/activate", result: "fresh virtualenv · python 3.12" },
-  { feed: "deps installed",  cmd: "pip install -r requirements.txt",       result: "38 packages installed" },
-  { feed: "dataset fetched", cmd: "python fetch_data.py",                  result: "118 MB downloaded → data/raw/" },
-  { feed: "data prepared",   cmd: "python prepare.py",                     result: "12,000 rows cleaned → data/clean.csv" },
-  { feed: "model trained",   cmd: "python train.py",                       result: null, scoreResult: true },
-  { feed: "eval + plots",    cmd: "python evaluate.py --plots",            result: "confusion matrix + ROC → figures/" },
-];
-const TOTAL_STEPS = WS_STEPS.length + 1; /* the commands + the reply */
-
-function fmtDur(s) {
-  return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
-}
-
-const BADGE_FOR = {
-  idle: ["muted", "Idle"], pending: ["warning", "Pending"], running: ["running", "Running"],
-  done: ["success", "Completed"], declined: ["destructive", "Declined"], expired: ["muted", "Expired"],
-  stuck: ["destructive", "Stuck"],
-};
-
-/* two machines hit real errors and need a follow-up fix */
-const STUCK_ERRORS = [
-  { at: 3, err: "pip: numpy 2.1 conflicts with pandas 1.5", fix: "pin numpy<2", fixCmd: "pip install 'numpy<2'" },
-  { at: 6, err: "train.py: CUDA out of memory", fix: "CPU · batch 32", fixCmd: "python train.py --cpu --batch 32" },
-];
-
-/* a seat's own event stream — same visual language as the big demo */
-function seatStreamHtml(m, i) {
-  let h = `<div class="mini-ev blue"><span class="lbl">status</span>accepted +${m.acceptDelay}s · fresh agent started</div>`;
-  for (let idx = 0; idx < WS_STEPS.length; idx++) {
-    const n = idx + 1;
-    const st = WS_STEPS[idx];
-    const isErrStep = m.errInfo && m.errInfo.at === n;
-    if (m.step >= n) {
-      const res = st.scoreResult ? `accuracy: ${m.score}%` : st.result;
-      h += `<div class="mini-ev amber"><span class="lbl">tool call · Bash</span><span class="mono">$ ${st.cmd}</span></div>`;
-      if (idx === 2 && m.retried) h += `<div class="mini-ev red"><span class="lbl">tool result</span>pip failed (network) — agent retried</div>`;
-      if (isErrStep) {
-        h += `<div class="mini-ev red"><span class="lbl">error</span>${m.errInfo.err}</div>`;
-        h += `<div class="mini-ev blue"><span class="lbl">follow-up dispatch</span>"${m.errInfo.fix}"</div>`;
-        h += `<div class="mini-ev amber"><span class="lbl">tool call · Bash</span><span class="mono">$ ${m.errInfo.fixCmd}</span></div>`;
-      }
-      h += `<div class="mini-ev green"><span class="lbl">tool result</span>${res}</div>`;
-    } else if (m.step === n - 1 && m.status === "stuck" && isErrStep) {
-      h += `<div class="mini-ev amber"><span class="lbl">tool call · Bash</span><span class="mono">$ ${st.cmd}</span></div>`;
-      h += `<div class="mini-ev red"><span class="lbl">error</span>${m.errInfo.err} — agent is stuck</div>`;
-      h += `<div class="mini-fix"><span>fix: ${m.errInfo.fix}</span><button class="abtn" data-fix="${i}">Send fix</button></div>`;
-      break;
-    } else if (m.step === n - 1 && m.status === "running") {
-      if (isErrStep && m.rescued) {
-        h += `<div class="mini-ev amber"><span class="lbl">tool call · Bash</span><span class="mono">$ ${st.cmd}</span></div>`;
-        h += `<div class="mini-ev red"><span class="lbl">error</span>${m.errInfo.err}</div>`;
-        h += `<div class="mini-ev blue"><span class="lbl">follow-up dispatch</span>"${m.errInfo.fix}"</div>`;
-        h += `<div class="mini-ev amber run"><span class="lbl">tool call · Bash</span><span class="mono">$ ${m.errInfo.fixCmd}</span></div>`;
-      } else {
-        h += `<div class="mini-ev amber run"><span class="lbl">tool call · Bash</span><span class="mono">$ ${st.cmd}</span></div>`;
-        if (idx === 2 && m.retried) h += `<div class="mini-ev red"><span class="lbl">tool result</span>pip failed (network) — retrying…</div>`;
-      }
-      break;
-    } else break;
-  }
-  if (m.status === "done") {
-    h += `<div class="mini-ev green"><span class="lbl">done</span>replied "${m.score}%" · ${fmtDur(m.durS)}${m.rescued ? " · after the fix" : ""} · agent gone</div>`;
-  }
-  return h;
-}
-
-/* an agent finishes one step: fill a fifth of the ring, maybe tell the room */
-function seatStep(i, step, feedChance, token) {
-  if (token !== scaleToken) return;
-  const m = seatMeta[i];
-  if (m.status !== "running") return;
-  m.step = step;
-  m.el.style.setProperty("--p", step / TOTAL_STEPS);
-  if (WS_STEPS[step - 1] && Math.random() < feedChance) {
-    feedLine(`${m.name} · ${WS_STEPS[step - 1].feed}`);
-  }
-  if (inspectOpen === i) renderInspect(i);
-}
-
-/* ── live feed from the room ── */
-function feedLine(text, cls = "") {
-  const line = el(`<div class="feed-line ${cls}">${text}</div>`);
-  roomFeedEl.appendChild(line);
-  requestAnimationFrame(() => requestAnimationFrame(() => line.classList.add("show")));
-  const lines = roomFeedEl.querySelectorAll(".feed-line");
-  if (lines.length > 11) lines[lines.length - 12].remove();
-}
-
-/* ── click any seat → that machine's mini log ── */
-let inspectOpen = -1;
-function renderInspect(i) {
-  const m = seatMeta[i];
-  let body = "";
-  if (m.status === "idle") {
-    body = `<div class="insp-lines">nothing here yet</div>`;
-  } else if (m.status === "pending") {
-    body = `<div class="insp-stream">
-      <div class="mini-ev blue"><span class="lbl">incoming</span>dispatch received · signature valid · key pinned</div>
-      <div class="mini-ev gray">deciding…</div></div>`;
-  } else if (m.status === "declined") {
-    body = `<div class="insp-stream">
-      <div class="mini-ev blue"><span class="lbl">incoming</span>dispatch received · signature valid</div>
-      <div class="mini-ev red"><span class="lbl">declined</span>${m.reason || "said no"} — nothing ran on this machine</div></div>`;
-  } else if (m.status === "expired") {
-    body = `<div class="insp-stream">
-      <div class="mini-ev blue"><span class="lbl">incoming</span>dispatch received · signature valid</div>
-      <div class="mini-ev gray"><span class="lbl">expired</span>never answered — nothing ran</div></div>`;
-  } else {
-    body = `<div class="insp-stream">${seatStreamHtml(m, i)}</div>`;
-  }
-  const [bCls, bLbl] = BADGE_FOR[m.status];
-  seatInspect.innerHTML = `
-    <div class="insp-head">
-      <span class="insp-name">${m.name === "you" ? "your machine" : m.name + "'s machine"}</span>
-      <span class="badge ${bCls}">${bLbl}</span>
-    </div>
-    ${body}`;
-  const desk = m.el.closest(".stage-desk");
-  const dr = desk.getBoundingClientRect();
-  const r = m.el.getBoundingClientRect();
-  seatInspect.style.left = Math.max(12, Math.min(r.left - dr.left - 60, dr.width - 250)) + "px";
-  seatInspect.style.top = (r.top - dr.top + r.height + 10) + "px";
-  seatInspect.classList.add("show");
-  inspectOpen = i;
-}
-classGrid.addEventListener("click", (e) => {
-  const seat = e.target.closest(".seat");
-  if (!seat) return;
-  const i = Number(seat.dataset.i);
-  if (inspectOpen === i) { seatInspect.classList.remove("show"); inspectOpen = -1; return; }
-  renderInspect(i);
-});
-document.addEventListener("pointerdown", (e) => {
-  if (!e.target.closest(".seat") && !e.target.closest("#seat-inspect") && inspectOpen !== -1) {
-    seatInspect.classList.remove("show");
-    inspectOpen = -1;
-  }
-});
-
-
-function tallyScale() {
-  const done = classGrid.querySelectorAll(".seat.done").length;
-  const dec = classGrid.querySelectorAll(".seat.declined").length;
-  const deciding = classGrid.querySelectorAll(".seat.pending, .seat.running").length;
-  const stuck = classGrid.querySelectorAll(".seat.stuck").length;
-  stDone.textContent = done;
-  stDeclined.textContent = dec;
-  stWaiting.textContent = deciding;
-  document.getElementById("st-stuck").textContent = stuck;
-  document.getElementById("st-stuck-wrap").style.display = stuck > 0 ? "inline-flex" : "none";
-  classBar.style.width = (done / SEAT_COUNT * 100) + "%";
-}
-
-/* the click handler for "Send fix" inside an inspector — bound to the live run */
-let rescueSeatFn = null;
-seatInspect.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-fix]");
-  if (btn && rescueSeatFn) rescueSeatFn(Number(btn.dataset.fix), false);
-});
-
-function positionSeatPop(seat) {
-  const desk = seat.closest(".stage-desk");
-  const dr = desk.getBoundingClientRect();
-  const r = seat.getBoundingClientRect();
-  const pw = seatPop.offsetWidth || 180;
-  const ph = seatPop.offsetHeight || 66;
-  const seatCx = r.left - dr.left + r.width / 2;      // seat centre inside the desk
-  let left = seatCx - pw / 2;                          // centre the bubble on the seat
-  left = Math.max(10, Math.min(left, dr.width - pw - 10));
-  let top = r.top - dr.top - ph - 12;                 // above the seat by default
-  let below = false;
-  if (top < 8) { top = r.top - dr.top + r.height + 12; below = true; }  // flip under if no room
-  seatPop.style.left = left + "px";
-  seatPop.style.top = top + "px";
-  seatPop.style.setProperty("--tail-x", (seatCx - left) + "px");
-  seatPop.classList.toggle("below", below);
-}
-
 async function runScale() {
   const token = ++scaleToken;
-  document.getElementById('scale-replay').disabled = true;
+  document.getElementById("scale-replay").disabled = true;
   buildRoom();
-  seatPop.classList.remove("show");
-  seatInspect.classList.remove("show");
-  inspectOpen = -1;
-  roomFeedEl.innerHTML = "";
-  stMed.style.display = "none";
   workshopSend.disabled = false;
-  stDone.textContent = "0";
-  stDeclined.textContent = "0";
-  stWaiting.textContent = "0";
-  classBar.style.width = "0%";
-  scaleStatus.className = "demo-status";
-  scaleStatus.textContent = "The instructor is sending one signed dispatch to the whole room…";
 
-  /* send — self-presses shortly, or the visitor clicks it */
+  /* send: presses itself shortly, or the visitor clicks it */
   await new Promise((res) => {
     const go = () => { workshopSend.removeEventListener("click", go); res(); };
     workshopSend.addEventListener("click", go);
-    /* the instructor presses their own button — after the visitor can read the card */
-    setTimeout(() => { if (token === scaleToken) workshopSend.click(); }, 2400);
+    setTimeout(() => { if (token === scaleToken) workshopSend.click(); }, 2000);
   });
   if (token !== scaleToken) return;
   workshopSend.disabled = true;
   workshopSend.classList.add("burst");
   setTimeout(() => workshopSend.classList.remove("burst"), 600);
-  feedLine("1 dispatch → 50 machines · signed once", "hl");
 
-  const seats = Array.from(classGrid.children);
-  const durations = [];
+  /* outcomes: two decline, one never answers, two fail and get a follow-up fix */
+  const order = seatMeta.map((_, i) => i).sort(() => Math.random() - 0.5);
+  const declines = new Set(order.slice(0, 2));
+  const expire = order[2];
+  const fails = new Set(order.slice(3, 5));
 
-  /* the instructor's scoreboard: replies rank themselves as they land */
-  const results = [];
-  function addResult(m) { results.push(m); }
+  seatMeta.forEach((m, i) => {
+    /* the dispatch reaches every seat as a wave */
+    setTimeout(() => setSeat(i, "pending", token), 250 + i * 45 + Math.random() * 250);
 
-  /* outcomes: two decline, one expires, one retries, two get stuck and need help */
-  const others = seats.map((_, i) => i).filter(i => i !== YOU_SEAT);
-  const shuffled = others.sort(() => Math.random() - 0.5);
-  const declines = new Set(shuffled.slice(0, 2));
-  const expire = shuffled[2];
-  const retrySeat = shuffled[3];
-  const stuckMap = new Map([
-    [shuffled[4], STUCK_ERRORS[0]],
-    [shuffled[5], STUCK_ERRORS[1]],
-  ]);
-
-  function setStuck(i) {
-    if (token !== scaleToken) return;
-    const m = seatMeta[i];
-    if (m.status !== "running") return;
-    m.status = "stuck";
-    m.el.classList.remove("running", "pending");
-    m.el.classList.add("stuck");
-    feedLine(`${m.name} · ${m.errInfo.err} — stuck`, "no");
-    scaleStatus.className = "demo-status hot";
-    scaleStatus.textContent = "A machine is stuck — press Send fix to help it.";
-    tallyScale();
-    /* put the Send fix button right in front of the visitor */
-    if (inspectOpen === -1 || inspectOpen === i) renderInspect(i);
-    /* the instructor only steps in if nobody helps for a good while */
-    setTimeout(() => rescueSeat(i, true), 25000 + Math.random() * 8000);
-  }
-
-  function rescueSeat(i, auto) {
-    if (token !== scaleToken) return;
-    const m = seatMeta[i];
-    if (m.status !== "stuck") return;
-    m.status = "running";
-    m.rescued = true;
-    m.el.classList.remove("stuck");
-    m.el.classList.add("running");
-    feedLine(`${auto ? "instructor" : "you"} → ${m.name} · ${m.errInfo.fix}`, "hl");
-    tallyScale();
-    if (inspectOpen === i) renderInspect(i);
-    let t = 1000;
-    for (let stepN = m.errInfo.at; stepN <= WS_STEPS.length; stepN++) {
-      const sn = stepN;
-      setTimeout(() => seatStep(i, sn, 0, token), t);
-      t += 700;
-    }
-    setTimeout(() => {
-      if (token !== scaleToken) return;
-      m.step = TOTAL_STEPS;
-      m.el.className = "seat done" + (i === YOU_SEAT ? " you" : "");
-      m.el.querySelector(".st-val").textContent = m.score + "%";
-      m.status = "done";
-      m.durS = 210 + Math.floor(Math.random() * 90);
-      durations.push(m.durS);
-      addResult(m);
-      feedLine(`${m.name} · "${m.score}%" · ${fmtDur(m.durS)} · fixed`, "ok");
-      tallyScale();
-      if (inspectOpen === i) renderInspect(i);
-    }, t + 400);
-  }
-  rescueSeatFn = rescueSeat;
-
-  /* the wave: dispatch reaches every seat, left to right */
-  seats.forEach((s, i) => {
-    const col = i % 10, row = Math.floor(i / 10);
-    const d = 150 + col * 85 + row * 45 + Math.random() * 130;
-    setTimeout(() => {
-      if (token !== scaleToken) return;
-      s.classList.add("pending");
-      seatMeta[i].status = "pending";
-      tallyScale();
-    }, d);
-  });
-
-  /* every other seat decides on its own clock */
-  seats.forEach((s, i) => {
-    if (i === YOU_SEAT) return;
-    const m = seatMeta[i];
-    const base = 1600 + Math.random() * 1400;
+    const decideAt = 1900 + Math.random() * 1600;
     if (declines.has(i)) {
-      setTimeout(() => {
-        if (token !== scaleToken) return;
-        s.className = "seat declined";
-        m.status = "declined";
-        m.reason = DECLINE_REASONS[Math.floor(Math.random() * DECLINE_REASONS.length)];
-        feedLine(`${m.name} declined ${m.reason}`, "no");
-        tallyScale();
-        if (inspectOpen === i) renderInspect(i);
-      }, base + 700);
-    } else if (i === expire) {
-      setTimeout(() => {
-        if (token !== scaleToken) return;
-        s.className = "seat expired";
-        m.status = "expired";
-        feedLine(`${m.name} — no answer, expired`);
-        tallyScale();
-        if (inspectOpen === i) renderInspect(i);
-      }, 7000);
-    } else {
-      /* each agent works through the five steps on its own clock */
-      const isRetry = i === retrySeat;
-      const stuckDef = stuckMap.get(i);
-      let t = base;
-      const stepTimes = [];
-      for (let k = 0; k < WS_STEPS.length; k++) {
-        t += 320 + Math.random() * 650;
-        if (isRetry && k === 2) t += 1900;   /* the failed install costs it time */
-        stepTimes.push(t);
-      }
-      const tDone = t + 350 + Math.random() * 700;
-      if (isRetry) {
-        setTimeout(() => {
-          if (token !== scaleToken || m.status !== "running") return;
-          m.retried = true;
-          feedLine(`${m.name} · pip install failed — retrying`, "no");
-          if (inspectOpen === i) renderInspect(i);
-        }, stepTimes[1] + 500);
-      }
-      setTimeout(() => {
-        if (token !== scaleToken) return;
-        s.classList.remove("pending");
-        s.classList.add("running");
-        m.status = "running";
-        m.acceptDelay = 2 + Math.floor(Math.random() * 8);
-        m.score = (87 + Math.random() * 9.5).toFixed(1);
-        m.errInfo = stuckDef || null;
-        if (Math.random() < 0.2) feedLine(`${m.name} accepted · agent starting`);
-        tallyScale();
-        if (inspectOpen === i) renderInspect(i);
-      }, base);
-      stepTimes.forEach((ts, k) => {
-        const stepN = k + 1;
-        if (stuckDef && stepN === stuckDef.at) {
-          setTimeout(() => setStuck(i), ts);          /* it hits the error here */
-        } else if (!stuckDef || stepN < stuckDef.at) {
-          setTimeout(() => seatStep(i, stepN, 0.1, token), ts);
-        }
-      });
-      if (stuckDef) return;   /* no done schedule — the rescue finishes it */
-      setTimeout(() => {
-        if (token !== scaleToken) return;
-        m.step = TOTAL_STEPS;
-        s.className = "seat done";
-        s.querySelector(".st-val").textContent = m.score + "%";
-        m.status = "done";
-        m.durS = 95 + Math.floor(Math.random() * 160) + (m.retried ? 55 : 0);
-        durations.push(m.durS);
-        addResult(m);
-        if (Math.random() < 0.35) feedLine(`${m.name} · "${m.score}%" · ${fmtDur(m.durS)}`, "ok");
-        tallyScale();
-        if (inspectOpen === i) renderInspect(i);
-      }, tDone);
+      setTimeout(() => setSeat(i, "declined", token), decideAt + 600);
+      return;
     }
-  });
-
-  /* your seat waits for you */
-  const you = seats[YOU_SEAT];
-  setTimeout(() => {
-    if (token !== scaleToken) return;
-    seatPop.classList.add("show");   // make it measurable, then place it
-    positionSeatPop(you);
-    scaleStatus.className = "demo-status hot";
-    scaleStatus.textContent = "Forty-nine seats are deciding on their own. This one waits for you.";
-  }, 1900);
-
-  const accepted = await new Promise((res) => {
-    let settled = false;
-    const settle = (v) => {
-      if (settled) return;
-      settled = true;
-      /* always detach — the post-await token check handles staleness */
-      seatAccept.removeEventListener("click", onYes);
-      seatDecline.removeEventListener("click", onNo);
-      res(v);
-    };
-    const onYes = () => settle(true);
-    const onNo = () => settle(false);
-    seatAccept.addEventListener("click", onYes);
-    seatDecline.addEventListener("click", onNo);
-    setTimeout(() => settle("lapse"), 12000);  /* no answer is an answer */
-  });
-  if (token !== scaleToken) return;
-  seatPop.classList.remove("show");
-
-  const youMeta = seatMeta[YOU_SEAT];
-  if (accepted === "lapse") {
-    /* the ask expired on your seat — consent that isn't given isn't taken */
-    const youSeat = seats[YOU_SEAT];
-    youSeat.className = "seat expired you";
-    youMeta.status = "expired";
-    feedLine("you — no answer, expired", "hl");
-    tallyScale();
-    if (inspectOpen === YOU_SEAT) renderInspect(YOU_SEAT);
-    scaleStatus.className = "demo-status";
-    scaleStatus.textContent = "Your seat expired — nothing ran on it. Consent that isn't given isn't taken.";
-  } else if (accepted) {
-    you.classList.remove("pending");
-    you.classList.add("running");
-    youMeta.status = "running";
-    youMeta.acceptDelay = 4;
-    youMeta.score = (89 + Math.random() * 7.5).toFixed(1);
-    feedLine("you accepted · agent starting", "hl");
-    tallyScale();
-    renderInspect(YOU_SEAT);   /* watch your own agent work through the steps */
-    WS_STEPS.forEach((st, k) => {
+    if (i === expire) {
+      setTimeout(() => setSeat(i, "expired", token), 8000);
+      return;
+    }
+    setTimeout(() => setSeat(i, "running", token), decideAt);
+    const workS = 95 + Math.floor(Math.random() * 160);
+    if (fails.has(i)) {
+      /* it hits a real error, then a follow-up dispatch fixes it */
+      setTimeout(() => setSeat(i, "failed", token), decideAt + 2400 + Math.random() * 1600);
+      setTimeout(() => setSeat(i, "running", token), decideAt + 7200 + Math.random() * 1800);
       setTimeout(() => {
         if (token !== scaleToken) return;
-        seatStep(YOU_SEAT, k + 1, 0, token);
-        feedLine(`you · ${st.feed}`, "hl");
-      }, 800 + k * 750);
-    });
+        seatMeta[i].durS = workS + 110;
+        setSeat(i, "done", token);
+      }, decideAt + 11500 + Math.random() * 2000);
+      return;
+    }
     setTimeout(() => {
       if (token !== scaleToken) return;
-      youMeta.step = TOTAL_STEPS;
-      you.classList.remove("running");
-      you.classList.add("done");
-      you.querySelector(".st-val").textContent = youMeta.score + "%";
-      youMeta.status = "done";
-      youMeta.durS = 100 + Math.floor(Math.random() * 60);
-      durations.push(youMeta.durS);
-      addResult(youMeta);
-      feedLine(`you · "${youMeta.score}%" · ${fmtDur(youMeta.durS)}`, "hl");
-      tallyScale();
-      if (inspectOpen === YOU_SEAT) renderInspect(YOU_SEAT);
-    }, 800 + WS_STEPS.length * 750 + 700);
-  } else {
-    you.classList.remove("pending");
-    you.classList.add("declined");
-    youMeta.status = "declined";
-    youMeta.reason = "";
-    feedLine("you declined — nothing ran on your machine", "hl");
-    tallyScale();
-    if (inspectOpen === YOU_SEAT) renderInspect(YOU_SEAT);
-  }
+      seatMeta[i].durS = workS;
+      setSeat(i, "done", token);
+    }, decideAt + 3200 + Math.random() * 6000);
+  });
 
-  /* closing line — wait until every seat has actually settled */
+  /* re-enable replay once every seat has settled */
   const settleWatch = setInterval(() => {
     if (token !== scaleToken) { clearInterval(settleWatch); return; }
-    const busy = classGrid.querySelectorAll(".seat.pending, .seat.running, .seat.stuck").length;
-    if (busy > 0) return;
+    const busy = seatMeta.some(m => m.status === "pending" || m.status === "running" || m.status === "failed" || m.status === "idle");
+    if (busy) return;
     clearInterval(settleWatch);
     tallyScale();
-    const done = classGrid.querySelectorAll(".seat.done").length;
-    const dec = classGrid.querySelectorAll(".seat.declined").length;
-    const rescued = seatMeta.filter(m => m.rescued).length;
-    if (durations.length) {
-      const sorted = [...durations].sort((a, b) => a - b);
-      stMedV.textContent = fmtDur(sorted[Math.floor(sorted.length / 2)]);
-      stMed.style.display = "inline-flex";
-    }
-    const best = seatMeta
-      .filter(m => m.status === "done" && m.score)
-      .reduce((a, m) => Math.max(a, parseFloat(m.score)), 0);
-    scaleStatus.className = "demo-status";
-    scaleStatus.textContent = `${done} models trained — best ${best.toFixed(1)}%. ${rescued} hit errors and finished after a follow-up fix. ${dec} said no.`;
-    document.getElementById('scale-replay').disabled = false;
-  }, 900);
+    document.getElementById("scale-replay").disabled = false;
+  }, 700);
 }
 
 document.getElementById("scale-replay").addEventListener("click", runScale);
@@ -5229,7 +4854,7 @@ const scaleObs = new IntersectionObserver((entries) => {
     }
   });
 }, { threshold: 0.4 });
-scaleObs.observe(classGrid);
+scaleObs.observe(roomTable);
 
 /* ═════════ use cases: one story at a time, played out on the stage ═════════ */
 const USES = [
