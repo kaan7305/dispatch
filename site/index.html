@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(32px, 2.7vw, 42px);
+    font-size: clamp(36px, 3vw, 46px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -211,7 +211,7 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: 1fr 72vw;
+    grid-template-columns: 1fr 66vw;
     gap: 36px;
     align-items: start;
     max-width: none;
@@ -729,16 +729,15 @@
     content: ""; position: absolute; top: 0; bottom: 0;
   }
   .hero-demo .stage-desk::after {
-    right: 0; width: 58%;
+    right: 0; width: 100%;
     background: url("assets/sky-warm.jpg") center 8% / cover no-repeat;
-    filter: contrast(1.22) saturate(1.35) hue-rotate(-8deg);
+    filter: contrast(1.4) saturate(1.7) hue-rotate(-14deg);
   }
   .hero-demo .stage-desk::before {
-    left: 0; width: 57%; z-index: 1;
+    left: 0; width: 58%; z-index: 1;
     background: url("assets/sky.jpg") center 30% / cover no-repeat;
-    filter: contrast(1.18) saturate(0.72);
-    -webkit-mask-image: linear-gradient(to right, #000 72%, transparent 98%);
-    mask-image: linear-gradient(to right, #000 72%, transparent 98%);
+    filter: contrast(1.35) saturate(0.45) brightness(1.05);
+    clip-path: polygon(0 0, 96% 0, 82% 100%, 0 100%);
   }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
