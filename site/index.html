@@ -55,7 +55,7 @@
   html { scroll-behavior: smooth; }
 
   body {
-    font-family: var(--sans);
+    font-family: var(--geist);
     background: var(--paper);
     color: var(--ink);
     line-height: 1.6;
@@ -108,44 +108,58 @@
   /* Zapier toolbar spec: 56px bar, full-bleed, 40px side padding on desktop */
   .header-row {
     display: flex; align-items: center; justify-content: space-between;
-    height: 48px;
+    height: 56px;
     padding: 0 40px;
   }
   @media (max-width: 1023px) { .header-row { padding: 0 16px 0 20px; } }
   .wordmark {
     display: inline-flex; align-items: center; gap: 8px;
     font-family: var(--serif);
-    font-size: 19px;
+    font-size: 25px;
     letter-spacing: -0.02em;
     color: var(--ink-strong);
     text-decoration: none;
   }
-  .wm-mark { width: 21px; height: 18px; flex-shrink: 0; }
+  .wm-mark { width: 27px; height: 23px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
-  nav { display: flex; align-items: center; gap: 6px; }
+  .header-left { display: flex; align-items: center; gap: 22px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  nav { display: flex; align-items: center; gap: 4px; }
   nav a {
     display: inline-flex; align-items: center;
     font-family: var(--geist);
-    height: 32px;
-    padding: 0 9px;
+    height: 38px;
+    padding: 0 11px;
     border-radius: 4px;
-    font-size: 13.5px;
+    font-size: 15.5px;
     color: var(--ink-strong);
     text-decoration: none;
     transition: background 250ms, color 250ms;
   }
   nav a:hover { background: #F8F4F0; }
+  .header-right .nav-gh {
+    font-family: var(--geist);
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 38px; padding: 0 11px; border-radius: 4px;
+    font-size: 15.5px; color: var(--ink-strong); text-decoration: none;
+  }
+  .header-right .nav-gh:hover { background: #F8F4F0; }
+  .header-right .nav-cta {
+    font-family: var(--geist);
+    display: inline-flex; align-items: center;
+    font-size: 15.5px; text-decoration: none;
+  }
   nav a.nav-cta {
     justify-content: center;
     color: #FFFEFB;
     background: var(--accent);
-    padding: 5px 12px;
+    padding: 7px 15px;
     font-weight: 600;
     border-radius: 4px;
     transition: background 250ms;
   }
   nav a.nav-cta:hover { color: #FFFEFB; background: var(--accent-down); }
-  @media (max-width: 720px) { nav a:not(.nav-cta) { display: none; } }
+  @media (max-width: 720px) { nav, .nav-gh { display: none; } }
 
   /* ── hero ── */
   .hero { padding: 56px 0 20px; overflow: hidden; }
@@ -173,7 +187,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(42px, 5.5vw, 64px);
+    font-size: clamp(48px, 6vw, 72px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -182,7 +196,7 @@
   h1 em { font-style: italic; }
   .hero p.lede {
     margin-top: 28px;
-    font-size: 21px;
+    font-size: 23px;
     line-height: 1.65;
     color: var(--ink);
     max-width: 620px;
@@ -616,11 +630,11 @@
     justify-content: center;
     align-items: center;
     gap: 6px;
-    height: 44px;
-    font-size: 16px;
+    height: 48px;
+    font-size: 18px;
     font-weight: 600;
     font-family: var(--geist);
-    padding: 10px 20px;
+    padding: 12px 24px;
     border-radius: 4px;
     text-decoration: none;
     text-align: center;
@@ -667,15 +681,6 @@
 
   /* ── section scaffolding ── */
   section { padding: 88px 0; }
-  .section-kicker {
-    font-family: var(--geist);
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 16px;
-  }
   h2 {
     font-family: var(--geist);
     font-weight: 600;
@@ -763,15 +768,6 @@
     border-color: #CFCCC5;
     box-shadow: 0 0 0 4px rgba(149,100,0,0.08), 0 12px 32px rgba(0,0,0,0.08);
   }
-  .turn-chip {
-    margin-left: auto;
-    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600;
-    color: var(--yellow-ink); background: var(--pale-yellow);
-    border-radius: 9999px; padding: 2.5px 9px;
-    opacity: 0; transform: translateX(6px);
-    transition: opacity 300ms, transform 300ms;
-  }
-  .machine-window.attn .turn-chip { opacity: 1; transform: none; }
 
   /* macOS-style notification inside the recipient window */
   .notif {
@@ -2845,6 +2841,7 @@
 
 <header>
   <div class="header-row">
+    <div class="header-left">
     <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
     <nav>
       <a href="#demo">Try it</a>
@@ -2852,8 +2849,12 @@
       <a href="#boundary">Across orgs</a>
       <a href="#parts">Under the hood</a>
       <a href="docs.html">Docs</a>
-      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
     </nav>
+    </div>
+    <div class="header-right">
+      <a class="nav-gh" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
+      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
+    </div>
   </div>
 </header>
 
@@ -2864,7 +2865,7 @@
       <h1 class="reveal">Send a task to a person.<br/>Their machine does the work, with their say-so.</h1>
       <div class="cta-row reveal">
         <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
-        <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
       </div>
       <div class="onboard-box reveal">
         <code id="onboard-cmd">Onboard me to Talaria locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
@@ -2886,8 +2887,6 @@
       <div class="machine-window" id="sender-window">
         <div class="titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
-          <div class="who">kaan's mac — sender</div>
-          <span class="turn-chip">your move</span>
         </div>
         <div class="app">
           <div class="app-topbar">
@@ -2966,8 +2965,6 @@
       <div class="machine-window" id="recipient-window">
         <div class="titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
-          <div class="who">your mac — recipient</div>
-          <span class="turn-chip">your turn</span>
         </div>
         <div class="notif" id="recipient-notif">
           <span class="app-ic">D</span>
@@ -3017,9 +3014,8 @@
       <div class="terminal open" id="terminal">
         <div class="term-titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
-          <div class="who">your mac — zsh — agent workspace</div>
         </div>
-        <div class="term-body" id="term-body"><div class="term-line sys">~ waiting for a dispatch — nothing runs without your yes</div></div>
+        <div class="term-body" id="term-body"></div>
       </div>
       </div>
 
@@ -3045,7 +3041,6 @@
 <!-- ── AT SCALE: one dispatch, fifty machines ── -->
 <section id="scale">
   <div class="wrap-wide">
-    <div class="section-kicker reveal">At scale</div>
     <h2 class="reveal">One dispatch, fifty machines.</h2>
     <p class="section-intro reveal">
       An instructor sends one task to the whole room. Each seat decides for itself. One of them is yours.
@@ -3121,12 +3116,10 @@
 <!-- ── ACROSS ORGS: the trust boundary ── -->
 <section id="boundary">
   <div class="wrap-wide">
-    <div class="section-kicker reveal">Between organizations</div>
     <h2 class="reveal">Two companies, two AIs, one dispatch.</h2>
     <p class="section-intro reveal">
       Company A runs <strong>Claude Code on a Mac</strong>. Company B runs <strong>Codex on Windows</strong>.
       One signed dispatch crosses between them. You compose, the far side approves, both keep their own logs.
-      <span class="aside">Simulated. The calls and logs mirror the real ones.</span>
     </p>
   </div>
 
@@ -3309,10 +3302,8 @@
 <!-- ── USE CASES ── -->
 <section id="uses">
   <div class="wrap">
-    <div class="section-kicker reveal">Use cases</div>
     <h2 class="reveal">What people send.</h2>
-    <p class="section-intro reveal">Anything you'd trust a friend to do at your keyboard.
-      <span class="aside">Illustrative, not customer stories.</span></p>
+    <p class="section-intro reveal">Anything you'd trust a friend to do at your keyboard.</p>
 
     <div class="uses-show reveal">
       <div class="uses-nav" id="uses-nav">
@@ -3341,7 +3332,6 @@
 <!-- ── SCOPES ── -->
 <section id="scopes">
   <div class="wrap">
-    <div class="section-kicker reveal">Scopes</div>
     <h2 class="reveal">You decide how much rope to give.</h2>
     <p class="section-intro reveal">
       Each trust edge (made when someone accepts your invitation) carries a scope.
@@ -3429,7 +3419,6 @@
 <!-- ── PARTS ── -->
 <section id="parts">
   <div class="wrap">
-    <div class="section-kicker reveal">Under the hood</div>
     <h2 class="reveal">Five small parts, each with one job.</h2>
 
     <div class="hood reveal">
@@ -4434,7 +4423,6 @@ async function runDemo() {
   /* the terminal stays on the desktop — idle until the agent starts */
   terminalEl.classList.add("open");
   termBody.innerHTML = "";
-  termSys("~ waiting for a dispatch — nothing runs without your yes");
   cursorHide();
 
   demoStatus.className = "demo-status";
