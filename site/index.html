@@ -4823,7 +4823,7 @@ demoObs.observe(senderWindow);
 /* ── sky lab: click a backdrop to swap the image, shift-click to swap the
    treatment, drag to reframe the crop. State persists in localStorage and
    logs to the console so a keeper can be hardcoded later. ── */
-const SKY_IMGS = ["assets/sky.jpg","assets/sky-warm.jpg","assets/sky-dark.jpg","assets/sky-sea.jpg","assets/sky-storm2.jpg","assets/sky-rays.jpg"];
+const SKY_IMGS = ["assets/sky-ochre.jpg","assets/sky-fire.jpg","assets/sky-ir.jpg","assets/sky-poster.jpg","assets/sky-sunburst.jpg","assets/sky-dune.jpg"];
 const SKY_FILTERS = [
   ["clean", "none"],
   ["negative", "invert(1) contrast(1.06) saturate(1.1)"],
@@ -4837,22 +4837,22 @@ const SKY_FILTERS = [
   ["washed", "saturate(0.6) brightness(1.3) contrast(0.95)"],
 ];
 const SKY_DEFAULTS = {
-  hero:  { img: 0, f: 1, x: 50, y: 30 },
-  scale: { img: 2, f: 4, x: 50, y: 35 },
-  uses:  { img: 4, f: 2, x: 50, y: 40 },
-  scopes:{ img: 0, f: 3, x: 50, y: 20 },
-  bnd:   { img: 3, f: 3, x: 50, y: 45 },
-  hood:  { img: 3, f: 9, x: 50, y: 50 },
+  hero:  { img: 0, f: 0, x: 50, y: 30 },
+  scale: { img: 1, f: 0, x: 50, y: 30 },
+  uses:  { img: 3, f: 0, x: 50, y: 50 },
+  scopes:{ img: 5, f: 0, x: 50, y: 40 },
+  bnd:   { img: 2, f: 0, x: 50, y: 20 },
+  hood:  { img: 4, f: 0, x: 50, y: 45 },
 };
 document.querySelectorAll(".sky-bg").forEach((bg) => {
   const id = bg.dataset.sky;
   let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
-  try { const sv = JSON.parse(localStorage.getItem("sky2-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
+  try { const sv = JSON.parse(localStorage.getItem("sky3-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
   const apply = () => {
     bg.style.backgroundImage = `url("${SKY_IMGS[st.img]}")`;
     bg.style.filter = SKY_FILTERS[st.f][1];
     bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
-    try { localStorage.setItem("sky2-" + id, JSON.stringify(st)); } catch (e) {}
+    try { localStorage.setItem("sky3-" + id, JSON.stringify(st)); } catch (e) {}
     console.log(`[sky] ${id}: ${SKY_IMGS[st.img].split("/").pop()} · ${SKY_FILTERS[st.f][0]} · ${st.x.toFixed(0)}%/${st.y.toFixed(0)}%`);
   };
   apply();
