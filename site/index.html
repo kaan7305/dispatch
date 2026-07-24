@@ -232,6 +232,28 @@
   .demo-fit { position: relative; }
   .demo-fit-inner { transform-origin: top left; }
   @media (min-width: 1001px) { .demo-fit-inner { width: 1010px; } }
+  /* the chapter row — quiet labels above the desk, the live beat in a box */
+  .demo-chapters {
+    display: flex; justify-content: center; flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .demo-chapters .chapter {
+    font-family: var(--geist);
+    font-size: 13px; font-weight: 500;
+    line-height: 1;
+    color: var(--muted);
+    padding: 7px 14px;
+    border: 1.5px solid transparent;
+    border-radius: 10px;
+    transition: color 250ms, background-color 250ms, border-color 250ms;
+  }
+  .demo-chapters .chapter.on {
+    color: var(--ink-strong);
+    font-weight: 600;
+    background: #fff;
+    border-color: var(--ink);
+  }
   @media (max-width: 1000px) {
     .hero-grid { grid-template-columns: 1fr; gap: 40px; }
     .hero-copy { padding-top: 0; }
@@ -726,6 +748,9 @@
     overflow: hidden;
   }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
+  /* the camera pushes in on the stage from its top-left corner; the desk
+     clips, so a close shot just shows more sky around the edges */
+  .hero-demo .demo-stage { transform-origin: 0 0; }
 
   /* the demo's own mouse cursor — it walks to buttons and clicks them */
   .demo-cursor {
@@ -753,6 +778,59 @@
   @keyframes ring-out {
     to { transform: translate(-50%, -50%) scale(1.35); opacity: 0; }
   }
+
+  /* the player controls. the hero desk is pointer-events:none, so these two
+     opt back in — they're the only things on it a visitor can touch */
+  .hero-demo .demo-play {
+    position: absolute;
+    right: 16px; bottom: 16px;
+    z-index: 70;
+    width: 40px; height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(20,20,24,0.55);
+    backdrop-filter: blur(6px);
+    color: #fff;
+    display: grid; place-items: center;
+    opacity: 0.65;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: opacity 200ms, background-color 200ms;
+  }
+  .hero-demo .demo-play:hover { opacity: 1; background: rgba(20,20,24,0.7); }
+  .demo-play svg { display: block; }
+  .demo-play .ic-play { display: none; }
+  .demo-play.paused .ic-pause { display: none; }
+  .demo-play.paused .ic-play { display: block; }
+
+  /* held: the stage goes behind a faint scrim and Zapier's big circle lands */
+  .hero-demo .demo-veil {
+    position: absolute; inset: 0;
+    z-index: 68;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,0.10);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 240ms, visibility 240ms;
+  }
+  .hero-demo .demo-veil.on { opacity: 1; visibility: visible; }
+  .demo-veil .big {
+    width: 92px; height: 92px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(17,17,20,0.78);
+    backdrop-filter: blur(4px);
+    color: #fff;
+    display: grid; place-items: center;
+    pointer-events: auto;
+    cursor: pointer;
+    transform: scale(0.86);
+    transition: transform 260ms cubic-bezier(0.16,1,0.3,1), background-color 200ms;
+  }
+  .demo-veil.on .big { transform: none; }
+  .demo-veil .big:hover { background: rgba(17,17,20,0.88); }
+  .demo-veil .big svg { display: block; }
   .demo-stage {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -823,56 +901,85 @@
   /* the terminal under the recipient's app — what actually runs */
   .stack-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .terminal {
-    background: #17171A;
-    border: 1px solid #2A2A2E;
-    border-radius: 10px;
+    background: #14151A;
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 12px;
     overflow: hidden;
     max-height: 0;
     opacity: 0;
     transform: translateY(10px);
+    box-shadow: 0 14px 40px rgba(0,0,0,0.26);
     transition: max-height 650ms cubic-bezier(0.16,1,0.3,1), opacity 450ms, transform 550ms cubic-bezier(0.16,1,0.3,1);
   }
   .terminal.open { max-height: 208px; opacity: 1; transform: none; }
   .term-titlebar {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 14px;
-    background: #1F1F23;
-    border-bottom: 1px solid #2A2A2E;
+    background: linear-gradient(#20222A, #1A1C22);
+    border-bottom: 1px solid rgba(255,255,255,0.055);
   }
   .term-titlebar .dots { display: flex; gap: 6px; }
   .term-titlebar .dots span { width: 10px; height: 10px; border-radius: 50%; background: #3A3A40; }
   .term-titlebar .who { font-family: var(--mono); font-size: 11px; color: #7D7D85; margin-left: 6px; }
   .term-body {
-    padding: 12px 14px;
+    padding: 13px 16px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 11.5px;
     line-height: 1.75;
-    color: #C8C8CE;
+    color: #C8CBD3;
+    background: linear-gradient(#17181D, #121317);
     height: 166px;
     overflow-y: auto;
     scroll-behavior: smooth;
   }
-  .term-line { white-space: pre-wrap; word-break: break-word; }
-  .term-line .prompt { color: #34D399; }
-  .term-line.out { color: #8A8A93; }
-  .term-line.err { color: #F87171; }
-  /* daemon status notes — quiet chips, not shell output */
-  .term-line.sys {
+  /* the resting caret — the machine is there, waiting for the next line */
+  .term-body::after {
+    content: "";
     display: inline-block;
-    margin: 3px 0 1px;
+    width: 7px; height: 15px;
+    background: #34D399;
+    opacity: 0.55;
+    vertical-align: -3px;
+    animation: caret-blink 1.1s steps(1) infinite;
+  }
+  @keyframes caret-blink { 50% { opacity: 0; } }
+  .term-line {
+    white-space: pre-wrap; word-break: break-word;
+    animation: term-line-in 200ms cubic-bezier(0.16,1,0.3,1) both;
+  }
+  @keyframes term-line-in {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: none; }
+  }
+  .term-line .prompt { color: #34D399; }
+  .term-line .cmd { color: #E8EAEE; }
+  .term-line.out { color: #878E9C; }
+  .term-line.err { color: #F0918B; }
+  /* daemon status notes — a quiet aside, not shell output.
+     these carry a bare .sys, which the "across orgs" chip also claims —
+     so every one of that chip's declarations gets answered here */
+  .term-line.sys {
+    display: block;
+    margin: 5px 0 4px;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--mono);
     font-size: 11px;
-    color: #9A99A2;
-    background: rgba(255,255,255,0.055);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 6px;
-    padding: 3px 10px 3px 9px;
+    font-style: italic;
+    color: #9BA0AC;
   }
   .term-line.sys::before {
-    content: "●";
+    content: "✳";
     color: #34D399;
-    font-size: 7px;
-    vertical-align: 1.5px;
+    font-style: normal;
+    font-size: 9px;
+    vertical-align: 1px;
     margin-right: 7px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .term-body::after { animation: none; opacity: 0.3; }
+    .term-line { animation: none; }
   }
   .term-caret {
     display: inline-block;
@@ -1831,12 +1938,19 @@
     width: min(1560px, 95vw);
     margin: 8px auto 0;
   }
+  /* the cockpit runs itself, same as the hero demo — clicks don't reach it,
+     the autopilot's programmatic clicks still do; Replay lives outside */
+  #boundary .bnd-bleed { pointer-events: none; }
   .bnd {
     position: relative;
+    z-index: 1;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 72px;
     padding: 30px 4px 8px;
+    /* the camera pushes in from the stage's top-left corner; .bnd-bleed
+       clips, so a close shot just shows more sky around the edges */
+    transform-origin: 0 0;
   }
   @media (max-width: 900px) { .bnd { grid-template-columns: 1fr; gap: 44px; } }
 
@@ -3042,6 +3156,13 @@
 
     <div class="demo-fit reveal">
     <div class="demo-fit-inner">
+    <!-- the four beats — passive, they just light up as the run moves -->
+    <div class="demo-chapters" id="demo-chapters">
+      <span class="chapter on">Compose</span>
+      <span class="chapter">Approve</span>
+      <span class="chapter">Agent runs</span>
+      <span class="chapter">Done</span>
+    </div>
     <div class="stage-desk">
     <div class="sky-bg" data-sky="hero"></div>
     <div class="demo-stage">
@@ -3175,8 +3296,9 @@
       <div class="terminal open" id="terminal">
         <div class="term-titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
+          <span class="who">you@yourmac.local — claude</span>
         </div>
-        <div class="term-body" id="term-body"><div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">✳ Welcome to Claude Code. Agent idle.</div></div>
+        <div class="term-body" id="term-body"><div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">Welcome to Claude Code. Agent idle.</div></div>
       </div>
       </div>
 
@@ -3187,6 +3309,24 @@
         <path d="M4 3 L20 12.5 L11.5 14 L7.5 21.5 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
       </svg>
     </div>
+
+    <!-- the player: a quiet corner button while it runs, a big circle when held -->
+    <div class="demo-veil" id="demo-pause-veil">
+      <button class="big" id="demo-pause-big" aria-label="Play demo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="currentColor" aria-hidden="true">
+          <path d="M11.6 6.8 L26.8 17 L11.6 27.2 Z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <button class="demo-play" id="demo-play-btn" aria-label="Pause demo">
+      <svg class="ic-pause" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+        <rect x="3.4" y="2.2" width="2.5" height="9.6" rx="1.25"/>
+        <rect x="8.1" y="2.2" width="2.5" height="9.6" rx="1.25"/>
+      </svg>
+      <svg class="ic-play" width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+        <path d="M4.4 2.7 L11.3 7 L4.4 11.3 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+    </button>
     </div>
     </div>
     </div>
@@ -3447,7 +3587,7 @@
   <div class="wrap-wide">
     <div class="demo-controls reveal">
       <button class="btn btn-ghost" id="bnd-replay">Replay</button>
-      <div class="demo-status" id="bnd-status">Compose a dispatch on the left — it starts on scroll.</div>
+      <div class="demo-status" id="bnd-status">Both machines boot when this scrolls into view — then watch.</div>
     </div>
   </div>
 </section>
@@ -4140,6 +4280,20 @@ document.querySelectorAll(".reveal").forEach(el => revealObs.observe(el));
 /* ───────────────────────── shared helpers ───────────────────────── */
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+/* the hero demo can be paused mid-scene. plain sleep stays untouched: the
+   other demos on the page run off raw setTimeout schedules that would drift
+   out of step if their awaits froze, so only the hero waits on the gate */
+let demoPaused = false;
+let pauseWaiters = [];
+
+function pauseGate() {
+  if (!demoPaused) return Promise.resolve();
+  return new Promise(res => pauseWaiters.push(res));
+}
+
+/* a sleep that only lands once the demo is running again */
+const hsleep = (ms) => new Promise(res => setTimeout(async () => { await pauseGate(); res(); }, ms));
+
 function el(html) {
   const t = document.createElement("template");
   t.innerHTML = html.trim();
@@ -4197,13 +4351,13 @@ async function termRun(term, token) {
   for (let i = 0; i <= term.cmd.length; i++) {
     if (token !== runToken) return;
     cmdSpan.textContent = term.cmd.slice(0, i);
-    await sleep(11);
+    await hsleep(11);
   }
-  await sleep(160); if (token !== runToken) return;
+  await hsleep(160); if (token !== runToken) return;
   line.querySelector(".term-caret").remove();
   for (const raw of (term.out || [])) {
     if (token !== runToken) return;
-    await sleep(110);
+    await hsleep(110);
     const isErr = raw.startsWith("!");
     termBody.appendChild(el(`<div class="term-line out${isErr ? " err" : ""}">${esc(isErr ? raw.slice(1) : raw)}</div>`));
     termScroll();
@@ -4219,7 +4373,7 @@ function showNotif() {
 
 /* ── the demo's own cursor: walks to a control, clicks it ── */
 /* fast-forward: clicking a step re-runs the demo, warping time until that step */
-const dsleep = (ms) => sleep(ms * 0.6);
+const dsleep = (ms) => hsleep(ms * 0.6);
 
 const demoCursor = document.getElementById("demo-cursor");
 const stageDesk = document.querySelector(".stage-desk");
@@ -4249,6 +4403,149 @@ async function cursorPress(token) {
   await dsleep(130);
   demoCursor.classList.remove("press");
   await dsleep(90);
+}
+
+/* ── the camera: a Screen Studio-style push-in over a stage ──
+   js holds the shot (x, y, s) and only ever writes the transform, never
+   reads it back. one rig per scene: a stage that moves, and a desk that
+   clips it. the hero's cursor lives outside .demo-stage, so it keeps walking
+   in desk pixels no matter where the camera is pointed */
+const CAM_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
+
+function makeCamera(stage, desk) {
+  const cam = { x: 0, y: 0, s: 1, target: null, opts: null };
+
+  /* stacked phones and reduced-motion visitors get the still, wide view */
+  function enabled() {
+    if (!stage || !desk) return false;
+    if (window.innerWidth <= 1000) return false;
+    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  /* cut straight back to the wide shot — no transition, nothing left over */
+  function snap() {
+    if (!stage) return;
+    cam.x = 0; cam.y = 0; cam.s = 1; cam.target = null; cam.opts = null;
+    stage.style.transition = "none";
+    stage.style.transform = "none";
+    void stage.offsetHeight;   /* flush it, so the next move eases from here */
+  }
+
+  function off() {
+    if (!stage) return;
+    if (cam.x || cam.y || cam.s !== 1 || cam.target) snap();
+  }
+
+  /* where a shot lands — everything measured fresh, at call time */
+  function shotFor(target, opts) {
+    const o = opts || {};
+    const stageRect = stage.getBoundingClientRect();
+    const r = target.getBoundingClientRect();
+    /* the scale the stage is drawn at right now: any outer fit scale times
+       whatever the camera is holding. dividing by it gives stage-local px */
+    const k = stageRect.width / (stage.offsetWidth || stageRect.width) || 1;
+    const lx = (r.left - stageRect.left) / k;
+    const ly = (r.top - stageRect.top) / k;
+    const lw = r.width / k;
+    const lh = r.height / k;
+
+    const deskW = desk.clientWidth;
+    const deskH = desk.clientHeight;
+    const pad = o.pad == null ? 40 : o.pad;
+    const maxZoom = o.maxZoom == null ? 2.6 : o.maxZoom;
+    const fit = Math.min(deskW / (lw + pad * 2), deskH / (lh + pad * 2));
+    const s = Math.max(1, Math.min(maxZoom, o.zoom || fit));
+
+    /* the stage's own corner inside the desk — the desk is its offsetParent */
+    let ox = 0, oy = 0;
+    for (let n = stage; n && n !== desk; n = n.offsetParent) {
+      ox += n.offsetLeft; oy += n.offsetTop;
+    }
+    return {
+      x: deskW / 2 - ox - s * (lx + lw / 2),
+      y: deskH / 2 - oy - s * (ly + lh / 2),
+      s,
+    };
+  }
+
+  function write(shot, dur) {
+    cam.x = shot.x; cam.y = shot.y; cam.s = shot.s;
+    stage.style.transition = dur ? `transform ${dur}ms ${CAM_EASE}` : "none";
+    stage.style.transform = `translate(${shot.x}px, ${shot.y}px) scale(${shot.s})`;
+  }
+
+  /* push in on an element and hold. css transitions run in real time, so the
+     wait is a plain sleep — never dsleep — and it's a fixed one: a missed
+     transitionend would strand the whole demo */
+  async function to(target, opts) {
+    if (!enabled()) { off(); return; }
+    if (!target) return;   /* a dynamic element that never arrived — skip the move */
+    const dur = (opts && opts.dur) || 950;
+    write(shotFor(target, opts), dur);
+    cam.target = target;
+    cam.opts = opts || null;
+    await sleep(dur + 60);
+  }
+
+  /* back to the wide shot — both machines side by side */
+  async function reset(dur = 950) {
+    if (!enabled()) { off(); return; }
+    cam.target = null;
+    cam.opts = null;
+    write({ x: 0, y: 0, s: 1 }, dur);
+    await sleep(dur + 60);
+  }
+
+  /* a resize moves the fit scale under the held shot — re-frame it on the spot */
+  window.addEventListener("resize", () => {
+    if (!stage) return;
+    if (!enabled()) { off(); return; }
+    if (!cam.target || !cam.target.isConnected) return;
+    write(shotFor(cam.target, cam.opts), 0);
+  });
+
+  return { to, reset, snap, off, enabled };
+}
+
+/* the hero rig — its call sites have always said camTo/camReset/camSnap */
+const demoStage = document.querySelector(".hero-demo .demo-stage");
+const heroCam = makeCamera(demoStage, stageDesk);
+const camSnap = () => heroCam.snap();
+/* pausing mid-push-in lets the move land and then holds. the rig's own wait
+   is the shared plain sleep, so the gate sits on the hero's side of it */
+const camTo = async (target, opts) => { await heroCam.to(target, opts); await pauseGate(); };
+const camReset = async (dur) => { await heroCam.reset(dur); await pauseGate(); };
+
+/* ── the player controls — Zapier's video buttons, sitting on the desk ── */
+const playBtn = document.getElementById("demo-play-btn");
+const pauseVeil = document.getElementById("demo-pause-veil");
+const pauseBig = document.getElementById("demo-pause-big");
+
+function pauseDemo() {
+  if (demoPaused) return;
+  demoPaused = true;
+  if (playBtn) { playBtn.classList.add("paused"); playBtn.setAttribute("aria-label", "Play demo"); }
+  if (pauseVeil) pauseVeil.classList.add("on");
+}
+
+function resumeDemo() {
+  if (!demoPaused) return;
+  demoPaused = false;
+  if (playBtn) { playBtn.classList.remove("paused"); playBtn.setAttribute("aria-label", "Pause demo"); }
+  if (pauseVeil) pauseVeil.classList.remove("on");
+  /* hand the queue over before flushing — a waiter may pause us again */
+  const waiting = pauseWaiters;
+  pauseWaiters = [];
+  waiting.forEach(res => res());
+}
+
+if (playBtn) playBtn.addEventListener("click", () => { if (demoPaused) resumeDemo(); else pauseDemo(); });
+if (pauseBig) pauseBig.addEventListener("click", resumeDemo);
+
+/* ── the chapter row — four beats, the live one boxed ── */
+const chapterEls = document.querySelectorAll("#demo-chapters .chapter");
+function setChapter(i) {
+  chapterEls.forEach((c, n) => c.classList.toggle("on", n === i));
 }
 
 let runToken = 0;
@@ -4522,6 +4819,7 @@ function waitChoice(yesBtn, noBtn, token, { autopilotMs = null, autoPick = "yes"
     noBtn.addEventListener("click", (e) => { if (e.isTrusted) cursorHide(); userTouched = true; finish(false); });
     if (autopilotMs && !userTouched) {
       timer = setTimeout(async () => {
+        await pauseGate();
         if (userTouched || token !== runToken) return;
         cursorShow();
         await cursorTo(autoPick === "yes" ? yesBtn : noBtn, token, 750);
@@ -4540,6 +4838,7 @@ function startExpiry(elSpan) {
   let secs = 5 * 60;
   clearInterval(expiryTimer);
   expiryTimer = setInterval(() => {
+    if (demoPaused) return;   /* the clock holds while the demo does */
     secs--;
     if (secs <= 0) { clearInterval(expiryTimer); return; }
     const m = Math.floor(secs / 60), s = String(secs % 60).padStart(2, "0");
@@ -4567,15 +4866,21 @@ async function runDemo() {
   recipientNotif.classList.remove("show");
   /* the terminal stays on the desktop — idle until the agent starts */
   terminalEl.classList.add("open");
-  termBody.innerHTML = '<div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">✳ Welcome to Claude Code. Agent idle.</div>';
+  termBody.innerHTML = '<div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">Welcome to Claude Code. Agent idle.</div>';
   cursorHide();
+  camSnap();   /* every run opens on the wide shot, never mid-zoom */
+  setChapter(0);
 
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Kaan is composing a dispatch…";
 
-  /* Kaan's cursor walks to Compose and clicks it */
+  /* the camera opens on Kaan's machine, then leans into Compose */
   await dsleep(250); if (token !== runToken) return;
   senderWindow.classList.add("attn");
+  await camTo(senderWindow, { pad: 18 }); if (token !== runToken) return;
+  await camTo(composeBtn, { zoom: 2.1, pad: 60 }); if (token !== runToken) return;
+
+  /* Kaan's cursor walks to Compose and clicks it */
   cursorShow();
   await cursorTo(composeBtn, token, 650); if (token !== runToken) return;
   await cursorPress(token); if (token !== runToken) return;
@@ -4605,6 +4910,12 @@ async function runDemo() {
     presetRow.appendChild(chip);
   });
 
+  /* frame the whole dialog — the chips are in the dom by now, so it measures
+     at its final size — and hold it there while the task is typed out */
+  await dsleep(250); if (token !== runToken) return;
+  await camTo(composeOverlay.querySelector(".dialog"), { pad: 26 });
+  if (token !== runToken) return;
+
   demoStatus.className = "demo-status";
   demoStatus.textContent = "";
 
@@ -4624,6 +4935,7 @@ async function runDemo() {
       if (e.isTrusted) { userTouched = true; cursorHide(); }
     });
     setTimeout(async () => {
+      await pauseGate();
       if (userTouched || token !== runToken) return;
       await cursorTo(presetRow.children[0], token, 550);
       if (userTouched || token !== runToken) return;
@@ -4654,6 +4966,8 @@ async function runDemo() {
   composeOverlay.style.display = "none";
 
   senderContent.innerHTML = senderInboxView(true, task);
+  /* sent — pull back to the wide shot for the broker beat */
+  await camReset(); if (token !== runToken) return;
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Signed and sent — the broker is checking policy.";
 
@@ -4697,6 +5011,15 @@ async function runDemo() {
   startExpiry(document.getElementById("expiry-span"));
   recipientWindow.classList.add("attn");
   showNotif();
+  setChapter(1);
+
+  /* the camera crosses the desk: your machine, then the notification that
+     just landed, then the row waiting on your answer */
+  await camTo(recipientWindow, { pad: 18 }); if (token !== runToken) return;
+  await dsleep(500); if (token !== runToken) return;
+  await camTo(recipientNotif, { zoom: 2.3, pad: 40 }); if (token !== runToken) return;
+  await dsleep(1100); if (token !== runToken) return;
+  await camTo(newRow, { pad: 32 }); if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
   demoStatus.textContent = "";
@@ -4705,12 +5028,15 @@ async function runDemo() {
     document.getElementById("btn-accept"),
     document.getElementById("btn-reject"),
     token,
-    { autopilotMs: 6000, autoPick: "yes" },
+    { autopilotMs: 2600, autoPick: "yes" },
   );
   if (token !== runToken) return;
   clearInterval(expiryTimer);
   recipientWindow.classList.remove("attn");
   recipientNotif.classList.remove("show");
+  setChapter(accepted ? 2 : 3);   /* a reject ends the story right here */
+  /* decided — split the work again, both machines back in frame */
+  await camReset(); if (token !== runToken) return;
 
   if (!accepted) {
     setStatus("denied");
@@ -4782,15 +5108,19 @@ async function runDemo() {
       demoStatus.textContent = `The agent wants to run ${step.name}. Your call.`;
       recipientWindow.classList.add("attn");
 
+      /* same move as accept/reject: lean in for the decision, pull back after */
+      await camTo(block, { pad: 32, maxZoom: 1.9 }); if (token !== runToken) return;
+
       permAllowed = await waitChoice(
         block.querySelector("[data-allow]"),
         block.querySelector("[data-deny]"),
         token,
-        { autopilotMs: 6000, autoPick: "yes" },
+        { autopilotMs: 3000, autoPick: "yes" },
       );
       if (token !== runToken) return;
       recipientWindow.classList.remove("attn");
       block.querySelector(".ev-actions").style.opacity = "0.4";
+      await camReset(); if (token !== runToken) return;
 
       demoStatus.className = "demo-status";
       demoStatus.textContent = permAllowed ? "Allowed — the agent continues." : "Denied — the agent adapts and finishes without it.";
@@ -4810,6 +5140,7 @@ async function runDemo() {
   if (token !== runToken) return;
 
   /* done */
+  setChapter(3);
   const turns = permAllowed ? 3 : 2;
   const cost = permAllowed ? "0.06" : "0.04";
   await emit("result", "Done", null,
@@ -4827,7 +5158,7 @@ async function runDemo() {
     : "Completed — read-only, because you said so. That's the point.";
 }
 
-replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
+replayBtn.addEventListener("click", () => { userTouched = false; resumeDemo(); camSnap(); runDemo(); });
 composeBtn.addEventListener("click", () => {
   if (composeOverlay.style.display === "none") { userTouched = false; runDemo(); }
 });
@@ -5346,13 +5677,27 @@ usesObs.observe(document.querySelector(".uses-show"));
   const envPop = document.getElementById("bnd-env");
   const nodePop = document.getElementById("bnd-node");
   const bnd = document.querySelector(".bnd");
+  const bleed = document.querySelector("#boundary .bnd-bleed");
   if (!termA || !termB) return;
 
   const $ = (s) => document.querySelector(s);
+  /* the same rig the hero demo uses: .bnd is the stage that moves,
+     .bnd-bleed is the desk that clips it */
+  const bcam = makeCamera(bnd, bleed);
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let token = 0;      // bumps on replay — aborts stale async
   let busy = false;   // a dispatch is in flight (either direction)
-  let touched = false;
+  /* nobody can click for the far side any more, so the far side decides on
+     a beat — long enough to read the ask, short enough to keep moving */
+  const APPROVE_MS = 2400;   // accept the incoming dispatch
+  const WRITE_MS = 2200;     // allow the one destructive write
+
+  /* two heights, and that's the whole grammar: tight on the terminal that's
+     talking, and a hair inside the wide shot for the hand-off between them.
+     the light shell retired the backstage strip and the system nodes, so
+     there is nothing else on this canvas worth framing */
+  const SHOT_TERM = { pad: 26 };
+  const SHOT_MID = { zoom: 1.11 };
 
   const sysMap = (k) => ({ db: sysDb, crm: sysCrm, audit: sysAudit }[k] || null);
 
@@ -5448,7 +5793,11 @@ usesObs.observe(document.querySelector(".uses-show"));
   async function curMove(side, target, dur = 620) {
     const cur = side.cur; if (!cur) return;
     const sr = side.scr.getBoundingClientRect(), tr = target.getBoundingClientRect();
-    cur._x = tr.left - sr.left + tr.width / 2 - 3; cur._y = tr.top - sr.top + tr.height / 2 - 2;
+    /* the cursor is translated in screen-local px, but the whole cockpit may
+       be under a camera zoom — divide that scale back out before writing */
+    const k = sr.width / (side.scr.offsetWidth || sr.width) || 1;
+    cur._x = (tr.left - sr.left + tr.width / 2) / k - 3;
+    cur._y = (tr.top - sr.top + tr.height / 2) / k - 2;
     cur.style.opacity = "1";
     cur.style.transition = "transform 620ms cubic-bezier(0.22,1,0.36,1), opacity 250ms";
     cur.style.transform = `translate(${cur._x}px, ${cur._y}px)`;
@@ -5469,7 +5818,9 @@ usesObs.observe(document.querySelector(".uses-show"));
     if (!calm) {
       const pkt = el('<span class="bnd-pkt"></span>');
       backend.appendChild(pkt);
-      const wpx = backend.getBoundingClientRect().width;
+      /* offsetWidth, not the rect: `left` is written in local px and the
+         camera may be holding a zoom over the whole strip */
+      const wpx = backend.offsetWidth;
       const from = dir === "a2b" ? 40 : wpx - 50, to = dir === "a2b" ? wpx - 50 : 40;
       pkt.style.left = from + "px"; pkt.style.opacity = "1";
       pkt.style.transition = "left 950ms cubic-bezier(0.45,0,0.55,1), opacity 300ms";
@@ -5488,16 +5839,17 @@ usesObs.observe(document.querySelector(".uses-show"));
       const row = el(`<div class="tapprove pulse"><button class="yes">${yes}</button><button class="no">${no}</button></div>`);
       scr.appendChild(row); scr.scrollTop = scr.scrollHeight;
       let done = false;
-      const finish = (v, real) => {
+      const finish = (v) => {
         if (done || tok !== token) return; done = true;
-        if (real) touched = true;
         row.classList.remove("pulse");
         row.querySelectorAll("button").forEach(b => b.disabled = true);
         row.style.opacity = "0.5"; resolve(v);
       };
-      row.querySelector(".yes").addEventListener("click", () => finish(true, true));
-      row.querySelector(".no").addEventListener("click", () => finish(false, true));
-      setTimeout(() => finish(true, false), ms);
+      /* the buttons still answer a programmatic click; the timer is what
+         actually decides, since nothing reaches them by hand any more */
+      row.querySelector(".yes").addEventListener("click", () => finish(true));
+      row.querySelector(".no").addEventListener("click", () => finish(false));
+      setTimeout(() => finish(true), ms);
     });
   }
 
@@ -5558,7 +5910,7 @@ usesObs.observe(document.querySelector(".uses-show"));
   /* ══ the dispatch, either direction — with per-task data ══ */
   async function sendDispatch(from, task) {
     if (busy) return;
-    busy = true; replayBtn.disabled = true;
+    busy = true;
     const to = from.otherSide, tok = token;
     closePops();
     hideCompose(A); hideCompose(B);
@@ -5573,7 +5925,7 @@ usesObs.observe(document.querySelector(".uses-show"));
     const backDir = from.key === "a" ? "b2a" : "a2b";
     const done = () => { busy = false; };
 
-    // sender signs + sends
+    // sender signs + sends — the camera is already tight on its terminal
     from.win.classList.add("lit");
     pPrompt(from, task);
     await sleep(430); if (tok !== token) return done();
@@ -5584,31 +5936,40 @@ usesObs.observe(document.querySelector(".uses-show"));
     pRes(from, "signed · ed25519 · device " + from.dev);
     const [logN, logM] = from.senderLog;
     pRes(from, '<span class="ok">' + logM + '</span>'); hit(logN, true);
-    await sleep(320); if (tok !== token) return done();
+    await sleep(520); if (tok !== token) return done();
     pRes(from, '<span class="dim">waiting for ' + to.label + ' to accept…</span>');
     setLog('<span class="a2b">→ new_dispatch &nbsp;' + from.key.toUpperCase() + " → " + to.key.toUpperCase() + '&nbsp; [signed]</span>');
     from.win.classList.remove("lit");
+    /* pull out for the hand-off — both companies in one frame is the whole
+       point of this section, and the travel beat needs somewhere to happen */
+    await bcam.to(bnd, SHOT_MID); if (tok !== token) return done();
     await crossPacket(outDir, tok); if (tok !== token) return done();
 
-    // receiver decides
+    // receiver decides — lean in, the way you would over their shoulder
     to.win.classList.add("lit");
+    await bcam.to(to.win, SHOT_TERM); if (tok !== token) return done();
     pMcp(to, "incoming from " + from.label);
     pRes(to, "task: " + st.short);
     pRes(to, "from " + from.email + " · signature valid · nonce fresh · in scope");
     statusEl.className = "demo-status hot";
-    statusEl.textContent = to.label + " received it — approve or deny on that machine.";
-    const ok = await askApprove(to.scrEl, tok, "approve", "deny", 7000);
+    statusEl.textContent = to.label + "'s machine has it — nothing runs until that side says yes.";
+    await sleep(620); if (tok !== token) return done();
+    const ok = await askApprove(to.scrEl, tok, "approve", "deny", APPROVE_MS);
     if (tok !== token) return done();
 
     if (!ok) {
       st.status = "denied";
       pAction(to, '<span class="warn">declined · nothing ran</span>');
       setLog('<span class="b2a">← denied</span>');
+      await bcam.to(bnd, SHOT_MID); if (tok !== token) return done();
       await crossPacket(backDir, tok); if (tok !== token) return done();
       to.win.classList.remove("lit"); from.win.classList.add("lit");
+      await bcam.to(from.win, SHOT_TERM); if (tok !== token) return done();
       pAction(from, '<span class="warn">' + to.label + " declined. Nothing touched their systems.</span>");
+      await sleep(900); if (tok !== token) return done();
+      await bcam.reset(); if (tok !== token) return done();
       statusEl.className = "demo-status";
-      statusEl.textContent = "Declined — " + to.label + "'s systems were never touched. Now try the other direction, or send again.";
+      statusEl.textContent = "Declined — " + to.label + "'s systems were never touched. Replay to watch it again.";
       return finishRun();
     }
 
@@ -5623,13 +5984,14 @@ usesObs.observe(document.querySelector(".uses-show"));
     st.readNode = ex.read.node;
     hit(sysMap(ex.read.node), true);
     pRes(to, "→ " + ex.read.out);
-    await sleep(550); if (tok !== token) return done();
+    await sleep(650); if (tok !== token) return done();
 
-    // per-call write approval (the one destructive step)
+    // per-call write approval (the one destructive step) — we hold the shot:
+    // everything that matters is printing inside this one terminal
     pAction(to, 'wants to <span class="warn">' + ex.write.label + "</span>");
     statusEl.className = "demo-status hot";
     statusEl.textContent = "A destructive write — " + to.label + " approves it per call, just like the real thing.";
-    const allow = await askApprove(to.scrEl, tok, "allow write", "deny", 7000);
+    const allow = await askApprove(to.scrEl, tok, "allow write", "deny", WRITE_MS);
     if (tok !== token) return done();
 
     if (allow) {
@@ -5650,31 +6012,38 @@ usesObs.observe(document.querySelector(".uses-show"));
 
     setLog('<span class="b2a">← done &nbsp;' + to.key.toUpperCase() + " → " + from.key.toUpperCase() + '</span>');
     to.win.classList.remove("lit");
+    /* wide again for the answer coming back */
+    await bcam.to(bnd, SHOT_MID); if (tok !== token) return done();
     await crossPacket(backDir, tok); if (tok !== token) return done();
 
     from.win.classList.add("lit");
+    await bcam.to(from.win, SHOT_TERM); if (tok !== token) return done();
     pAction(from, '<span class="ok">' + to.label + " completed.</span>");
     pRes(from, st.wrote ? ex.done : "read-only report returned — nothing written");
     pRes(from, '<span class="ok">result recorded in Audit log</span>');
+    await sleep(950); if (tok !== token) return done();
     if (from.key === "a") hit(sysAudit, true);
+    /* the pull-back to the wide shot is the closing line: two machines,
+       two companies, one dispatch, both still standing */
     statusEl.className = "demo-status";
-    statusEl.textContent = "Done — signed by " + from.label + ", approved by " + to.label + ", logged on both sides. Dispatch the other way, or click the daemon / a system to inspect.";
+    statusEl.textContent = "Done — signed by " + from.label + ", approved by " + to.label + ", logged on both sides. Replay to watch it again.";
+    await bcam.reset(); if (tok !== token) return done();
     finishRun();
 
     function finishRun() {
-      busy = false; replayBtn.disabled = false;
+      busy = false;
       from.win.classList.remove("lit");
       showCompose(A); showCompose(B);
     }
   }
 
   /* ---- compose on BOTH sides ---- */
+  /* the chips are scenery now — nothing here is clickable, so they carry no
+     handlers; they're the menu the manager is choosing from */
   function fillPresets(side) {
     side.presetRow.innerHTML = "";
     side.presets.forEach((p) => {
-      const chip = el(`<button class="cc-preset">${p.task.replace(/^(ask|have) Team [AB] (to )?/i, "")}</button>`);
-      chip.addEventListener("click", () => { touched = true; side.input.value = p.task; side.input.focus(); });
-      side.presetRow.appendChild(chip);
+      side.presetRow.appendChild(el(`<button class="cc-preset">${p.task.replace(/^(ask|have) Team [AB] (to )?/i, "")}</button>`));
     });
   }
   function showCompose(side) {
@@ -5684,20 +6053,33 @@ usesObs.observe(document.querySelector(".uses-show"));
     side.scrEl.scrollTop = side.scrEl.scrollHeight;
   }
   function hideCompose(side) { side.compose.classList.add("hidden"); }
+
+  /* the scene types its own prompt: uneven rhythm, a breath at spaces and
+     punctuation. the caret glow is a class, not a real focus() — focusing
+     an input inside a zoomed stage would yank the page around */
+  async function typeInto(side, text, tok) {
+    const box = side.input.closest(".cc-box");
+    if (box) box.classList.add("focus");
+    side.input.value = "";
+    for (let c = 0; c <= text.length; c++) {
+      if (tok !== token) { if (box) box.classList.remove("focus"); return false; }
+      side.input.value = text.slice(0, c);
+      const ch = text[c - 1];
+      let d = 38 + Math.random() * 52;
+      if (ch === " ") d += 30;
+      if (ch === "," || ch === "." || ch === "?") d += 140;
+      await sleep(d);
+    }
+    if (box) box.classList.remove("focus");
+    return true;
+  }
+
   function submit(side) {
     if (busy || side.compose.classList.contains("hidden")) return;
     let v = (side.input.value || "").trim() || side.presets[0].task;
     if (!/team [ab]/i.test(v)) v = "ask " + side.peer + " to " + v;
-    sendDispatch(side, v);
+    return sendDispatch(side, v);
   }
-  [A, B].forEach((side) => {
-    const box = side.input ? side.input.closest(".cc-box") : null;
-    if (!side.input) return;
-    side.input.addEventListener("focus", () => { touched = true; if (box) box.classList.add("focus"); });
-    side.input.addEventListener("blur", () => { if (box) box.classList.remove("focus"); });
-    side.input.addEventListener("input", () => { touched = true; });
-    side.input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); touched = true; submit(side); } });
-  });
 
   /* ---- boot a laptop (open → power → terminal → pick agent → plugin/MCP/daemon) ---- */
   async function bootSide(side, tok, bootLines) {
@@ -5719,10 +6101,12 @@ usesObs.observe(document.querySelector(".uses-show"));
     const rec = side.pick.querySelector(".pick-opt.on"); rec.classList.add("pulse");
     await new Promise((res) => {
       let d = false;
-      const finish = (real) => { if (d || tok !== token) return; d = true; if (real) touched = true; res(); };
-      rec.addEventListener("click", () => finish(true));
-      (async () => { await sleep(1500); if (d || tok !== token) return; if (!calm && side.cur) { await curMove(side, rec); if (d) return; await curPress(side); } finish(false); })();
-      setTimeout(() => finish(false), 9000);
+      const finish = () => { if (d || tok !== token) return; d = true; res(); };
+      rec.addEventListener("click", finish);
+      /* the OS cursor walks over and launches it — 1200ms of "someone is
+         sitting there", then the click */
+      (async () => { await sleep(1200); if (d || tok !== token) return; if (!calm && side.cur) { await curMove(side, rec); if (d) return; await curPress(side); } finish(); })();
+      setTimeout(finish, 9000);
     });
     if (tok !== token) return;
     rec.classList.remove("pulse"); side.pick.classList.remove("show");
@@ -5765,26 +6149,35 @@ usesObs.observe(document.querySelector(".uses-show"));
 
   async function begin() {
     const tok = ++token;
-    busy = false;
+    busy = false;   /* the token bump already stranded whatever was in flight */
+    bcam.snap();    /* every run opens on the wide shot, never mid-zoom */
     hideCompose(A); hideCompose(B);
     [sysAudit, sysDb, sysCrm].forEach(n => n.classList.remove("hit", "touched"));
     setLog("idle");
     if (cross) { cross.classList.remove("hot"); cross.textContent = "dispatch ›"; }
     statusEl.className = "demo-status";
     statusEl.textContent = "Two managers, two machines — powering up…";
+    /* a slow, almost-invisible creep while both lids open: the studio tic
+       that says we're going somewhere. not awaited — the boot runs under it */
+    bcam.to(bnd, { zoom: 1.05, dur: 6000 });
     await Promise.all([bootSide(A, tok, bootA), bootSide(B, tok, bootB)]);
     if (tok !== token) return;
     showCompose(A); showCompose(B);
-    // invite interaction — both prompts pulse; the user drives either side
-    A.compose.classList.add("pulse"); B.compose.classList.add("pulse");
-    setTimeout(() => { A.compose.classList.remove("pulse"); B.compose.classList.remove("pulse"); }, 6000);
+    statusEl.className = "demo-status";
+    statusEl.textContent = "Both machines are live — Manager A hands a task to Claude Code…";
+    await sleep(900); if (tok !== token) return;
+
+    /* nobody is going to type this — the scene types it itself */
+    const task = A.presets[0].task;
+    await bcam.to(A.win, SHOT_TERM); if (tok !== token) return;
+    if (!await typeInto(A, task, tok)) return;
+    await sleep(520); if (tok !== token) return;
     statusEl.className = "demo-status hot";
-    statusEl.textContent = "Both managers are live. Type on either machine and press Enter to dispatch across the boundary — both directions work.";
-    // gentle one-time demo only if the visitor never engages
-    setTimeout(() => { if (!touched && !busy && tok === token) submit(A); }, 15000);
+    statusEl.textContent = "Claude Code signs it with Manager A's Mac and hands it to the daemon…";
+    await submit(A);
   }
 
-  replayBtn.addEventListener("click", () => { touched = false; begin(); });
+  replayBtn.addEventListener("click", () => { bcam.snap(); begin(); });
 
   const obs = new IntersectionObserver((entries) => {
     entries.forEach(e => { if (e.isIntersecting) { obs.disconnect(); setTimeout(begin, 350); } });
