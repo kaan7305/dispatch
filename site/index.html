@@ -924,7 +924,7 @@
     box-shadow: 0 14px 40px rgba(0,0,0,0.26);
     transition: max-height 650ms cubic-bezier(0.16,1,0.3,1), opacity 450ms, transform 550ms cubic-bezier(0.16,1,0.3,1);
   }
-  .terminal.open { max-height: 208px; opacity: 1; transform: none; }
+  .terminal.open { max-height: 272px; opacity: 1; transform: none; }
   .term-titlebar {
     display: flex; align-items: center; gap: 8px;
     padding: 8px 14px;
@@ -941,7 +941,7 @@
     line-height: 1.75;
     color: #C8CBD3;
     background: linear-gradient(#17181D, #121317);
-    height: 166px;
+    height: 230px;
     overflow-y: auto;
     scroll-behavior: smooth;
   }
@@ -4041,6 +4041,21 @@ function makeCamera(stage, desk) {
     if (cam.x || cam.y || cam.s !== 1 || cam.target) snap();
   }
 
+  /* one axis of the window clamp. the window's scaled span sits at
+     [origin + t + s*w0, +s*len] in desk px: slide t until it covers the whole
+     frame. when the window is smaller than the frame on this axis it cannot
+     cover it, so centre the window there instead and take the even margin */
+  function clampAxis(t, origin, deskLen, s, w0, len) {
+    if (s * len >= deskLen) {
+      const near = origin + t + s * w0;
+      if (near > 0) return t - near;
+      const far = near + s * len;
+      if (far < deskLen) return t + (deskLen - far);
+      return t;
+    }
+    return deskLen / 2 - origin - s * (w0 + len / 2);
+  }
+
   /* where a shot lands — everything measured fresh, at call time */
   function shotFor(target, opts) {
     const o = opts || {};
@@ -4058,7 +4073,11 @@ function makeCamera(stage, desk) {
     const deskH = desk.clientHeight;
     const pad = o.pad == null ? 40 : o.pad;
     const maxZoom = o.maxZoom == null ? 2.6 : o.maxZoom;
-    const fit = Math.min(deskW / (lw + pad * 2), deskH / (lh + pad * 2));
+    /* contain by default; cover fills the frame edge to edge and lets the
+       long axis crop out of view — the full-screen cut */
+    const fit = o.cover
+      ? Math.max(deskW / (lw + pad * 2), deskH / (lh + pad * 2))
+      : Math.min(deskW / (lw + pad * 2), deskH / (lh + pad * 2));
     const s = Math.max(1, Math.min(maxZoom, o.zoom || fit));
 
     /* the stage's own corner inside the desk — the desk is its offsetParent */
@@ -4066,11 +4085,18 @@ function makeCamera(stage, desk) {
     for (let n = stage; n && n !== desk; n = n.offsetParent) {
       ox += n.offsetLeft; oy += n.offsetTop;
     }
-    return {
-      x: deskW / 2 - ox - s * (lx + lw / 2),
-      y: deskH / 2 - oy - s * (ly + lh / 2),
-      s,
-    };
+    let x = deskW / 2 - ox - s * (lx + lw / 2);
+    let y = deskH / 2 - oy - s * (ly + lh / 2);
+
+    /* hold the shot inside one window. centring something that sits near a
+       window's edge pans the camera straight past it, and what shows in the
+       gap is sky, or a sliver of the other machine — never what we meant */
+    if (o.within) {
+      const wr = o.within.getBoundingClientRect();
+      x = clampAxis(x, ox, deskW, s, (wr.left - stageRect.left) / k, wr.width / k);
+      y = clampAxis(y, oy, deskH, s, (wr.top - stageRect.top) / k, wr.height / k);
+    }
+    return { x, y, s };
   }
 
   function write(shot, dur) {
@@ -4589,7 +4615,7 @@ async function chCompose(token) {
   /* frame the whole dialog — the chips are in the dom by now, so it measures
      at its final size — and hold it there while the task is typed out */
   await dsleep(250); if (token !== runToken) return;
-  await camTo(composeOverlay.querySelector(".dialog"), { pad: 26 });
+  await camTo(composeOverlay.querySelector(".dialog"), { pad: 26, within: senderWindow });
   if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
@@ -4668,8 +4694,12 @@ async function chApprove(token) {
   recipientWindow.classList.add("attn");
   showNotif();
 
-  /* one move: straight to the row waiting on your answer */
-  await camTo(newRow, { pad: 32 }); if (token !== runToken) return;
+  /* cut to your whole machine first — that's the establishing shot — then
+     lean into the row. both stay inside the window, so the frame never opens
+     onto sky or a sliver of Kaan's screen */
+  await camTo(recipientWindow, { pad: 0, cover: true, within: recipientWindow }); if (token !== runToken) return;
+  await dsleep(260); if (token !== runToken) return;
+  await camTo(newRow, { pad: 32, within: recipientWindow }); if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
   demoStatus.textContent = "";
@@ -4686,8 +4716,10 @@ async function chApprove(token) {
   recipientNotif.classList.remove("show");
   setChapter(accepted ? 2 : 3);   /* the pill moves before the camera does */
 
+  /* decided, either way — back to the wide split, both screens side by side */
+  await camReset(); if (token !== runToken) return;
+
   if (!accepted) {
-    await camReset(); if (token !== runToken) return;
     /* a reject ends the story right here */
     setStatus("denied");
     newRow.classList.remove("emphasized");
@@ -4769,7 +4801,7 @@ async function chAgent(token) {
       recipientWindow.classList.add("attn");
 
       /* same move as accept/reject: lean in for the decision, pull back after */
-      await camTo(block, { pad: 32, maxZoom: 1.9 }); if (token !== runToken) return;
+      await camTo(block, { pad: 32, maxZoom: 1.9, within: recipientWindow }); if (token !== runToken) return;
 
       permAllowed = await waitChoice(
         block.querySelector("[data-allow]"),
@@ -4817,7 +4849,7 @@ async function chDone(token) {
   if (sStream) pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(scene.preset.doneText)));
   const replyBlock = sStream ? sStream.lastElementChild : null;
   if (replyBlock) {
-    await camTo(replyBlock, { pad: 30, maxZoom: 1.8 }); if (token !== runToken) return;
+    await camTo(replyBlock, { pad: 30, maxZoom: 1.8, within: senderWindow }); if (token !== runToken) return;
   }
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
