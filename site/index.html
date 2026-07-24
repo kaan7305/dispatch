@@ -4415,11 +4415,13 @@ const CAM_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
 function makeCamera(stage, desk) {
   const cam = { x: 0, y: 0, s: 1, target: null, opts: null };
 
-  /* stacked phones and reduced-motion visitors get the still, wide view */
+  /* stacked phones get the still, wide view — the camera needs the
+     side-by-side desk. os "reduce motion" is deliberately not honored
+     here: the zooms are the story, the same call zapier makes by
+     shipping its demos as videos */
   function enabled() {
     if (!stage || !desk) return false;
-    if (window.innerWidth <= 1000) return false;
-    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return window.innerWidth > 1000;
   }
 
   /* cut straight back to the wide shot — no transition, nothing left over */
