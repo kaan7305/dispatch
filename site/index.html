@@ -232,7 +232,8 @@
   .demo-fit { position: relative; }
   .demo-fit-inner { transform-origin: top left; }
   @media (min-width: 1001px) { .demo-fit-inner { width: 1010px; } }
-  /* the chapter row — quiet labels above the desk, the live beat in a box */
+  /* the chapter row — quiet labels above the desk, the live beat in a box.
+     they're buttons: click one and the run cuts to that beat */
   .demo-chapters {
     display: flex; justify-content: center; flex-wrap: wrap;
     gap: 6px;
@@ -246,8 +247,19 @@
     padding: 7px 14px;
     border: 1.5px solid transparent;
     border-radius: 10px;
+    background: none;
+    -webkit-appearance: none; appearance: none;
+    cursor: pointer;
+    -webkit-user-select: none; user-select: none;
     transition: color 250ms, background-color 250ms, border-color 250ms;
   }
+  /* a hint of the boxed look, so the label reads as something you can press */
+  .demo-chapters .chapter:hover {
+    color: var(--ink-strong);
+    background: rgba(255,255,255,0.6);
+    border-color: var(--hairline);
+  }
+  .demo-chapters .chapter:focus-visible { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
   .demo-chapters .chapter.on {
     color: var(--ink-strong);
     font-weight: 600;
@@ -1602,15 +1614,10 @@
     background-position: 63% 58%;
     filter: saturate(0.6) brightness(1.3) contrast(0.95);
   }
-  .sky-bg[data-sky="hood"] {
-    background-image: url("assets/hd-sunburst.jpg");
-    background-position: 50% 45%;
-  }
   .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
   .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
   .uses-stage > .sky-bg { opacity: 0.5; }
   .scopes-grid { padding: 28px; border-radius: 16px; }
-  .hood-stage { overflow: hidden; }
   .bnd-bleed { position: relative; overflow: hidden; border-radius: 18px; padding: 30px 24px; }
 
   /* the scale desk goes evil: inverted storm + film grain */
@@ -2663,305 +2670,8 @@
   .scope-json .v { color: var(--green-ink); }
   .scope-sentence strong { color: var(--ink-strong); }
 
-  /* ── parts: interactive under-the-hood explorer ── */
-  #parts { border-top: 1px solid var(--hairline); }
-  .hood {
-    display: grid;
-    grid-template-columns: 250px 1fr;
-    gap: 22px;
-    align-items: stretch;
-  }
-  @media (max-width: 820px) { .hood { grid-template-columns: 1fr; } }
-  .hood-nav { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
-  .hood-item {
-    text-align: left;
-    font-family: var(--sans);
-    background: transparent;
-    border: none;
-    border-left: 2px solid var(--hairline);
-    padding: 13px 18px;
-    cursor: pointer;
-    border-radius: 0 8px 8px 0;
-    transition: background 200ms, border-color 250ms;
-  }
-  .hood-item:hover { background: rgba(255,255,255,0.75); }
-  .hood-item.on { border-left-color: var(--ink-strong); background: var(--card); }
-  .hood-name { display: block; font-family: var(--geist); font-weight: 600; font-size: 21px; color: var(--ink-strong); letter-spacing: -0.01em; }
-  .hood-sub { display: block; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
-  @media (max-width: 820px) {
-    .hood-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-    .hood-item { flex: 1; border-left: none; border-bottom: 2px solid var(--hairline); border-radius: 8px 8px 0 0; padding: 8px 10px; }
-    .hood-item.on { border-bottom-color: var(--ink-strong); }
-    .hood-name { font-size: 13.5px; }
-    .hood-sub { display: none; }
-  }
-
-  .hood-stage {
-    position: relative;
-    min-height: 350px;
-    background-color: var(--card);
-    background-image: radial-gradient(rgba(32,21,21,0.045) 1px, transparent 1px);
-    background-size: 20px 20px;
-    border: 1px solid var(--hairline);
-    border-radius: 12px;
-    overflow: hidden;
-  }
-  .hood-pane {
-    position: absolute; inset: 0;
-    display: grid; place-items: center;
-    padding: 28px 28px 60px;
-    opacity: 0;
-    transform: scale(0.985);
-    transition: opacity 450ms, transform 550ms cubic-bezier(0.16,1,0.3,1);
-    pointer-events: none;
-  }
-  .hood-pane.on { opacity: 1; transform: none; pointer-events: auto; }
-  .hood-cap {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    padding: 13px 22px;
-    border-top: 1px solid var(--hairline);
-    background: rgba(251,251,250,0.88);
-    font-size: 13px;
-    color: var(--muted);
-    text-align: center;
-  }
   .mdots { display: inline-flex; gap: 4px; }
   .mdots i { width: 7px; height: 7px; border-radius: 50%; background: #E3E2DE; }
-
-  /* broker scene */
-  .hb-scene { position: relative; width: min(460px, 100%); height: 160px; }
-  .hb-rail { position: absolute; left: 40px; right: 40px; top: 50%; height: 1px; background: rgba(32,21,21,0.14); }
-  .hb-machine {
-    position: absolute; top: calc(50% - 24px);
-    width: 60px; height: 48px;
-    background: #fff;
-    border: 1px solid var(--hairline);
-    border-radius: 8px;
-    padding: 6px 7px;
-  }
-  .hb-machine.l { left: 0; }
-  .hb-machine.r { right: 0; }
-  .hb-hub {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    width: 62px; height: 62px;
-    background: #fff;
-    border: 1px solid var(--hairline);
-    border-radius: 16px;
-    display: grid; place-items: center;
-    color: var(--ink-strong);
-    z-index: 2;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
-  }
-  .hb-pkt {
-    position: absolute; top: calc(50% - 3.5px);
-    width: 7px; height: 7px; border-radius: 50%;
-    z-index: 1;
-  }
-  .hb-pkt.task { background: var(--ink-strong); animation: hbtask 3.2s cubic-bezier(0.45,0,0.55,1) infinite; }
-  .hb-pkt.evt { background: var(--accent); animation: hbevt 3.2s cubic-bezier(0.45,0,0.55,1) infinite 1.6s; }
-  @keyframes hbtask {
-    0% { left: 62px; opacity: 0; }
-    12% { opacity: 1; }
-    88% { opacity: 1; }
-    100% { left: calc(100% - 68px); opacity: 0; }
-  }
-  @keyframes hbevt {
-    0% { left: calc(100% - 68px); opacity: 0; }
-    12% { opacity: 1; }
-    88% { opacity: 1; }
-    100% { left: 62px; opacity: 0; }
-  }
-  .hb-nokey {
-    position: absolute; left: 50%; bottom: 2px;
-    transform: translateX(-50%);
-    display: inline-flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 10px;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  /* daemon scene */
-  .hd-scene { position: relative; width: 220px; height: 190px; }
-  .hd-paper {
-    position: absolute; left: 50%; bottom: 24px;
-    transform: translateX(-50%);
-    width: 170px; height: 116px;
-    background: #fff;
-    border: 1px solid var(--hairline);
-    border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
-  }
-  .hd-line { position: absolute; left: 18px; top: 24px; width: 88px; height: 4px; border-radius: 2px; background: #EDECE9; }
-  .hd-line.s2 { top: 40px; width: 118px; }
-  .hd-line.s3 { top: 56px; width: 64px; }
-  .hd-wax {
-    position: absolute; right: 20px; bottom: 18px;
-    width: 26px; height: 26px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 32%, #C4524F, #9F2F2D 65%);
-    transform: scale(0);
-    animation: hdwax 4s infinite;
-  }
-  @keyframes hdwax {
-    0%, 33% { transform: scale(0); }
-    39% { transform: scale(1.25); }
-    45%, 100% { transform: scale(1); }
-  }
-  .hd-stamp {
-    position: absolute;
-    right: calc(50% - 85px + 18px);
-    bottom: 96px;
-    animation: hdstamp 4s infinite;
-  }
-  @keyframes hdstamp {
-    0%, 20% { transform: translateY(-26px); opacity: 0; }
-    28% { transform: translateY(-26px); opacity: 1; }
-    35% { transform: translateY(52px); }
-    44% { transform: translateY(-12px); opacity: 1; }
-    56%, 100% { transform: translateY(-26px); opacity: 0; }
-  }
-  .hd-label {
-    position: absolute; left: 50%; bottom: 0;
-    transform: translateX(-50%);
-    font-family: var(--mono); font-size: 10px;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  /* app scene */
-  .ha-window {
-    width: min(340px, 100%);
-    background: #fff;
-    border: 1px solid var(--hairline);
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
-  }
-  .ha-titlebar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 9px 12px;
-    border-bottom: 1px solid var(--hairline);
-    background: #FBFBFA;
-  }
-  .ha-title { font-family: var(--mono); font-size: 10px; color: var(--muted); }
-  .ha-body { padding: 12px; display: flex; flex-direction: column; gap: 9px; }
-  .ha-row.skel { height: 20px; border-radius: 5px; background: #F1F0ED; }
-  .ha-row.skel.w2 { width: 72%; }
-  .ha-row.new {
-    display: flex; align-items: center; gap: 9px;
-    padding: 8px 10px;
-    border: 1px solid var(--hairline);
-    border-radius: 7px;
-    animation: harow 5s infinite;
-  }
-  .ha-av {
-    width: 22px; height: 22px; border-radius: 50%;
-    background: var(--amuted);
-    display: grid; place-items: center;
-    font-size: 8px; font-weight: 600;
-    font-family: var(--sans);
-  }
-  .ha-bar { flex: 1; height: 5px; border-radius: 3px; background: #EDECE9; }
-  .ha-badge { position: relative; width: 76px; height: 20px; }
-  .ha-badge i {
-    position: absolute; inset: 0;
-    display: grid; place-items: center;
-    font-family: var(--sans); font-size: 10px; font-weight: 500;
-    font-style: normal;
-    border-radius: 6px;
-  }
-  .ha-badge .p { background: #FEF3C7; color: #78350F; animation: habp 5s infinite; }
-  .ha-badge .c { background: #DCFCE7; color: #14532D; animation: habc 5s infinite; }
-  @keyframes harow {
-    0% { transform: translateY(-14px); opacity: 0; }
-    8% { transform: none; opacity: 1; }
-    92% { opacity: 1; }
-    98%, 100% { opacity: 0; }
-  }
-  @keyframes habp { 0%, 52% { opacity: 1; } 58%, 100% { opacity: 0; } }
-  @keyframes habc { 0%, 52% { opacity: 0; } 58%, 100% { opacity: 1; } }
-
-  /* AI tools scene: two terminals, both speak dispatch */
-  .ht-scene { display: flex; flex-direction: column; gap: 14px; width: min(400px, 100%); }
-  .ht-term {
-    background: #17171A;
-    border: 1px solid #2A2A2E;
-    border-radius: 10px;
-    padding: 10px 14px 12px;
-  }
-  .ht-tab {
-    display: flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 9.5px;
-    color: #7D7D85;
-    margin-bottom: 7px;
-  }
-  .ht-dot { width: 7px; height: 7px; border-radius: 50%; background: #34D399; }
-  .ht-type {
-    display: block;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: #C8C8CE;
-    white-space: nowrap;
-    overflow: hidden;
-    border-right: 1.5px solid #C8C8CE;
-    animation: caret 1s steps(2) infinite;
-  }
-  .ht-type.t1 { width: 36ch; animation: httype1 7s steps(36) infinite, caret 1s steps(2) infinite; }
-  .ht-type.t2 { width: 41ch; animation: httype2 7s steps(41) infinite, caret 1s steps(2) infinite; }
-  @keyframes httype1 {
-    0% { width: 0; }
-    30% { width: 36ch; }
-    96% { width: 36ch; }
-    100% { width: 0; }
-  }
-  @keyframes httype2 {
-    0%, 40% { width: 0; }
-    72% { width: 41ch; }
-    96% { width: 41ch; }
-    100% { width: 0; }
-  }
-
-  /* agent scene */
-  .hg-scene { position: relative; display: grid; place-items: center; width: 140px; height: 140px; }
-  .hg-being {
-    position: relative; z-index: 2;
-    width: 54px; height: 54px; border-radius: 50%;
-    background: var(--ink-strong);
-    display: grid; place-items: center;
-    animation: vgbeing 4.4s infinite;
-  }
-  .hg-being .tick {
-    color: #fff; font-size: 19px; font-weight: 700;
-    opacity: 0;
-    animation: vgtick 4.4s infinite;
-  }
-  @keyframes vgbeing {
-    0% { transform: scale(0); }
-    9% { transform: scale(1.15); }
-    13% { transform: scale(1); }
-    72% { transform: scale(1); }
-    84%, 100% { transform: scale(0); }
-  }
-  @keyframes vgtick {
-    0%, 58% { opacity: 0; }
-    64%, 76% { opacity: 1; }
-    82%, 100% { opacity: 0; }
-  }
-  .hg-ring {
-    position: absolute;
-    width: 88px; height: 88px; border-radius: 50%;
-    background: conic-gradient(var(--accent) calc(var(--p, 0) * 360deg), rgba(27,177,87,0.15) 0);
-    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
-    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
-    animation: vgring 4.4s infinite;
-  }
-  @keyframes vgring {
-    0%, 12% { --p: 0; opacity: 0; }
-    18% { opacity: 1; }
-    62% { --p: 1; opacity: 1; }
-    72% { --p: 1; opacity: 1; }
-    82%, 100% { --p: 1; opacity: 0; }
-  }
 
   /* ── closing ask ── */
   #invite { border-top: 1px solid var(--hairline); }
@@ -3123,7 +2833,6 @@
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
-      <a href="#parts">Under the hood</a>
       <a href="docs.html">Docs</a>
     </nav>
     </div>
@@ -3156,12 +2865,12 @@
 
     <div class="demo-fit reveal">
     <div class="demo-fit-inner">
-    <!-- the four beats — passive, they just light up as the run moves -->
+    <!-- the four beats — click one and the run cuts to it, like video chapters -->
     <div class="demo-chapters" id="demo-chapters">
-      <span class="chapter on">Compose</span>
-      <span class="chapter">Approve</span>
-      <span class="chapter">Agent runs</span>
-      <span class="chapter">Done</span>
+      <button type="button" class="chapter on">Compose</button>
+      <button type="button" class="chapter">Approve</button>
+      <button type="button" class="chapter">Agent runs</button>
+      <button type="button" class="chapter">Done</button>
     </div>
     <div class="stage-desk">
     <div class="sky-bg" data-sky="hero"></div>
@@ -3699,114 +3408,6 @@
           <span class="mdots"><i></i><i></i><i></i></span>
         </div>
         <div class="scope-json" id="scope-json"></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ── PARTS ── -->
-<section id="parts">
-  <div class="wrap">
-    <h2 class="reveal">Five small parts, each with one job.</h2>
-
-    <div class="hood reveal">
-
-      <div class="hood-nav" id="hood-nav">
-        <button class="hood-item on"><span class="hood-name">Broker</span><span class="hood-sub">the post office</span></button>
-        <button class="hood-item"><span class="hood-name">Daemon</span><span class="hood-sub">on your machine</span></button>
-        <button class="hood-item"><span class="hood-name">App</span><span class="hood-sub">what you saw above</span></button>
-        <button class="hood-item"><span class="hood-name">AI tools</span><span class="hood-sub">Claude Code · Codex</span></button>
-        <button class="hood-item"><span class="hood-name">Agent</span><span class="hood-sub">the worker</span></button>
-      </div>
-
-      <div class="hood-stage">
-        <div class="sky-bg" data-sky="hood"></div>
-
-        <!-- Broker: packets pass through the hub, never opened -->
-        <div class="hood-pane on">
-          <div class="hb-scene">
-            <div class="hb-machine l"><span class="mdots"><i></i><i></i><i></i></span></div>
-            <div class="hb-rail"></div>
-            <span class="hb-pkt task"></span>
-            <span class="hb-pkt evt"></span>
-            <div class="hb-hub">
-              <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
-                <circle cx="4.5" cy="14" r="2.5" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="23.5" cy="14" r="2.5" stroke="currentColor" stroke-width="1.5"/>
-                <circle cx="14" cy="14" r="3.8" fill="currentColor"/>
-                <path d="M7.4 14h2.6M18 14h2.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <div class="hb-machine r"><span class="mdots"><i></i><i></i><i></i></span></div>
-            <div class="hb-nokey">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9-9M17 6l3 3"/><path d="M3 3l18 18" stroke-width="2.2"/></svg>
-              holds no keys · runs no code
-            </div>
-          </div>
-          <div class="hood-cap">Carries tasks between people. It reads the envelope — who, to whom, what scope — and runs nothing, ever.</div>
-        </div>
-
-        <!-- Daemon: every outgoing task gets the wax seal -->
-        <div class="hood-pane">
-          <div class="hd-scene">
-            <div class="hd-paper">
-              <span class="hd-line"></span>
-              <span class="hd-line s2"></span>
-              <span class="hd-line s3"></span>
-              <span class="hd-wax"></span>
-            </div>
-            <span class="hd-stamp">
-              <svg width="30" height="38" viewBox="0 0 20 26" fill="none">
-                <rect x="7" y="0" width="6" height="10" rx="2.5" fill="#2F3437"/>
-                <rect x="2" y="10" width="16" height="7" rx="2" fill="#2F3437"/>
-              </svg>
-            </span>
-            <div class="hd-label">ed25519 · this device only</div>
-          </div>
-          <div class="hood-cap">Signs what you send, verifies what arrives, and runs the agent — keys never leave the machine.</div>
-        </div>
-
-        <!-- App: a dispatch lands, ripens, completes -->
-        <div class="hood-pane">
-          <div class="ha-window">
-            <div class="ha-titlebar"><span class="mdots"><i></i><i></i><i></i></span><span class="ha-title">Talaria — Inbox</span></div>
-            <div class="ha-body">
-              <div class="ha-row new">
-                <span class="ha-av">KA</span>
-                <span class="ha-bar"></span>
-                <span class="ha-badge"><i class="p">Pending</i><i class="c">Completed</i></span>
-              </div>
-              <div class="ha-row skel"></div>
-              <div class="ha-row skel w2"></div>
-            </div>
-          </div>
-          <div class="hood-cap">Your inbox, your people, your permissions — nothing moves without a row you can see.</div>
-        </div>
-
-        <!-- AI tools: Claude Code and Codex both speak dispatch -->
-        <div class="hood-pane">
-          <div class="ht-scene">
-            <div class="ht-term">
-              <div class="ht-tab"><span class="ht-dot"></span>Claude Code</div>
-              <span class="ht-type t1">&gt; dispatch "tidy my desktop" to ege</span>
-            </div>
-            <div class="ht-term">
-              <div class="ht-tab"><span class="ht-dot"></span>Codex</div>
-              <span class="ht-type t2">$ dispatch send "run the tests" --to kaan</span>
-            </div>
-          </div>
-          <div class="hood-cap">It speaks MCP — send and track dispatches without leaving Claude Code or Codex.</div>
-        </div>
-
-        <!-- Agent: born, works, gone -->
-        <div class="hood-pane">
-          <div class="hg-scene">
-            <span class="hg-ring"></span>
-            <span class="hg-being"><span class="tick">✓</span></span>
-          </div>
-          <div class="hood-cap">Born the moment you accept a task. Works inside your scopes. Gone when it's done.</div>
-        </div>
-
       </div>
     </div>
   </div>
@@ -4364,6 +3965,17 @@ async function termRun(term, token) {
   }
 }
 
+/* the same lines termRun types out, printed all at once — for chapter jumps */
+function termPrint(term) {
+  if (!term) return;
+  termBody.appendChild(el(`<div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">${esc(term.cmd)}</span></div>`));
+  for (const raw of (term.out || [])) {
+    const isErr = raw.startsWith("!");
+    termBody.appendChild(el(`<div class="term-line out${isErr ? " err" : ""}">${esc(isErr ? raw.slice(1) : raw)}</div>`));
+  }
+  termScroll();
+}
+
 let notifTimer = null;
 function showNotif() {
   clearTimeout(notifTimer);
@@ -4544,16 +4156,20 @@ function resumeDemo() {
 if (playBtn) playBtn.addEventListener("click", () => { if (demoPaused) resumeDemo(); else pauseDemo(); });
 if (pauseBig) pauseBig.addEventListener("click", resumeDemo);
 
-/* ── the chapter row — four beats, the live one boxed ── */
+/* ── the chapter row — four beats, the live one boxed, every one clickable ── */
 const chapterEls = document.querySelectorAll("#demo-chapters .chapter");
 function setChapter(i) {
-  chapterEls.forEach((c, n) => c.classList.toggle("on", n === i));
+  chapterEls.forEach((c, n) => {
+    c.classList.toggle("on", n === i);
+    c.setAttribute("aria-current", n === i ? "true" : "false");
+  });
 }
 
 let runToken = 0;
 let userTouched = false;   // once the visitor interacts, autopilot backs off
 let typingActive = false;  // a preset is being typed into the compose box
 let expiryTimer = null;
+let startTimer = null;     // the observer's 500ms wind-up, cancellable
 
 /* ── the scripted agent runs, one per preset ── */
 const PRESETS = [
@@ -4655,17 +4271,25 @@ function statusBadge(status) {
   return `<span class="badge ${meta.cls}" data-status-badge>${meta.label}</span>`;
 }
 
+/* jumping to a chapter replays these same builders with the fades switched
+   off — a jump should land on a finished scene, not watch it assemble */
+let ffwd = false;
+function reveal(node) {
+  if (ffwd) { node.classList.add("show"); return; }
+  requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add("show")));
+}
+
 /* ── broker column ── */
 function brokerCheck(html) {
   const div = el(`<div class="broker-check">${html}</div>`);
   brokerBox.appendChild(div);
-  requestAnimationFrame(() => requestAnimationFrame(() => div.classList.add("show")));
+  reveal(div);
 }
 
 function relay(text) {
   const line = el(`<div class="relay-line">${text}</div>`);
   relayFeed.appendChild(line);
-  requestAnimationFrame(() => requestAnimationFrame(() => line.classList.add("show")));
+  reveal(line);
   const lines = relayFeed.querySelectorAll(".relay-line");
   if (lines.length > 5) lines[lines.length - 6].remove();
   lines.forEach((l, i) => { if (i < lines.length - 3) l.classList.add("fade"); });
@@ -4695,7 +4319,7 @@ function pushEv(container, block) {
   const empty = container.querySelector(".stream-empty");
   if (empty) empty.remove();
   container.appendChild(block);
-  requestAnimationFrame(() => requestAnimationFrame(() => block.classList.add("show")));
+  reveal(block);
   const scroller = container.closest(".app-content");
   if (scroller) scroller.scrollTop = scroller.scrollHeight;
 }
@@ -4708,6 +4332,15 @@ async function emit(tone, label, name, bodyHtml, relayText, token) {
   if (relayText) relay(relayText);
   await dsleep(350);
   if (token !== runToken) return;
+  if (sStream) pushEv(sStream, evBlock("sender", tone, label, name, bodyHtml));
+}
+
+/* emit's twin for a chapter jump: both streams at once, no 350ms in between */
+function evPush(tone, label, name, bodyHtml, relayText) {
+  const rStream = document.getElementById("r-stream");
+  const sStream = document.getElementById("s-stream");
+  if (rStream) pushEv(rStream, evBlock("recipient", tone, label, name, bodyHtml));
+  if (relayText) relay(relayText);
   if (sStream) pushEv(sStream, evBlock("sender", tone, label, name, bodyHtml));
 }
 
@@ -4848,16 +4481,65 @@ function startExpiry(elSpan) {
   }, 1000);
 }
 
-/* ── the run ── */
-async function runDemo() {
-  const token = ++runToken;
+/* ═══════════════ the run, cut into four chapters ═══════════════
+   each chapter plays one beat of the story end to end and the driver runs
+   them in order, so a straight watch looks exactly like it always did.
+   clicking a chapter label rebuilds the desk at that beat and picks the
+   story up from there — the way a video jumps to a chapter mark */
+
+/* what the run has committed to so far — a jump reads it back out */
+const scene = { task: PRESETS[0].task, preset: PRESETS[0], permAllowed: true };
+
+/* the pending dispatch as it lands in your inbox. built in one place so the
+   live version and the fast-forwarded one can never drift apart */
+function pendingRow(task, animate) {
+  return el(`
+    <div class="drow emphasized${animate ? " enter" : ""}">
+      <span class="avatar lg">KA</span>
+      <div class="body">
+        <div class="toprow">
+          <span class="name">kaan@castrum.ai</span>
+          ${statusBadge("pending")}
+          <span class="badge outline">needs approval</span>
+        </div>
+        <div class="preview">${esc(task)}</div>
+        <div class="when"><span class="expiry">expires in 5:00</span> · signature valid · key pinned</div>
+      </div>
+      <div class="quick">
+        <button class="abtn outline" data-reject>✕ Reject</button>
+        <button class="abtn attention" data-accept>✓ Accept</button>
+      </div>
+    </div>`);
+}
+
+/* the compose box's own wiring — registered once, for every run there'll
+   ever be. whichever chapter 0 is live hands itself to onComposeSend */
+let onComposeSend = null;
+composeSend.addEventListener("click", () => {
+  const claim = onComposeSend;
+  onComposeSend = null;
+  if (claim) claim();
+});
+taskInput.addEventListener("input", (e) => {
+  if (e.isTrusted) { userTouched = true; cursorHide(); }
+  composeSend.disabled = taskInput.value.trim().length === 0;
+});
+composeOverlay.addEventListener("pointerdown", (e) => {
+  if (e.isTrusted) { userTouched = true; cursorHide(); }
+});
+
+/* every run and every jump opens from here: a clean desk, nothing in flight */
+function resetScene() {
   clearInterval(expiryTimer);
+  clearTimeout(notifTimer);
+  typingActive = false;
   lastTs.sender = lastTs.recipient = null;
 
   senderContent.innerHTML = senderInboxView(false, "");
   recipientContent.innerHTML = recipientInboxView();
   brokerBox.innerHTML = "";
   relayFeed.innerHTML = "";
+  presetRow.innerHTML = "";
   composeOverlay.style.display = "none";
   composeOverlay.classList.remove("show");
   taskInput.value = "";
@@ -4870,9 +4552,12 @@ async function runDemo() {
   terminalEl.classList.add("open");
   termBody.innerHTML = '<div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">Welcome to Claude Code. Agent idle.</div>';
   cursorHide();
-  camSnap();   /* every run opens on the wide shot, never mid-zoom */
-  setChapter(0);
+  demoStatus.className = "demo-status";
+  demoStatus.textContent = "";
+}
 
+/* ── chapter 0 · Compose — Kaan writes the task, signs it, the broker checks ── */
+async function chCompose(token) {
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Kaan is composing a dispatch…";
 
@@ -4921,21 +4606,11 @@ async function runDemo() {
   demoStatus.className = "demo-status";
   demoStatus.textContent = "";
 
-  /* send resolves when clicked; Kaan's cursor drives unless the visitor takes over */
+  /* send resolves when clicked; Kaan's cursor drives unless the visitor takes
+     over. the listener itself is permanent — this run just claims the slot,
+     so jumping back to Compose a hundred times leaves nothing behind */
   await new Promise((resolve) => {
-    const onSend = () => {
-      if (token !== runToken) return;
-      composeSend.removeEventListener("click", onSend);
-      resolve();
-    };
-    composeSend.addEventListener("click", onSend);
-    taskInput.addEventListener("input", (e) => {
-      if (e.isTrusted) { userTouched = true; cursorHide(); }
-      composeSend.disabled = taskInput.value.trim().length === 0;
-    });
-    composeOverlay.addEventListener("pointerdown", (e) => {
-      if (e.isTrusted) { userTouched = true; cursorHide(); }
-    });
+    onComposeSend = () => { if (token === runToken) resolve(); };
     setTimeout(async () => {
       await pauseGate();
       if (userTouched || token !== runToken) return;
@@ -4957,9 +4632,11 @@ async function runDemo() {
   if (token !== runToken) return;
   cursorHide();
 
+  /* whatever was in the box is the dispatch from here on — a jump back to a
+     later chapter rebuilds the scene around these words */
   const task = taskInput.value.trim();
-  const preset = PRESETS.find(p => p.task === task) || GENERIC_STEPS;
-  const doneText = preset.doneText;
+  scene.task = task;
+  scene.preset = PRESETS.find(p => p.task === task) || GENERIC_STEPS;
 
   /* close dialog, show sent row */
   senderWindow.classList.remove("attn");
@@ -4989,31 +4666,19 @@ async function runDemo() {
   /* sender navigates to detail view */
   await dsleep(600); if (token !== runToken) return;
   senderContent.innerHTML = senderDetailView(task);
+}
+
+/* ── chapter 1 · Approve — it lands on your machine and waits on you ── */
+async function chApprove(token) {
+  const task = scene.task;
 
   /* recipient: row lands in inbox */
   const rowlist = document.getElementById("r-rowlist");
-  const newRow = el(`
-    <div class="drow emphasized enter">
-      <span class="avatar lg">KA</span>
-      <div class="body">
-        <div class="toprow">
-          <span class="name">kaan@castrum.ai</span>
-          ${statusBadge("pending")}
-          <span class="badge outline">needs approval</span>
-        </div>
-        <div class="preview">${esc(task)}</div>
-        <div class="when"><span class="expiry" id="expiry-span">expires in 5:00</span> · signature valid · key pinned</div>
-      </div>
-      <div class="quick">
-        <button class="abtn outline" id="btn-reject">✕ Reject</button>
-        <button class="abtn attention" id="btn-accept">✓ Accept</button>
-      </div>
-    </div>`);
+  const newRow = pendingRow(task, true);
   rowlist.prepend(newRow);
-  startExpiry(document.getElementById("expiry-span"));
+  startExpiry(newRow.querySelector(".expiry"));
   recipientWindow.classList.add("attn");
   showNotif();
-  setChapter(1);
 
   /* the camera crosses the desk: your machine, then the notification that
      just landed, then the row waiting on your answer */
@@ -5027,8 +4692,8 @@ async function runDemo() {
   demoStatus.textContent = "";
 
   const accepted = await waitChoice(
-    document.getElementById("btn-accept"),
-    document.getElementById("btn-reject"),
+    newRow.querySelector("[data-accept]"),
+    newRow.querySelector("[data-reject]"),
     token,
     { autopilotMs: 2600, autoPick: "yes" },
   );
@@ -5036,11 +4701,12 @@ async function runDemo() {
   clearInterval(expiryTimer);
   recipientWindow.classList.remove("attn");
   recipientNotif.classList.remove("show");
-  setChapter(accepted ? 2 : 3);   /* a reject ends the story right here */
+  setChapter(accepted ? 2 : 3);   /* the pill moves before the camera does */
   /* decided — split the work again, both machines back in frame */
   await camReset(); if (token !== runToken) return;
 
   if (!accepted) {
+    /* a reject ends the story right here */
     setStatus("denied");
     newRow.classList.remove("emphasized");
     relay("dispatch_decision: reject");
@@ -5048,8 +4714,13 @@ async function runDemo() {
     demoStatus.textContent = "Rejected — the agent never started, and Kaan saw it instantly. Replay to take the other path.";
     const sStream = document.getElementById("s-stream");
     if (sStream) pushEv(sStream, evBlock("sender", "error", "Status", null, "denied — the recipient declined this dispatch"));
-    return;
+    return false;
   }
+}
+
+/* ── chapter 2 · Agent runs — the work happens on your machine, in the open ── */
+async function chAgent(token) {
+  const task = scene.task, preset = scene.preset;
 
   /* accepted: recipient opens detail, agent starts */
   relay("dispatch_decision: accept");
@@ -5068,6 +4739,7 @@ async function runDemo() {
   await dsleep(500); if (token !== runToken) return;
 
   let permAllowed = true;
+  scene.permAllowed = true;
 
   for (const step of preset.steps) {
     if (token !== runToken) return;
@@ -5077,17 +4749,21 @@ async function runDemo() {
       await emit("tool", "Tool call", step.name,
         jsonBody(step.input) + `<div class="ev-note">in scope — runs without asking</div>`,
         "tool_use ⇢ sender", token);
+      if (token !== runToken) return;
       await termRun(step.term, token);
+      if (token !== runToken) return;
       await dsleep(600);
 
     } else if (step.type === "result") {
       await emit("result", "Tool result", null,
         `<div class="ev-json">${esc(step.text)}</div>`,
         "tool_result ⇢ sender", token);
+      if (token !== runToken) return;
       await dsleep(650);
 
     } else if (step.type === "agent") {
       await emit("agent", "Agent", null, esc(step.text), "agent_text ⇢ sender", token);
+      if (token !== runToken) return;
       await dsleep(750);
 
     } else if (step.type === "perm") {
@@ -5120,6 +4796,7 @@ async function runDemo() {
         { autopilotMs: 3000, autoPick: "yes" },
       );
       if (token !== runToken) return;
+      scene.permAllowed = permAllowed;
       recipientWindow.classList.remove("attn");
       block.querySelector(".ev-actions").style.opacity = "0.4";
       await camReset(); if (token !== runToken) return;
@@ -5129,20 +4806,25 @@ async function runDemo() {
 
       if (permAllowed) {
         await emit("result", "Allowed", step.name, `<div class="ev-note">decision: allow — by the recipient (you)</div>`, "permission_response: allow", token);
+        if (token !== runToken) return;
         await termRun(step.term, token);
+        if (token !== runToken) return;
       } else {
         await emit("error", "Denied", step.name, `<div class="ev-note">decision: deny — by the recipient (you)</div>`, "permission_response: deny", token);
+        if (token !== runToken) return;
         termErr(`✗ ${step.name} denied by you — nothing ran`);
         await dsleep(550); if (token !== runToken) return;
         await emit("agent", "Agent", null, esc(step.denyText), "agent_text ⇢ sender", token);
+        if (token !== runToken) return;
       }
       await dsleep(650);
     }
   }
-  if (token !== runToken) return;
+}
 
-  /* done */
-  setChapter(3);
+/* ── chapter 3 · Done — the receipt, on both machines ── */
+async function chDone(token) {
+  const permAllowed = scene.permAllowed;
   const turns = permAllowed ? 3 : 2;
   const cost = permAllowed ? "0.06" : "0.04";
   await emit("result", "Done", null,
@@ -5151,7 +4833,7 @@ async function runDemo() {
   if (token !== runToken) return;
 
   const sStream = document.getElementById("s-stream");
-  pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(doneText)));
+  if (sStream) pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(scene.preset.doneText)));
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
   demoStatus.className = "demo-status";
@@ -5160,9 +4842,128 @@ async function runDemo() {
     : "Completed — read-only, because you said so. That's the point.";
 }
 
-replayBtn.addEventListener("click", () => { userTouched = false; resumeDemo(); camSnap(); runDemo(); });
+const CHAPTERS = [chCompose, chApprove, chAgent, chDone];
+
+/* ── rebuild the desk exactly as chapter i finds it, instantly ──
+   always from a clean scene, then the earlier chapters' outcomes summarized
+   in one pass: no waiting, no camera moves, no cursor. that "clean scene
+   first" bit is what lets you click backwards and forwards all day */
+function setupFor(i) {
+  resetScene();
+  camSnap();
+  if (i <= 0) {
+    demoStatus.textContent = "Kaan is composing a dispatch…";
+    return;
+  }
+
+  ffwd = true;
+  try {
+    const task = scene.task, preset = scene.preset;
+
+    /* chapter 0's outcome — written, signed, checked, routed */
+    senderContent.innerHTML = senderDetailView(task);
+    brokerCheck(`<span class="mark">✓</span> trust edge kaan → you: accepted`);
+    brokerCheck(`<span class="mark">✓</span> within scope`);
+    brokerCheck(`<span class="mark">✓</span> rate: 3 of 50 today`);
+    brokerCheck(`→ routed to your daemon`);
+    relay("new_dispatch → your daemon");
+    demoStatus.textContent = "Signed and sent — the broker is checking policy.";
+    if (i === 1) return;
+
+    /* chapter 1's outcome — it landed, and you said yes. the row is still on
+       screen at this point in the live run, buttons spent */
+    if (i === 2) {
+      const row = pendingRow(task, false);
+      document.getElementById("r-rowlist").prepend(row);
+      row.querySelectorAll(".quick .abtn").forEach(b => {
+        b.disabled = true;
+        b.classList.remove("attention");
+      });
+      demoStatus.textContent = "";
+      return;
+    }
+
+    /* chapter 2's outcome — the agent ran the whole script, and the one
+       destructive step it asked about was allowed */
+    relay("dispatch_decision: accept");
+    recipientContent.innerHTML = recipientDetailView(task);
+    setStatus("running");
+    termSys("dispatch-daemon: agent started · fresh session · only the folders you allowed · asks before changing anything");
+    evPush("agent", "Status", null, "accepted → running — fresh agent, clean base", "dispatch_status ⇢ sender");
+    scene.permAllowed = true;
+
+    for (const step of preset.steps) {
+      if (step.type === "tool") {
+        evPush("tool", "Tool call", step.name,
+          jsonBody(step.input) + `<div class="ev-note">in scope — runs without asking</div>`,
+          "tool_use ⇢ sender");
+        termPrint(step.term);
+
+      } else if (step.type === "result") {
+        evPush("result", "Tool result", null,
+          `<div class="ev-json">${esc(step.text)}</div>`, "tool_result ⇢ sender");
+
+      } else if (step.type === "agent") {
+        evPush("agent", "Agent", null, esc(step.text), "agent_text ⇢ sender");
+
+      } else if (step.type === "perm") {
+        /* the ask, already answered — the same block, with spent buttons */
+        pushEv(document.getElementById("r-stream"),
+          evBlock("recipient", "tool", "Permission requested", step.name,
+            jsonBody(step.input) + `
+        <div class="ev-note">This tool is destructive — waiting for your Allow / Deny. (Auto-deny in 120s.)</div>
+        <div class="ev-actions" style="opacity: 0.4;">
+          <button class="abtn" disabled>Allow</button>
+          <button class="abtn outline" disabled>Deny</button>
+        </div>`));
+        relay("permission_request ⇢ you");
+        pushEv(document.getElementById("s-stream"),
+          evBlock("sender", "tool", "Permission requested", step.name,
+            jsonBody(step.input) + `<div class="ev-note">Waiting for their Allow / Deny.</div>`));
+        evPush("result", "Allowed", step.name,
+          `<div class="ev-note">decision: allow — by the recipient (you)</div>`, "permission_response: allow");
+        termPrint(step.term);
+      }
+    }
+    demoStatus.textContent = "The agent is running. Read-only tools run freely — destructive ones will ask you.";
+  } finally {
+    ffwd = false;
+  }
+}
+
+/* ── the driver: chapters i..3, back to back, the way the story goes ── */
+async function playFrom(start) {
+  const token = ++runToken;
+  for (let i = start; i < CHAPTERS.length; i++) {
+    if (token !== runToken) return;
+    setChapter(i);
+    const go = await CHAPTERS[i](token);
+    if (token !== runToken || go === false) return;
+  }
+}
+
+/* ── a click on a chapter label: cut to that beat and keep rolling ──
+   whatever was in flight is abandoned mid-await, the desk is rebuilt at the
+   chapter's first frame, and playback carries on from there */
+function jumpTo(i) {
+  runToken++;             /* whatever was mid-await belongs to a dead run now */
+  clearTimeout(startTimer);
+  demoObs.disconnect();   /* if the observer never fired, this is the start */
+  userTouched = false;    /* a chapter click is a command, not a takeover */
+  resumeDemo();           /* clicking a chapter is also pressing play */
+  setupFor(i);
+  setChapter(i);
+  playFrom(i);
+}
+
+/* the whole story, from the top */
+function runDemo() { jumpTo(0); }
+
+chapterEls.forEach((c, i) => c.addEventListener("click", () => jumpTo(i)));
+
+replayBtn.addEventListener("click", () => jumpTo(0));
 composeBtn.addEventListener("click", () => {
-  if (composeOverlay.style.display === "none") { userTouched = false; runDemo(); }
+  if (composeOverlay.style.display === "none") jumpTo(0);
 });
 composeCancel.addEventListener("click", () => {
   userTouched = true;
@@ -5178,7 +4979,7 @@ const demoObs = new IntersectionObserver((entries) => {
   entries.forEach(e => {
     if (e.isIntersecting) {
       demoObs.disconnect();
-      setTimeout(runDemo, 500);
+      startTimer = setTimeout(runDemo, 500);
     }
   });
 }, { threshold: 0.55 });
@@ -6186,35 +5987,6 @@ usesObs.observe(document.querySelector(".uses-show"));
   }, { threshold: 0.2 });
   obs.observe(bnd);
 })();
-
-/* ═════════════════ under-the-hood explorer ═════════════════ */
-const hoodItems = Array.from(document.querySelectorAll(".hood-item"));
-const hoodPanes = Array.from(document.querySelectorAll(".hood-pane"));
-let hoodIdx = 0;
-let hoodTimer = null;
-
-function hoodShow(i) {
-  hoodIdx = i;
-  hoodItems.forEach((b, k) => b.classList.toggle("on", k === i));
-  hoodPanes.forEach((p, k) => p.classList.toggle("on", k === i));
-}
-
-hoodItems.forEach((b, i) => {
-  b.addEventListener("click", () => {
-    clearInterval(hoodTimer);   /* the visitor is driving now */
-    hoodShow(i);
-  });
-});
-
-const hoodObs = new IntersectionObserver((entries) => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      hoodObs.disconnect();
-      hoodTimer = setInterval(() => hoodShow((hoodIdx + 1) % hoodPanes.length), 5200);
-    }
-  });
-}, { threshold: 0.35 });
-hoodObs.observe(document.querySelector(".hood-stage"));
 
 /* ───────────────────────── scopes toggler ───────────────────────── */
 const scWrite = document.getElementById("sc-write");
