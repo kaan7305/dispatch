@@ -754,6 +754,7 @@
   }
   /* hero demo sits on a sky backdrop, Zapier-style; windows carry the shadow */
   .hero-demo .stage-desk {
+    box-shadow: var(--win-shadow);
     background-color: #9FB2C9;
     border: none;
     padding: 30px;
@@ -1018,7 +1019,7 @@
     font-size: 14px;
     color: var(--afg);
     /* scale with the viewport so the whole scene fits on one screen */
-    height: 560px;
+    height: 500px;
     display: flex; flex-direction: column;
     background: #fff;
   }
@@ -1617,11 +1618,11 @@
   .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
   .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
   .uses-stage > .sky-bg { opacity: 0.5; }
-  .scopes-grid { padding: 28px; border-radius: 16px; }
-  .bnd-bleed { position: relative; overflow: hidden; border-radius: 18px; padding: 30px 24px; }
+  .scopes-grid { padding: 28px; border-radius: 16px; box-shadow: var(--win-shadow); }
+  .bnd-bleed { position: relative; overflow: hidden; border-radius: 18px; padding: 30px 24px; box-shadow: var(--win-shadow); }
 
   /* the scale desk goes evil: inverted storm + film grain */
-  #scale .stage-desk { border: none; background: #C7D0DC; }
+  #scale .stage-desk { border: none; background: #C7D0DC; box-shadow: var(--win-shadow); }
   #scale .stage-desk::after {
     content: ""; position: absolute; inset: 0;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
@@ -1686,13 +1687,6 @@
   .score-row.you-row { background: var(--pale-yellow); }
   .score-row.you-row .nm { font-weight: 600; }
   #workshop-send { position: relative; }
-  #workshop-send.burst::after {
-    content: "";
-    position: absolute; inset: -4px;
-    border: 2px solid rgba(32,21,21,0.35);
-    border-radius: 10px;
-    animation: ring-out 500ms cubic-bezier(0.16,1,0.3,1) forwards;
-  }
 
   .classroom {
     min-width: 0;
@@ -2380,6 +2374,7 @@
   }
   .us-item span { display: block; font-family: var(--mono); font-size: 13px; color: #57554C; margin-top: 2px; }
   .uses-stage {
+    box-shadow: var(--win-shadow);
     background: #161614;
     border: 1px solid rgba(255,255,255,0.10);
     border-radius: 14px;
@@ -4565,7 +4560,6 @@ async function chCompose(token) {
   await dsleep(250); if (token !== runToken) return;
   senderWindow.classList.add("attn");
   await camTo(senderWindow, { pad: 18 }); if (token !== runToken) return;
-  await camTo(composeBtn, { zoom: 2.1, pad: 60 }); if (token !== runToken) return;
 
   /* Kaan's cursor walks to Compose and clicks it */
   cursorShow();
@@ -4587,9 +4581,9 @@ async function chCompose(token) {
         taskInput.value = p.task.slice(0, c);
         composeSend.disabled = taskInput.value.trim().length === 0;
         const ch = p.task[c - 1];
-        let d = 38 + Math.random() * 52;
-        if (ch === " ") d += 30;
-        if (ch === "," || ch === "." || ch === "?") d += 140;
+        let d = 15 + Math.random() * 22;
+        if (ch === " ") d += 10;
+        if (ch === "," || ch === "." || ch === "?") d += 60;
         await dsleep(d);
       }
       typingActive = false;
@@ -4683,9 +4677,7 @@ async function chApprove(token) {
   /* the camera crosses the desk: your machine, then the notification that
      just landed, then the row waiting on your answer */
   await camTo(recipientWindow, { pad: 18 }); if (token !== runToken) return;
-  await dsleep(500); if (token !== runToken) return;
-  await camTo(recipientNotif, { zoom: 2.3, pad: 40 }); if (token !== runToken) return;
-  await dsleep(1100); if (token !== runToken) return;
+  await dsleep(600); if (token !== runToken) return;
   await camTo(newRow, { pad: 32 }); if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
@@ -4834,6 +4826,12 @@ async function chDone(token) {
 
   const sStream = document.getElementById("s-stream");
   if (sStream) pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(scene.preset.doneText)));
+  const replyBlock = sStream ? sStream.lastElementChild : null;
+  if (replyBlock) {
+    await camTo(replyBlock, { pad: 30, maxZoom: 1.8 }); if (token !== runToken) return;
+    await dsleep(1800); if (token !== runToken) return;
+    await camReset(); if (token !== runToken) return;
+  }
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
   demoStatus.className = "demo-status";
@@ -5034,7 +5032,7 @@ function fakeClock(i) {
 function subFor(m) {
   if (m.status === "pending") return "deciding…";
   if (m.status === "running") return `${m.machine} · step ${m.step}/${RS_STEPS.length} · ${RS_STEPS[Math.max(0, m.step - 1)].sub}`;
-  if (m.status === "done") return `finished in ${fmtDur(m.durS)}`;
+  if (m.status === "done") return `Completed in ${fmtDur(m.durS)}`;
   if (m.status === "declined") return "said no · nothing ran";
   if (m.status === "failed") return m.err || "hit an error";
   if (m.status === "expired") return "no answer · nothing ran";
@@ -5202,8 +5200,6 @@ async function runScale() {
   });
   if (token !== scaleToken) return;
   workshopSend.disabled = true;
-  workshopSend.classList.add("burst");
-  setTimeout(() => workshopSend.classList.remove("burst"), 600);
 
   /* outcomes: two decline, one never answers, two fail and get a follow-up fix */
   const order = seatMeta.map((_, i) => i).sort(() => Math.random() - 0.5);
@@ -5214,8 +5210,8 @@ async function runScale() {
   const heroSeat = 1;            /* Ben is the seat the cursor opens */
 
   seatMeta.forEach((m, i) => {
-    setTimeout(() => setSeat(i, "pending", token), 250 + i * 30 + Math.random() * 250);
-    const decideAt = 1700 + Math.random() * 1500;
+    setTimeout(() => setSeat(i, "pending", token), 40 + i * 10 + Math.random() * 100);
+    const decideAt = 450 + Math.random() * 550;
     if (declines.has(i)) { setTimeout(() => setSeat(i, "declined", token), decideAt + 600); return; }
     if (i === expire) { setTimeout(() => setSeat(i, "expired", token), 9000); return; }
 
