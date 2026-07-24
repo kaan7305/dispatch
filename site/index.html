@@ -27,6 +27,7 @@
     --hairline: #ECEAE3;
     --accent: #1BB157;
     --accent-down: #149A48;
+    --win-shadow: 0 18px 44px rgba(32,21,21,0.18);
     --pale-red: #FDEBEC;    --red-ink: #9F2F2D;
     --pale-blue: #E1F3FE;   --blue-ink: #1F6C9F;
     --pale-green: #EDF3EC;  --green-ink: #346538;
@@ -185,7 +186,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(52px, 4.2vw, 68px);
+    font-size: clamp(40px, 3.2vw, 50px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -722,11 +723,6 @@
     padding: 30px;
     overflow: hidden;
   }
-  .hero-demo .stage-desk::before {
-    content: ""; position: absolute; inset: 0;
-    background: url("assets/sky.jpg") center 30% / cover no-repeat;
-    filter: contrast(1.3) saturate(0.55) brightness(0.9);
-  }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
   /* the demo's own mouse cursor — it walks to buttons and clicks them */
@@ -781,7 +777,7 @@
     background: var(--card);
     border: 1px solid var(--hairline);
     border-radius: 10px;
-    box-shadow: 0 18px 44px rgba(32,21,21,0.18);
+    box-shadow: var(--win-shadow);
     overflow: hidden;
     position: relative;
     display: flex; flex-direction: column;
@@ -1357,7 +1353,7 @@
     border: 1px solid var(--hairline);
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 22px 52px rgba(0,0,0,0.30);
+    box-shadow: var(--win-shadow);
   }
   .room-app { font-family: var(--geist); font-size: 14px; color: var(--afg); background: #fff; }
   .room-topbar {
@@ -1464,13 +1460,24 @@
   .scale-cursor svg { display: block; transition: transform 120ms; transform-origin: 4px 4px; }
   .scale-cursor.press svg { transform: scale(0.82); }
 
+  /* ── sky lab: swappable cloud backdrops on every visual stage ── */
+  .sky-bg {
+    position: absolute; inset: 0;
+    z-index: 0;
+    background-size: cover;
+    background-repeat: no-repeat;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+  }
+  .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
+  .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
+  .scopes-grid { padding: 28px; border-radius: 16px; }
+  .hood-stage { overflow: hidden; }
+  .bnd-bleed { position: relative; overflow: hidden; border-radius: 18px; padding: 30px 24px; }
+
   /* the scale desk goes evil: inverted storm + film grain */
   #scale .stage-desk { border: none; background: #C7D0DC; }
-  #scale .stage-desk::before {
-    content: ""; position: absolute; inset: 0;
-    background: url("assets/sky-dark.jpg") center 35% / cover no-repeat;
-    filter: saturate(1.7) contrast(1.3) brightness(0.9) hue-rotate(-25deg);
-  }
   #scale .stage-desk::after {
     content: ""; position: absolute; inset: 0;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='240' height='240' filter='url(%23g)'/></svg>");
@@ -1482,7 +1489,7 @@
     background: #fff;
     border: 1px solid var(--ab);
     border-radius: 12px;
-    box-shadow: 0 18px 44px rgba(0,0,0,0.28);
+    box-shadow: var(--win-shadow);
     padding: 18px;
     font-family: -apple-system, "Helvetica Neue", sans-serif;
     font-size: 13px;
@@ -2406,7 +2413,7 @@
     border-radius: 12px;
     overflow: hidden;
     display: flex; flex-direction: column;
-    box-shadow: 0 18px 48px rgba(0,0,0,0.4);
+    box-shadow: var(--win-shadow);
   }
   .sp-tb {
     display: flex; align-items: center; gap: 8px;
@@ -2486,7 +2493,7 @@
     border-radius: 12px;
     overflow: hidden;
     display: flex; flex-direction: column;
-    box-shadow: 0 18px 48px rgba(0,0,0,0.4);
+    box-shadow: var(--win-shadow);
   }
   .scope-json {
     font-family: var(--mono);
@@ -2845,6 +2852,7 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
+  #boundary, #scopes, #overview { background: #F2EFE8; }
   #scale, #boundary, #uses, #layers, #scopes, #overview, footer { border-top: none; }
 
   /* no gradient washes on the page */
@@ -2995,6 +3003,7 @@
     <div class="demo-fit reveal">
     <div class="demo-fit-inner">
     <div class="stage-desk">
+    <div class="sky-bg" data-sky="hero"></div>
     <div class="demo-stage">
 
       <!-- SENDER -->
@@ -3159,6 +3168,7 @@
     </p>
 
     <div class="stage-desk reveal">
+      <div class="sky-bg" data-sky="scale"></div>
       <div class="scale-stage">
 
         <!-- instructor's compose card -->
@@ -3226,6 +3236,7 @@
   </div>
 
   <div class="bnd-bleed reveal">
+    <div class="sky-bg" data-sky="bnd"></div>
     <div class="bnd">
 
       <!-- the boundary line -->
@@ -3409,15 +3420,16 @@
 
     <div class="uses-show reveal">
       <div class="uses-nav" id="uses-nav">
-        <button class="us-item on" data-us="0"><b>Every step approved by dad</b><span>kaan → dad's mac</span></button>
-        <button class="us-item" data-us="1"><b>Debug where the bug lives</b><span>ege → kaan's mac</span></button>
-        <button class="us-item" data-us="2"><b>The answer travels, not the files</b><span>maya → lab workstation</span></button>
-        <button class="us-item" data-us="3"><b>No is always an option</b><span>ops → jeff's office box</span></button>
-        <button class="us-item" data-us="4"><b>One thread, whole release</b><span>deniz → build mac</span></button>
-        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b><span>tara → 30 student macs</span></button>
+        <button class="us-item on" data-us="0"><b>Every step approved by dad</b><span>to his dad's Mac</span></button>
+        <button class="us-item" data-us="1"><b>Debug where the bug lives</b><span>to a teammate's Mac</span></button>
+        <button class="us-item" data-us="2"><b>The answer travels, not the files</b><span>to the lab workstation</span></button>
+        <button class="us-item" data-us="3"><b>No is always an option</b><span>to a colleague's office box</span></button>
+        <button class="us-item" data-us="4"><b>One thread, whole release</b><span>to the build Mac</span></button>
+        <button class="us-item" data-us="5"><b>Fan-out with follow-ups</b><span>to 30 student Macs</span></button>
       </div>
 
       <div class="uses-stage">
+        <div class="sky-bg" data-sky="uses"></div>
         <div class="us-top">
           <span class="us-route" id="us-route">kaan → dad's mac</span>
           <span class="badge warning" id="us-badge">Pending</span>
@@ -3441,6 +3453,7 @@
     </p>
 
     <div class="scopes-grid reveal">
+      <div class="sky-bg" data-sky="scopes"></div>
       <div class="scope-panel">
         <div class="sp-tb">
           <span class="mdots"><i></i><i></i><i></i></span>
@@ -3534,6 +3547,7 @@
       </div>
 
       <div class="hood-stage">
+        <div class="sky-bg" data-sky="hood"></div>
 
         <!-- Broker: packets pass through the hub, never opened -->
         <div class="hood-pane on">
@@ -4804,6 +4818,69 @@ const demoObs = new IntersectionObserver((entries) => {
 }, { threshold: 0.55 });
 demoObs.observe(senderWindow);
 
+/* ── sky lab: click a backdrop to swap the image, shift-click to swap the
+   treatment, drag to reframe the crop. State persists in localStorage and
+   logs to the console so a keeper can be hardcoded later. ── */
+const SKY_IMGS = ["assets/sky.jpg","assets/sky-warm.jpg","assets/sky-dark.jpg","assets/sky-sea.jpg","assets/sky-storm2.jpg","assets/sky-rays.jpg"];
+const SKY_FILTERS = [
+  ["clean", "none"],
+  ["steel", "contrast(1.3) saturate(0.55) brightness(0.9)"],
+  ["hell", "saturate(1.7) contrast(1.3) brightness(0.9) hue-rotate(-25deg)"],
+  ["hypercolor", "saturate(2.3) contrast(1.3) brightness(1.05)"],
+  ["acid", "saturate(2) hue-rotate(140deg) contrast(1.2)"],
+  ["ghost", "invert(0.9) hue-rotate(180deg) contrast(1.15)"],
+  ["noir", "grayscale(0.85) contrast(1.35) brightness(0.8)"],
+  ["ember-dim", "saturate(0.8) brightness(0.45) contrast(1.15)"],
+  ["washed", "saturate(0.6) brightness(1.3) contrast(0.95)"],
+];
+const SKY_DEFAULTS = {
+  hero:  { img: 0, f: 1, x: 50, y: 30 },
+  scale: { img: 2, f: 3, x: 50, y: 35 },
+  uses:  { img: 4, f: 7, x: 50, y: 40 },
+  scopes:{ img: 1, f: 1, x: 50, y: 25 },
+  bnd:   { img: 5, f: 3, x: 50, y: 45 },
+  hood:  { img: 3, f: 8, x: 50, y: 50 },
+};
+document.querySelectorAll(".sky-bg").forEach((bg) => {
+  const id = bg.dataset.sky;
+  let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
+  try { const sv = JSON.parse(localStorage.getItem("sky-" + id)); if (sv && SKY_IMGS[sv.img]) st = sv; } catch (e) {}
+  const apply = () => {
+    bg.style.backgroundImage = `url("${SKY_IMGS[st.img]}")`;
+    bg.style.filter = SKY_FILTERS[st.f][1];
+    bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
+    try { localStorage.setItem("sky-" + id, JSON.stringify(st)); } catch (e) {}
+    console.log(`[sky] ${id}: ${SKY_IMGS[st.img].split("/").pop()} · ${SKY_FILTERS[st.f][0]} · ${st.x.toFixed(0)}%/${st.y.toFixed(0)}%`);
+  };
+  apply();
+  bg.addEventListener("pointerdown", (e) => {
+    if (!e.isTrusted) return;
+    e.preventDefault();
+    const px = e.clientX, py = e.clientY, sx = st.x, sy = st.y;
+    let moved = false;
+    const mv = (ev) => {
+      const dx = ev.clientX - px, dy = ev.clientY - py;
+      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+      if (moved) {
+        st.x = Math.max(0, Math.min(100, sx - dx / Math.max(1, bg.clientWidth) * 130));
+        st.y = Math.max(0, Math.min(100, sy - dy / Math.max(1, bg.clientHeight) * 130));
+        bg.style.backgroundPosition = `${st.x}% ${st.y}%`;
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv);
+      window.removeEventListener("pointerup", up);
+      if (!moved) {
+        if (e.shiftKey) st.f = (st.f + 1) % SKY_FILTERS.length;
+        else st.img = (st.img + 1) % SKY_IMGS.length;
+      }
+      apply();
+    };
+    window.addEventListener("pointermove", mv);
+    window.addEventListener("pointerup", up);
+  });
+});
+
 /* ═════════════════ AT SCALE: fifty seats, one status table ═════════════════ */
 const workshopSend = document.getElementById("workshop-send");
 const roomTable = document.getElementById("room-table");
@@ -5157,7 +5234,7 @@ scaleObs.observe(roomTable);
 
 /* ═════════ use cases: one story at a time, played out on the stage ═════════ */
 const USES = [
-  { route: "kaan → dad's mac",
+  { route: "to his dad's Mac",
     quote: "Update Zoom before your call tonight.",
     steps: [],
     feed: [
@@ -5166,7 +5243,7 @@ const USES = [
       { k: "ok",   txt: "Zoom 6.1.4 installed · test call connects" },
     ],
     result: "Done — test call works.", declined: false },
-  { route: "ege → kaan's mac",
+  { route: "to a teammate's Mac",
     quote: "Run pytest on your machine — the bug only happens there.",
     steps: [],
     feed: [
@@ -5175,7 +5252,7 @@ const USES = [
       { k: "ok",   txt: "repro'd with LC_TIME=tr_TR — locale, not code" },
     ],
     result: "Trace attached — it's the locale.", declined: false },
-  { route: "maya → lab workstation",
+  { route: "to the lab workstation",
     quote: "Run the survey query — send me only the totals.",
     steps: [],
     feed: [
@@ -5184,7 +5261,7 @@ const USES = [
       { k: "ok",   txt: "48,112 raw rows never leave the machine" },
     ],
     result: "Totals sent. The dataset stayed on the workstation.", declined: false },
-  { route: "ops → jeff's office box",
+  { route: "to a colleague's office box",
     quote: "Restart the staging service real quick.",
     steps: [],
     feed: [
@@ -5193,7 +5270,7 @@ const USES = [
       { k: "ok",   txt: "nothing ran · ops saw the no instantly" },
     ],
     result: "“Not tonight — rewiring the rack.”", declined: true },
-  { route: "deniz → build mac",
+  { route: "to the build Mac",
     quote: "Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.",
     steps: ["build 2.4.0", "notarize", "upload · 3 artifacts", "checksum → thread"],
     feed: [
@@ -5201,7 +5278,7 @@ const USES = [
       { k: "ok",   txt: "sha256 9f3c1a… posted to the thread" },
     ],
     result: "2.4.0 live. Checksum posted — verify before you announce.", declined: false },
-  { route: "tara → 30 student macs",
+  { route: "to 30 student Macs",
     quote: "Collect assignment.zip from every student, run the autograder, post scores to the sheet.",
     steps: ["collect 30 zips", "autograde", "post scores", "2 missing → threads"],
     feed: [
