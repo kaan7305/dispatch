@@ -186,7 +186,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(40px, 3.2vw, 50px);
+    font-size: clamp(43px, 3.5vw, 54px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -2038,6 +2038,7 @@
   /* ── laptops on a desk (MacBook + Windows ultrabook) ── */
   .laptop { width: 100%; max-width: 740px; margin: 0 auto; perspective: 1700px; }
   .lap-screen {
+    box-shadow: 0 30px 70px rgba(0,0,0,0.55);
     position: relative;
     padding: 10px; aspect-ratio: 16 / 10.2;
     background: #050506;
@@ -2432,6 +2433,10 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .sp-body { padding: 4px 22px 14px; flex: 1; }
+  .scope-row .sr-main { min-width: 0; }
+  .scope-row .sr-name, .scope-row .sr-sub {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+  }
   .sp-group {
     font-size: 9.5px; font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase;
@@ -3465,7 +3470,6 @@
       <div class="scope-panel">
         <div class="sp-tb">
           <span class="mdots"><i></i><i></i><i></i></span>
-          <span>Edit permissions — kaan@castrum.ai → you</span>
         </div>
         <div class="sp-body">
           <div class="sp-group">Tools</div>
@@ -3522,16 +3526,11 @@
             </span>
           </div>
         </div>
-        <div class="sp-foot">
-          <span class="sp-revoke">Revoke edge — cancels anything in flight</span>
-          <span class="sp-note">applies immediately</span>
-        </div>
       </div>
 
       <div class="scope-json-wrap">
         <div class="sp-tb">
           <span class="mdots"><i></i><i></i><i></i></span>
-          <span>the scope — enforced by your daemon on every call</span>
         </div>
         <div class="scope-json" id="scope-json"></div>
       </div>
@@ -4844,7 +4843,7 @@ const SKY_FILTERS = [
 ];
 const SKY_DEFAULTS = {
   hero:  { img: 0, f: 4, x: 92, y: 87 },
-  scale: { img: 1, f: 1, x: 100, y: 43 },
+  scale: { img: 1, f: 1, x: 81, y: 100 },
   uses:  { img: 3, f: 2, x: 0, y: 100 },
   scopes: { img: 0, f: 9, x: 22, y: 84 },
   bnd:  { img: 1, f: 9, x: 63, y: 58 },
