@@ -144,13 +144,11 @@
     font-size: 15.5px; color: var(--ink-strong); text-decoration: none;
   }
   .header-right .nav-gh:hover { background: #F8F4F0; }
-  .header-right .nav-cta {
+  a.nav-cta {
     font-family: var(--geist);
-    display: inline-flex; align-items: center;
-    font-size: 15.5px; text-decoration: none;
-  }
-  nav a.nav-cta {
-    justify-content: center;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 15.5px; font-weight: 600;
+    border-radius: 4px; text-decoration: none;
     color: #FFFEFB;
     background: var(--accent);
     padding: 7px 15px;
@@ -158,7 +156,7 @@
     border-radius: 4px;
     transition: background 250ms;
   }
-  nav a.nav-cta:hover { color: #FFFEFB; background: var(--accent-down); }
+  a.nav-cta:hover { color: #FFFEFB; background: var(--accent-down); }
   @media (max-width: 720px) { nav, .nav-gh { display: none; } }
 
   /* ── hero ── */
