@@ -5210,7 +5210,7 @@ async function runScale() {
   const heroSeat = 1;            /* Ben is the seat the cursor opens */
 
   seatMeta.forEach((m, i) => {
-    setTimeout(() => setSeat(i, "pending", token), 40 + i * 10 + Math.random() * 100);
+    setTimeout(() => { if (seatMeta[i].status === "idle") setSeat(i, "pending", token); }, 40 + i * 10 + Math.random() * 100);
     const decideAt = 450 + Math.random() * 550;
     if (declines.has(i)) { setTimeout(() => setSeat(i, "declined", token), decideAt + 600); return; }
     if (i === expire) { setTimeout(() => setSeat(i, "expired", token), 9000); return; }
