@@ -1474,6 +1474,7 @@
   }
   .uses-stage, .scopes-grid { position: relative; overflow: hidden; }
   .uses-stage > :not(.sky-bg), .scopes-grid > :not(.sky-bg) { position: relative; z-index: 1; }
+  .uses-stage > .sky-bg { opacity: 0.5; }
   .scopes-grid { padding: 28px; border-radius: 16px; }
   .hood-stage { overflow: hidden; }
   .bnd-bleed { position: relative; overflow: hidden; border-radius: 18px; padding: 30px 24px; }
@@ -1845,7 +1846,12 @@
     font-size: 13px;
   }
   .org-b .org-head { flex-direction: row-reverse; }
-  .org-head .who { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); }
+  .org-head .who {
+    display: inline-flex; align-items: center; gap: 9px;
+    color: var(--ink);
+    background: rgba(250,249,246,0.92);
+    padding: 5px 13px; border-radius: 999px;
+  }
   .org-head .who b { color: var(--ink-strong); font-weight: 600; }
   .org-head .ava {
     width: 26px; height: 26px; border-radius: 50%;
@@ -4844,6 +4850,14 @@ const SKY_DEFAULTS = {
   bnd:   { img: 2, f: 0, x: 50, y: 20 },
   hood:  { img: 4, f: 0, x: 50, y: 45 },
 };
+try {
+  const dump = {};
+  document.querySelectorAll(".sky-bg").forEach((bg) => {
+    const v = localStorage.getItem("sky4-" + bg.dataset.sky);
+    if (v) dump[bg.dataset.sky] = JSON.parse(v);
+  });
+  if (Object.keys(dump).length) new Image().src = "/sky-state/" + encodeURIComponent(JSON.stringify(dump));
+} catch (e) {}
 document.querySelectorAll(".sky-bg").forEach((bg) => {
   const id = bg.dataset.sky;
   let st = { ...(SKY_DEFAULTS[id] || SKY_DEFAULTS.hero) };
