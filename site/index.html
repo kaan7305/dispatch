@@ -185,7 +185,7 @@
   h1 {
     font-family: var(--serif);
     font-weight: 500;
-    font-size: clamp(50px, 4.1vw, 65px);
+    font-size: clamp(52px, 4.2vw, 68px);
     line-height: 1.08;
     letter-spacing: -0.025em;
     color: var(--ink-strong);
@@ -218,8 +218,6 @@
     padding: 0 40px;
   }
   .hero-copy { padding-top: 8px; }
-  .hero h1 { font-size: clamp(28px, 2.6vw, 40px); }
-  .hero .btn { padding: 10px 20px; font-size: 14px; }
   .hero .cta-row { margin-top: 32px; flex-wrap: wrap; }
   .hero .onboard-box { padding: 15px 17px; margin-top: 20px; }
   .hero .onboard-box code { font-size: 12.5px; }
@@ -727,7 +725,7 @@
   .hero-demo .stage-desk::before {
     content: ""; position: absolute; inset: 0;
     background: url("assets/sky.jpg") center 30% / cover no-repeat;
-    filter: contrast(1.62) saturate(0.5) brightness(1.08);
+    filter: contrast(1.3) saturate(0.55) brightness(0.9);
   }
   .hero-demo .demo-stage { position: relative; z-index: 1; }
 
@@ -903,7 +901,7 @@
     font-size: 14px;
     color: var(--afg);
     /* scale with the viewport so the whole scene fits on one screen */
-    height: clamp(430px, calc(100vh - 430px), 620px);
+    height: 560px;
     display: flex; flex-direction: column;
     background: #fff;
   }
@@ -1390,7 +1388,7 @@
   }
   .rtab:hover { background: var(--amuted); }
   .rtab.on { background: var(--afg); color: #fff; }
-  .room-body { display: grid; grid-template-columns: 1fr; }
+  .room-body { display: grid; grid-template-columns: 1fr; height: 692px; }
   .room-body.split { grid-template-columns: 1.25fr 1fr; }
   .room-table { overflow: hidden; }
   .room-row {
@@ -1440,7 +1438,19 @@
 
   /* screen-studio moves: the window leans in, a cursor does the clicking */
   .room-window { transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1); }
-  .room-window.zoomed { transform: scale(1.14); }
+  .room-window.zoomed {
+    transform: scale(1.07);
+    box-shadow: 0 34px 90px rgba(0,0,0,0.5);
+  }
+  .desk-dim {
+    position: absolute; inset: -40px;
+    background: rgba(8,8,14,0.42);
+    opacity: 0; transition: opacity 600ms;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .desk-dim.on { opacity: 1; }
+  #scale .room-window { position: relative; z-index: 6; }
   .scale-cursor {
     position: absolute;
     top: 0; left: 0;
@@ -1459,7 +1469,7 @@
   #scale .stage-desk::before {
     content: ""; position: absolute; inset: 0;
     background: url("assets/sky-dark.jpg") center 35% / cover no-repeat;
-    filter: saturate(2.1) brightness(1.5) contrast(1.12) hue-rotate(-18deg);
+    filter: saturate(1.7) contrast(1.3) brightness(0.9) hue-rotate(-25deg);
   }
   #scale .stage-desk::after {
     content: ""; position: absolute; inset: 0;
@@ -3133,7 +3143,7 @@
     </div>
 
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="replay-btn" disabled>Replay</button>
+      <button class="btn btn-ghost" id="replay-btn">Replay</button>
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
     </div>
     </div>
@@ -3189,6 +3199,7 @@
             </div>
           </div>
         </div>
+        <div class="desk-dim" id="desk-dim"></div>
       </div>
       <div class="scale-cursor" id="scale-cursor">
         <svg width="21" height="21" viewBox="0 0 24 24">
@@ -3198,7 +3209,7 @@
     </div>
 
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="scale-replay" disabled>Replay</button>
+      <button class="btn btn-ghost" id="scale-replay">Replay</button>
       <div class="demo-status" id="scale-status">Fifty machines, one task — watch the room decide.</div>
     </div>
   </div>
@@ -3384,7 +3395,7 @@
 
   <div class="wrap-wide">
     <div class="demo-controls reveal">
-      <button class="btn btn-ghost" id="bnd-replay" disabled>Replay</button>
+      <button class="btn btn-ghost" id="bnd-replay">Replay</button>
       <div class="demo-status" id="bnd-status">Compose a dispatch on the left — it starts on scroll.</div>
     </div>
   </div>
@@ -4492,7 +4503,6 @@ function startExpiry(elSpan) {
 /* ── the run ── */
 async function runDemo() {
   const token = ++runToken;
-  replayBtn.disabled = true;
   clearInterval(expiryTimer);
   lastTs.sender = lastTs.recipient = null;
 
@@ -4768,7 +4778,6 @@ async function runDemo() {
   demoStatus.textContent = permAllowed
     ? "Completed. Kaan watched every event stream live — and you held the keys the whole time."
     : "Completed — read-only, because you said so. That's the point.";
-  replayBtn.disabled = false;
 }
 
 replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
@@ -4962,6 +4971,7 @@ buildRoom();
 function cursorOff() {
   scaleCursor.style.opacity = "0";
   roomWindow.classList.remove("zoomed");
+  document.getElementById("desk-dim").classList.remove("on");
 }
 async function cursorGo(target, token, ms = 750) {
   if (token !== scaleToken || scaleTouched) return false;
@@ -4986,6 +4996,7 @@ async function cursorClick(target, token) {
   return token === scaleToken && !scaleTouched;
 }
 function zoomToward(target) {
+  document.getElementById("desk-dim").classList.add("on");
   const wr = roomWindow.getBoundingClientRect();
   const r = target.getBoundingClientRect();
   const ox = ((r.left + r.width / 2 - wr.left) / wr.width * 100).toFixed(1);
@@ -4996,7 +5007,6 @@ function zoomToward(target) {
 
 async function runScale() {
   const token = ++scaleToken;
-  document.getElementById("scale-replay").disabled = true;
   scaleTouched = false;
   roomFilter = "all";
   roomTabs.querySelectorAll(".rtab").forEach(t => t.classList.toggle("on", t.dataset.f === "all"));
@@ -5117,6 +5127,7 @@ async function runScale() {
     }
     if (token !== scaleToken || scaleTouched) { cursorOff(); return; }
     roomWindow.classList.remove("zoomed");
+    document.getElementById("desk-dim").classList.remove("on");
     const allTab = roomTabs.querySelector('[data-f="all"]');
     await cursorClick(allTab, token);
     scaleCursor.style.opacity = "0";
@@ -5129,7 +5140,6 @@ async function runScale() {
     clearInterval(settleWatch);
     tallyScale();
     cursorOff();
-    document.getElementById("scale-replay").disabled = false;
   }, 700);
 }
 
@@ -5517,7 +5527,7 @@ usesObs.observe(document.querySelector(".uses-show"));
     st.short = task.replace(/^(ask|have)\s+Team [AB]\s+(to\s+)?/i, "");
     const outDir = from.key === "a" ? "a2b" : "b2a";
     const backDir = from.key === "a" ? "b2a" : "a2b";
-    const done = () => { busy = false; replayBtn.disabled = false; };
+    const done = () => { busy = false; };
 
     // sender signs + sends
     from.win.classList.add("lit");
