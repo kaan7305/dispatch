@@ -20,10 +20,10 @@
   :root {
     --paper: #F7F6F3;
     --card: #FFFFFF;
-    --ink: #2F3437;
-    --ink-strong: #111111;
+    --ink: #36342E;
+    --ink-strong: #201515;
     --muted: #787774;
-    --hairline: #EAEAEA;
+    --hairline: #ECEAE3;
     --pale-red: #FDEBEC;    --red-ink: #9F2F2D;
     --pale-blue: #E1F3FE;   --blue-ink: #1F6C9F;
     --pale-green: #EDF3EC;  --green-ink: #346538;
@@ -101,10 +101,13 @@
     backdrop-filter: blur(8px);
     position: sticky; top: 0; z-index: 20;
   }
+  /* Zapier toolbar spec: 56px bar, full-bleed, 40px side padding on desktop */
   .header-row {
-    display: flex; align-items: baseline; justify-content: space-between;
-    padding: 18px 0;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px;
+    padding: 0 40px;
   }
+  @media (max-width: 1023px) { .header-row { padding: 0 16px 0 20px; } }
   .wordmark {
     display: inline-flex; align-items: center; gap: 9px;
     font-family: var(--serif);
@@ -115,21 +118,28 @@
   }
   .wm-mark { width: 24px; height: 21px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
+  nav { display: flex; align-items: center; gap: 8px; }
   nav a {
-    font-size: 13px;
-    color: var(--muted);
+    display: inline-flex; align-items: center;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: var(--ink-strong);
     text-decoration: none;
-    margin-left: 28px;
+    transition: background 250ms, color 250ms;
   }
-  nav a:hover { color: var(--ink-strong); }
+  nav a:hover { background: #F8F4F0; }
   nav a.nav-cta {
-    color: #fff;
-    background: var(--ink-strong);
-    padding: 8px 16px;
-    border-radius: 6px;
-    transition: background 200ms;
+    justify-content: center;
+    color: #FFFEFB;
+    background: #16A34A;
+    padding: 6px 12px;
+    font-weight: 600;
+    border-radius: 18px;
+    transition: background 250ms;
   }
-  nav a.nav-cta:hover { color: #fff; background: #333; }
+  nav a.nav-cta:hover { color: #FFFEFB; background: #15803D; }
   @media (max-width: 720px) { nav a:not(.nav-cta) { display: none; } }
 
   /* ── hero ── */
@@ -362,7 +372,7 @@
     position: absolute;
     right: 40px; bottom: 118px;
     width: 30px; height: 30px;
-    border: 2px solid rgba(17,17,17,0.35);
+    border: 2px solid rgba(32,21,21,0.35);
     border-radius: 50%;
     z-index: 4;
     opacity: 0;
@@ -411,7 +421,7 @@
   .fan-canvas {
     position: relative;
     flex: 1;
-    background-image: radial-gradient(rgba(17,17,17,0.04) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(32,21,21,0.04) 1px, transparent 1px);
     background-size: 18px 18px;
   }
   .fan-svg { position: absolute; left: 0; top: 0; }
@@ -593,27 +603,34 @@
   @media (prefers-reduced-motion: reduce) {
     .fan-dot { display: none; }
   }
+  /* Zapier button spec ("small" size): 40px tall, 8/16 padding, 16px/600 text */
   .btn {
-    display: inline-block;
-    font-size: 14px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    font-size: 16px;
+    font-weight: 600;
     font-family: var(--sans);
-    padding: 11px 22px;
-    border-radius: 6px;
+    padding: 8px 16px;
+    border-radius: 4px;
     text-decoration: none;
+    text-align: center;
     cursor: pointer;
-    border: none;
-    transition: background 200ms, transform 100ms, border-color 200ms;
+    border: 1px solid transparent;
+    transition: all 250ms;
   }
-  .btn:active { transform: scale(0.98); }
-  .btn-primary { background: var(--ink-strong); color: #fff; }
-  .btn-primary:hover { background: #333; }
+  .btn:focus-visible { outline: 2px solid var(--ink-strong); outline-offset: 2px; }
+  .btn-primary { background: var(--ink-strong); border-color: var(--ink-strong); color: #FFFEFB; }
+  .btn-primary:hover { background: #36342E; border-color: #36342E; }
   .btn-ghost {
-    background: transparent; color: var(--ink);
-    border: 1px solid var(--hairline);
+    background: transparent; color: var(--ink-strong);
+    border-color: var(--ink-strong);
   }
-  .btn-ghost:hover { border-color: #ccc; }
-  .btn-green { background: #16A34A; color: #fff; }
-  .btn-green:hover { background: #15803D; }
+  .btn-ghost:hover { color: #36342E; border-color: #C5C0B1; }
+  .btn-green { background: #16A34A; border-color: #16A34A; color: #FFFEFB; }
+  .btn-green:hover { background: #15803D; border-color: #15803D; }
 
   /* ── agent onboarding one-liner (hero) ── */
   .onboard-box {
@@ -637,7 +654,7 @@
     border-radius: 6px;
     transition: color 150ms, background 150ms;
   }
-  .onboard-copy:hover { color: var(--ink-strong); background: rgba(17,17,17,0.05); }
+  .onboard-copy:hover { color: var(--ink-strong); background: rgba(32,21,21,0.05); }
   .onboard-copy.ok { color: #16A34A; }
 
 
@@ -671,7 +688,7 @@
     border-radius: 16px;
     padding: 22px;
     background-color: rgba(255,255,255,0.45);
-    background-image: radial-gradient(rgba(17,17,17,0.055) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(32,21,21,0.055) 1px, transparent 1px);
     background-size: 22px 22px;
   }
 
@@ -692,7 +709,7 @@
     position: absolute;
     z-index: 55;
     width: 30px; height: 30px;
-    border: 2px solid rgba(17,17,17,0.4);
+    border: 2px solid rgba(32,21,21,0.4);
     border-radius: 50%;
     pointer-events: none;
     transform: translate(-50%, -50%) scale(0.25);
@@ -1245,7 +1262,7 @@
     position: absolute;
     left: -40px; right: -40px;   /* reach across the grid gap to touch both panes */
     height: 1px;
-    background: rgba(17,17,17,0.10);
+    background: rgba(32,21,21,0.10);
     z-index: 0;
   }
   .lane-task   { top: calc(50% - 15px); }
@@ -1447,7 +1464,7 @@
   #workshop-send.burst::after {
     content: "";
     position: absolute; inset: -4px;
-    border: 2px solid rgba(17,17,17,0.35);
+    border: 2px solid rgba(32,21,21,0.35);
     border-radius: 10px;
     animation: ring-out 500ms cubic-bezier(0.16,1,0.3,1) forwards;
   }
@@ -1483,7 +1500,7 @@
     font-family: var(--mono);
     transition: background 250ms, opacity 350ms;
   }
-  .seat:hover { background: rgba(17,17,17,0.05); }
+  .seat:hover { background: rgba(32,21,21,0.05); }
   .seat .st-dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: #D9D8D4; flex-shrink: 0;
@@ -1495,7 +1512,7 @@
   }
   .seat .st-lead {
     flex: 1; min-width: 10px;
-    border-bottom: 1px dotted rgba(17,17,17,0.16);
+    border-bottom: 1px dotted rgba(32,21,21,0.16);
     transform: translateY(2px);
   }
   .seat .st-bar {
@@ -2452,7 +2469,7 @@
     position: relative;
     min-height: 350px;
     background-color: var(--card);
-    background-image: radial-gradient(rgba(17,17,17,0.045) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(32,21,21,0.045) 1px, transparent 1px);
     background-size: 20px 20px;
     border: 1px solid var(--hairline);
     border-radius: 12px;
@@ -2482,7 +2499,7 @@
 
   /* broker scene */
   .hb-scene { position: relative; width: min(460px, 100%); height: 160px; }
-  .hb-rail { position: absolute; left: 40px; right: 40px; top: 50%; height: 1px; background: rgba(17,17,17,0.14); }
+  .hb-rail { position: absolute; left: 40px; right: 40px; top: 50%; height: 1px; background: rgba(32,21,21,0.14); }
   .hb-machine {
     position: absolute; top: calc(50% - 24px);
     width: 60px; height: 48px;
@@ -2742,7 +2759,8 @@
   .foot-links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
   .foot-links a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 1px; }
   .foot-links a:hover { border-bottom-color: var(--ink); }
-  .demo-cta { display: none; font-size: 13px; padding: 9px 16px; }
+  /* Zapier "xsmall" size */
+  .demo-cta { display: none; height: 36px; font-size: 14px; padding: 6px 12px; }
 
   /* ── footer ── */
   footer {
@@ -2767,15 +2785,15 @@
     --nt-panel: #1A1A17;
   }
   body { background: var(--night); color: var(--nt-ink); }
-  ::selection { background: rgba(229,181,103,0.32); color: #111; }
+  ::selection { background: rgba(229,181,103,0.32); color: #201515; }
   .ambient::before { background: radial-gradient(circle, rgba(206,162,74,0.05), transparent 65%); }
 
   header { background: rgba(15,15,13,0.82); border-bottom-color: var(--nt-line); }
   .wordmark { color: var(--nt-strong); }
   nav a { color: var(--nt-muted); }
-  nav a:hover { color: var(--nt-strong); }
-  nav a.nav-cta { background: var(--nt-strong); color: #111; }
-  nav a.nav-cta:hover { background: #fff; color: #111; }
+  nav a:hover { color: var(--nt-strong); background: rgba(255,255,255,0.07); }
+  nav a.nav-cta { background: var(--nt-strong); color: #201515; }
+  nav a.nav-cta:hover { background: #fff; color: #201515; }
 
   h1, h2 { color: var(--nt-strong); }
   .section-kicker { color: var(--nt-muted); }
@@ -2785,9 +2803,10 @@
   .demo-status { font-family: var(--serif); font-size: 15px; }
 
   .btn-ghost { color: var(--nt-ink); border-color: var(--nt-line); }
-  .btn-ghost:hover { border-color: rgba(255,255,255,0.3); }
-  .btn-primary { background: var(--nt-strong); color: #111; }
-  .btn-primary:hover { background: #fff; }
+  .btn-ghost:hover { color: var(--nt-strong); border-color: rgba(255,255,255,0.3); }
+  .btn-primary { background: var(--nt-strong); border-color: var(--nt-strong); color: #201515; }
+  .btn-primary:hover { background: #fff; border-color: #fff; }
+  .btn:focus-visible { outline-color: var(--nt-strong); }
 
   .onboard-box { background: var(--nt-panel); border-color: var(--nt-line); }
   .onboard-box code { color: var(--nt-ink); }
@@ -2954,7 +2973,7 @@
 <div class="ambient"></div>
 
 <header>
-  <div class="wrap header-row">
+  <div class="header-row">
     <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
     <nav>
       <a href="#demo">Try it</a>
@@ -4867,7 +4886,7 @@ async function runDemo() {
   demoStatus.textContent = permAllowed
     ? "Completed. Kaan watched every event stream live — and you held the keys the whole time."
     : "Completed — read-only, because you said so. That's the point.";
-  document.getElementById("demo-cta").style.display = "inline-block";
+  document.getElementById("demo-cta").style.display = "inline-flex";
 }
 
 replayBtn.addEventListener("click", () => { userTouched = false; runDemo(); });
@@ -5425,7 +5444,7 @@ async function runScale() {
       .reduce((a, m) => Math.max(a, parseFloat(m.score)), 0);
     scaleStatus.className = "demo-status";
     scaleStatus.textContent = `${done} models trained — best ${best.toFixed(1)}%. ${rescued} hit errors and finished after a follow-up fix. ${dec} said no.`;
-    document.getElementById("scale-cta").style.display = "inline-block";
+    document.getElementById("scale-cta").style.display = "inline-flex";
   }, 900);
 }
 
@@ -5909,7 +5928,7 @@ usesObs.observe(document.querySelector(".uses-show"));
       busy = false;
       from.win.classList.remove("lit");
       showCompose(A); showCompose(B);
-      if (cta) cta.style.display = "inline-block";
+      if (cta) cta.style.display = "inline-flex";
     }
   }
 
