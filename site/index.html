@@ -4660,11 +4660,18 @@ async function chCompose(token) {
   composeOverlay.style.display = "none";
 
   senderContent.innerHTML = senderInboxView(true, task);
-  /* sent — the camera slides straight across the desk, no pull-back */
   demoStatus.className = "demo-status";
   demoStatus.textContent = "Signed and sent — the broker is checking policy.";
 
-  /* broker checks */
+  /* sent — hold on the sent row for a beat, then pull back to the wide shot.
+     the dispatch has left one machine and hasn't landed on the other yet, so
+     this is the one moment the story is about both of them at once: Kaan's
+     screen, yours, and the broker working in the gap between them */
+  await dsleep(420); if (token !== runToken) return;
+  await camReset(820); if (token !== runToken) return;
+  await dsleep(200); if (token !== runToken) return;
+
+  /* broker checks — in frame now, between the two machines */
   brokerNode.classList.add("busy");
   await dsleep(500); if (token !== runToken) return;
   brokerCheck(`<span class="mark">✓</span> trust edge kaan → you: accepted`);
@@ -4694,9 +4701,12 @@ async function chApprove(token) {
   recipientWindow.classList.add("attn");
   showNotif();
 
-  /* cut to your whole machine first — that's the establishing shot — then
-     lean into the row. both stay inside the window, so the frame never opens
-     onto sky or a sliver of Kaan's screen */
+  /* it lands while the camera is still wide, so you watch it cross the desk:
+     Kaan's window on one side, yours lighting up on the other. a beat to read
+     that, then back onto your machine — the establishing shot, then the row.
+     both stay inside the window, so the frame never opens onto sky or a
+     sliver of Kaan's screen */
+  await dsleep(560); if (token !== runToken) return;
   await camTo(recipientWindow, { pad: 0, cover: true, within: recipientWindow }); if (token !== runToken) return;
   await dsleep(260); if (token !== runToken) return;
   await camTo(newRow, { pad: 32, within: recipientWindow }); if (token !== runToken) return;
@@ -4840,6 +4850,14 @@ async function chDone(token) {
   const permAllowed = scene.permAllowed;
   const turns = permAllowed ? 3 : 2;
   const cost = permAllowed ? "0.06" : "0.04";
+
+  /* this whole chapter plays on the wide shot. every earlier beat was about
+     one machine at a time; the ending is about both at once, so the camera
+     pulls back first and never leans in again — the receipt lands on your
+     screen and Kaan's reply lands on his with both of them in frame */
+  await camReset(820); if (token !== runToken) return;
+  await dsleep(220); if (token !== runToken) return;
+
   await emit("result", "Done", null,
     jsonBody({ subtype: "success", duration_ms: 41800, num_turns: turns, total_cost_usd: cost }),
     "done ⇢ sender", token);
@@ -4847,10 +4865,8 @@ async function chDone(token) {
 
   const sStream = document.getElementById("s-stream");
   if (sStream) pushEv(sStream, evBlock("sender", "agent", "Agent", null, esc(scene.preset.doneText)));
-  const replyBlock = sStream ? sStream.lastElementChild : null;
-  if (replyBlock) {
-    await camTo(replyBlock, { pad: 30, maxZoom: 1.8, within: senderWindow }); if (token !== runToken) return;
-  }
+  await dsleep(700); if (token !== runToken) return;
+
   setStatus("completed");
   termSys("dispatch-daemon: agent exited · workspace cleaned up");
   demoStatus.className = "demo-status";
