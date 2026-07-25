@@ -3455,11 +3455,10 @@
 
     <div class="uses-show reveal">
       <div class="uses-nav" id="uses-nav">
-        <button class="us-item on" data-us="0"><b>Every step approved by dad</b></button>
-        <button class="us-item" data-us="1"><b>Debug where the bug lives</b></button>
-        <button class="us-item" data-us="2"><b>The answer travels, not the files</b></button>
-        <button class="us-item" data-us="3"><b>One thread, whole release</b></button>
-        <button class="us-item" data-us="4"><b>Fan-out with follow-ups</b></button>
+        <button class="us-item on" data-us="0"><b>Update dad's Zoom</b></button>
+        <button class="us-item" data-us="1"><b>Query the lab workstation</b></button>
+        <button class="us-item" data-us="2"><b>Ship the release</b></button>
+        <button class="us-item" data-us="3"><b>Autograde the whole class</b></button>
       </div>
 
       <div class="uses-stage">
@@ -3738,38 +3737,35 @@
 <!-- ── FAQ ── -->
 <section id="faq">
   <div class="wrap">
-    <h2 class="reveal">Questions people ask.</h2>
-    <p class="section-intro reveal">The five that come up first, answered plainly.</p>
+    <h2 class="reveal">FAQ</h2>
 
     <div class="faq reveal">
       <details>
         <summary>Does the broker see my code or my files?</summary>
-        <p class="fa">No. It relays envelopes — it holds no signing key and runs no
-           code. The work happens on the recipient's machine, against their files,
-           with their API key.</p>
+        <p class="fa">No. The broker relays sealed envelopes and checks policy.
+           It holds no signing keys and runs no code. All work happens on the
+           recipient's machine with their own API key.</p>
       </details>
       <details>
         <summary>What if the recipient's machine is offline?</summary>
-        <p class="fa">It queues. A signed dispatch stays valid for delivery up to
-           30 days by design, and the replay-nonce guard is durable, so the wait
-           doesn't widen the window for a replay.</p>
+        <p class="fa">It queues. A dispatch stays valid for up to 30 days, and the
+           nonce guard survives the wait, so a delayed delivery cannot be replayed.</p>
       </details>
       <details>
         <summary>Which agents does this work with?</summary>
-        <p class="fa">Claude Code and Codex today, on macOS, Windows and Linux. The
-           envelope is agent-agnostic — the daemon runs whichever CLI is installed
-           on the recipient's machine.</p>
+        <p class="fa">Claude Code and Codex today, on macOS, Windows, and Linux.
+           The daemon runs whichever agent CLI the recipient has installed.</p>
       </details>
       <details>
         <summary>Can I revoke access after I've granted it?</summary>
-        <p class="fa">Immediately, and it cancels in-flight work. You can also
-           narrow a scope, set a path allowlist, cap dispatches per day, or give
-           the edge an expiry date and forget about it.</p>
+        <p class="fa">Yes, immediately, and it cancels anything in flight. You can
+           also narrow the scope, set a path allowlist, cap dispatches per day, or
+           set an expiry.</p>
       </details>
       <details>
         <summary>Do I have to use your broker?</summary>
-        <p class="fa">No. It's a FastAPI service you can run yourself — locally or
-           on your own Railway project. See
+        <p class="fa">No. The broker is a small FastAPI service you can run yourself,
+           locally or on your own server. See
            <a href="docs.html#running-the-broker">running the broker</a>.</p>
       </details>
     </div>
@@ -5769,15 +5765,6 @@ const USES = [
       { k: "ok",   txt: "Zoom 6.1.4 installed · test call connects" },
     ],
     result: "Done — test call works.", declined: false },
-  { route: "to a teammate's Mac",
-    quote: "Run pytest on your machine — the bug only happens there.",
-    steps: [],
-    feed: [
-      { k: "run",  txt: "pytest tests/test_dates.py -x" },
-      { k: "err",  txt: "FAILED — ValueError: day is out of range" },
-      { k: "ok",   txt: "repro'd with LC_TIME=tr_TR — locale, not code" },
-    ],
-    result: "Trace attached — it's the locale.", declined: false },
   { route: "to the lab workstation",
     quote: "Run the survey query — send me only the totals.",
     steps: [],
