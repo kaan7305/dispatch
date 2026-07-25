@@ -2457,12 +2457,12 @@
   .uc-result {
     margin-top: auto;
     border-left: 2px solid #2E7D3A;
-    background: rgba(255,255,255,0.045);
+    background: rgba(8,8,8,0.72);
     border-radius: 0 8px 8px 0;
     padding: 10px 14px;
     font-family: var(--mono);
     font-size: 12px; line-height: 1.6;
-    color: #B9B7B0;
+    color: #D6D4CE;
     opacity: 0;
     transform: translateY(5px);
     transition: opacity 400ms, transform 400ms cubic-bezier(0.16,1,0.3,1);
@@ -2473,19 +2473,20 @@
   .uc-steps { display: flex; gap: 6px; flex-wrap: wrap; }
   .uc-step {
     font-family: var(--mono);
-    font-size: 10px;
-    border: 1px solid rgba(255,255,255,0.12);
+    font-size: 11.5px;
+    border: 1px solid rgba(255,255,255,0.14);
     border-radius: 9999px;
-    padding: 3px 10px;
-    color: #8E8C85;
+    padding: 4px 12px;
+    color: #C9C6BD;
+    background: rgba(8,8,8,0.66);
     transition: background 300ms, color 300ms, border-color 300ms;
   }
   .uc-step.act {
-    background: rgba(229,181,103,0.15); color: #E5B567; border-color: transparent;
+    background: rgba(58,44,16,0.9); color: #E5B567; border-color: transparent;
     animation: gentle-pulse 1.2s ease-in-out infinite;
   }
   .uc-step.on {
-    background: rgba(93,187,99,0.14); color: #5DBB63; border-color: transparent;
+    background: rgba(16,46,20,0.9); color: #5DBB63; border-color: transparent;
     animation: none;
   }
 
@@ -2703,27 +2704,28 @@
 
   /* ── closing ask ── */
   #invite { border-top: 1px solid var(--hairline); }
+  #invite .btn { height: 46px; padding: 11px 22px; font-size: 17px; }
   .needs {
-    display: flex; justify-content: center; gap: 26px; flex-wrap: wrap;
-    margin-bottom: 40px;
+    display: flex; justify-content: center; gap: 44px; flex-wrap: wrap;
+    margin-bottom: 48px;
   }
   .need {
-    display: flex; gap: 11px; align-items: flex-start;
-    max-width: 240px;
+    display: flex; gap: 13px; align-items: flex-start;
+    max-width: 250px;
     text-align: left;
-    font-size: 12.5px;
+    font-size: 14px;
     line-height: 1.55;
-    color: var(--muted);
+    color: var(--ink);
   }
   .need .n {
     flex-shrink: 0;
-    width: 22px; height: 22px;
-    border: 1px solid var(--hairline);
+    width: 24px; height: 24px;
+    border: none;
     border-radius: 50%;
     display: grid; place-items: center;
-    font-family: var(--mono); font-size: 10px;
-    background: var(--card);
-    color: var(--ink);
+    font-family: var(--geist); font-size: 11.5px; font-weight: 600;
+    background: var(--ink-strong);
+    color: #FFFEFB;
   }
   .foot-links { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; }
   .foot-links a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hairline); padding-bottom: 1px; }
@@ -2744,7 +2746,7 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
-  #boundary, #scopes, #overview, #invite, footer { background: #ECE9E1; }
+  #boundary, #scopes, #faq, footer { background: #ECE9E1; }
   #scale, #boundary, #uses, #layers, #scopes, #overview, #faq, #invite, footer { border-top: none; }
 
   /* no gradient washes on the page */
@@ -2963,6 +2965,7 @@
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
+      <a href="#faq">FAQ</a>
       <a href="docs.html">Docs</a>
     </nav>
     </div>
@@ -3465,7 +3468,7 @@
         <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
         <div class="uc-steps" id="us-steps"></div>
         <div class="us-feed" id="us-feed"></div>
-        <div class="uc-result" id="us-result">Done — test call works.</div>
+        <div class="uc-result" id="us-result">Done. Test call works.</div>
       </div>
     </div>
   </div>
@@ -5651,7 +5654,7 @@ const USES = [
       { k: "ask",  txt: "installer needs admin — dad taps Allow" },
       { k: "ok",   txt: "Zoom 6.1.4 installed · test call connects" },
     ],
-    result: "Done — test call works.", declined: false },
+    result: "Done. Test call works.", declined: false },
   { route: "to the lab workstation",
     quote: "Run the survey query — send me only the totals.",
     steps: [],
@@ -5668,7 +5671,7 @@ const USES = [
       { k: "ok",   txt: "notarization ticket stapled · Gatekeeper ✓" },
       { k: "ok",   txt: "sha256 9f3c1a… posted to the thread" },
     ],
-    result: "2.4.0 live. Checksum posted — verify before you announce.", declined: false },
+    result: "2.4.0 live. Checksum posted.", declined: false },
   { route: "to 30 student Macs",
     quote: "Collect assignment.zip from every student, run the autograder, post scores to the sheet.",
     steps: ["collect 30 zips", "autograde", "post scores", "2 missing → threads"],
@@ -5676,7 +5679,7 @@ const USES = [
       { k: "run",  txt: "30 dispatches → 30 inboxes · signed once" },
       { k: "ok",   txt: "28 zips in · autograded · mean 84.2" },
     ],
-    result: "28 graded and posted. 2 missing files — follow-up threads opened with both.", declined: false },
+    result: "28 graded and posted. Follow-ups opened for 2 missing files.", declined: false },
 ];
 
 const usItems = Array.from(document.querySelectorAll(".us-item"));
