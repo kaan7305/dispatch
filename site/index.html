@@ -2744,8 +2744,8 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
-  #boundary, #scopes, #security, #overview, #invite, footer { background: #ECE9E1; }
-  #scale, #boundary, #uses, #layers, #scopes, #security, #overview, #faq, #invite, footer { border-top: none; }
+  #boundary, #scopes, #overview, #invite, footer { background: #ECE9E1; }
+  #scale, #boundary, #uses, #layers, #scopes, #overview, #faq, #invite, footer { border-top: none; }
 
   /* no gradient washes on the page */
   .ambient { display: none; }
@@ -2900,7 +2900,7 @@
   .faq summary {
     display: flex; align-items: flex-start; justify-content: space-between; gap: 22px;
     padding: 19px 0; cursor: pointer; list-style: none;
-    font-family: var(--geist); font-weight: 600; font-size: 19px; line-height: 1.35;
+    font-family: var(--serif); font-weight: 500; font-size: 21px; line-height: 1.35;
     color: var(--ink-strong);
     transition: color 200ms;
   }
@@ -2963,7 +2963,6 @@
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
-      <a href="#security">Security</a>
       <a href="docs.html">Docs</a>
     </nav>
     </div>
@@ -3554,112 +3553,6 @@
   </div>
 </section>
 
-<!-- ── SECURITY: the guarantees, and the gaps, side by side ── -->
-<section id="security">
-  <div class="wrap">
-    <h2 class="reveal">What it guarantees, and what it doesn't.</h2>
-    <p class="section-intro reveal">
-      Three checks stand between a dispatch and your machine. Here's exactly what
-      they cover — and the parts we haven't closed yet.
-    </p>
-
-    <div class="ov-card sec-card reveal">
-      <div class="sec-cols">
-
-        <div class="sec-col">
-          <div class="sec-h ok">Guaranteed by the design</div>
-
-          <div class="sec-item">
-            <span class="sec-ic ok">✓</span>
-            <div>
-              <b>Nothing runs without an edge.</b>
-              <p>No dispatch runs without an accepted, in-scope, unexpired trust
-                 edge from that sender.</p>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic ok">✓</span>
-            <div>
-              <b>Tied to a device, not a login.</b>
-              <p>A dispatch is cryptographically bound to a device of the named
-                 sender. A compromised broker can't forge a sender or swap a
-                 pinned key.</p>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic ok">✓</span>
-            <div>
-              <b>Confined to what you granted.</b>
-              <p>The agent is held to the edge's tools and, when you set one, its
-                 path allowlist.</p>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic ok">✓</span>
-            <div>
-              <b>Revocation is immediate.</b>
-              <p>Pull an edge and in-flight work stops with it.</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="sec-col">
-          <div class="sec-h open">Known limitations</div>
-
-          <div class="sec-item">
-            <span class="sec-ic open">!</span>
-            <div>
-              <b>Signing proves origin, not authorship.</b>
-              <p>Composing happens in the browser and the daemon signs what's
-                 relayed, so a fully-compromised broker could get a sender's
-                 daemon to sign a task they didn't type.</p>
-              <span class="ov-badge">compose surface</span>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic open">!</span>
-            <div>
-              <b>Key pinning is trust-on-first-use.</b>
-              <p>A broker compromised before a device's first contact could seed
-                 the wrong key.</p>
-              <span class="ov-badge">TOFU</span>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic open">!</span>
-            <div>
-              <b>Bash isn't path-checkable.</b>
-              <p>The paths allowlist is enforced on Read, Write, Edit, Glob and
-                 Grep. Granting Bash grants the shell, full stop.</p>
-              <span class="ov-badge">by design</span>
-            </div>
-          </div>
-
-          <div class="sec-item">
-            <span class="sec-ic open">!</span>
-            <div>
-              <b>No end-to-end encryption.</b>
-              <p>The broker relays plaintext instructions. Sealed envelopes are
-                 deferred, not done.</p>
-              <span class="ov-badge">deferred</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      <div class="sec-foot">
-        <a class="ov-link" href="docs.html#security">Read the security model →</a>
-        <a class="ov-link" href="mailto:castrumai@gmail.com?subject=Talaria%20threat%20model">Ask for the threat model →</a>
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- ── OVERVIEW + SAFE BY DEFAULT ── -->
 <section id="overview">
@@ -3776,14 +3669,11 @@
 <section id="invite">
   <div class="wrap">
     <h2 class="reveal">Trust someone with your keyboard.</h2>
-    <p class="section-intro reveal">
-      Talaria is in development and invite-only. Ask, and we'll set up your trust edge.
-    </p>
 
     <div class="needs reveal">
-      <div class="need"><span class="n">1</span><span>Both sides install the package and run <code>dispatch login</code> — one command each, macOS, Windows or Linux.</span></div>
-      <div class="need"><span class="n">2</span><span>The recipient runs Claude Code or Codex with their own key — their agent, their cost, their yes.</span></div>
-      <div class="need"><span class="n">3</span><span>One invitation creates the trust edge. Device keys pin on first accept.</span></div>
+      <div class="need"><span class="n">1</span><span>Both sides install the package and run <code>dispatch login</code>.</span></div>
+      <div class="need"><span class="n">2</span><span>The recipient runs Claude Code or Codex with their own key.</span></div>
+      <div class="need"><span class="n">3</span><span>One invitation creates the trust edge.</span></div>
     </div>
 
     <div class="cta-row reveal">
@@ -3810,7 +3700,6 @@
           Peer-to-peer delegation for agentic work. Signed by devices, scoped by
           people, approved by hand.
         </p>
-        <p class="colophon" style="margin-top: 10px;">Built by Kaan Eroltu.</p>
       </div>
 
       <div class="foot-cols">
@@ -3821,7 +3710,6 @@
             <a href="#scale">At scale</a>
             <a href="#boundary">Across orgs</a>
             <a href="#scopes">Scopes</a>
-            <a href="#security">Security</a>
             <a href="#faq">FAQ</a>
           </div>
         </div>
@@ -3858,7 +3746,6 @@
 
     <div class="foot-bar">
       <span>© 2026 Talaria · MIT licensed</span>
-      <span>Every demo on this page is a scripted simulation of the real interface — no machines were contacted, which is rather the point.</span>
     </div>
   </div>
 </footer>
