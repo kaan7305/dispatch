@@ -2033,9 +2033,10 @@
     font-family: var(--mono); font-size: 12px; line-height: 1.7;
     padding: 16px 18px; height: 360px; overflow-y: auto; scroll-behavior: smooth;
   }
+  /* Codex reads like the real CLI: dark slate, grey body, one blue accent */
   .cx-scr {
-    background: #0B0E17; color: #CBD3E1;
-    font-family: var(--mono); font-size: 12px; line-height: 1.7;
+    background: #0E131D; color: #B9C1CE;
+    font-family: var(--mono); font-size: 12px; line-height: 1.75;
     padding: 16px 18px; height: 402px; overflow-y: auto; scroll-behavior: smooth;
   }
   @media (max-width: 900px) { .cx-scr { height: 360px; } }
@@ -2066,13 +2067,16 @@
   .cc-enter { font-family: var(--mono); font-size: 10px; color: #6E6E78; white-space: nowrap; }
   .cc-hint { font-family: var(--mono); font-size: 10px; color: #6E6E78; margin-top: 8px; padding-left: 2px; }
   .cc-compose.hidden, .cx-compose.hidden { display: none; }
-  /* Codex (Windows) compose box */
-  .cx-compose { background: #0B0E17; padding: 0 14px 14px; }
-  .cx-compose .cc-preset { background: #14243A; border-color: #1E3350; color: #9FC0E4; }
-  .cx-compose .cc-preset:hover { background: #1A2E48; color: #D7E6F6; border-color: #2A4A66; }
-  .cc-box.cx { background: #0A101C; border-color: #24344C; }
-  .cc-box.cx.focus { border-color: #2AA9A9; box-shadow: 0 0 0 3px rgba(42,169,169,0.15); }
-  .cc-caretmark.cx { color: #56C7C7; }
+  /* Codex (Windows) compose box — the CLI's own bordered prompt, not a chat bar */
+  .cx-compose { background: #0E131D; padding: 0 14px 14px; }
+  .cx-compose .cc-preset { background: transparent; border-color: #263042; color: #8892A2; border-radius: 6px; }
+  .cx-compose .cc-preset:hover { background: #161D2A; color: #D3DAE6; border-color: #35415A; }
+  .cc-box.cx { background: transparent; border-color: #2A3446; border-radius: 7px; }
+  .cc-box.cx.focus { border-color: #4C9AFF; box-shadow: 0 0 0 3px rgba(76,154,255,0.13); }
+  .cc-caretmark.cx { color: #6C7686; font-weight: 400; font-size: 13px; }
+  .cx-compose .cc-input { color: #E4EAF3; }
+  .cx-compose .cc-input::placeholder { color: #5A6474; }
+  .cx-compose .cc-enter, .cx-compose .cc-hint { color: #5A6474; }
   .cc-compose.pulse .cc-box, .cx-compose.pulse .cc-box { animation: gentle-pulse 1.8s ease-in-out infinite; }
 
   /* terminal lines */
@@ -2091,6 +2095,35 @@
   .tline .bar{ color: #4C90D6; }               /* Codex ▌ turn marker */
   .tline .ex { color: #56C7C7; }               /* Codex exec */
   .tcaret { display:inline-block; width:7px; height:13px; background:#D9D9DF; vertical-align:text-bottom; margin-left:1px; animation: caret 1s steps(2) infinite; }
+
+  /* Codex speaks in greys with one blue: no teal, no second accent */
+  .cx-scr .dim { color: #66707F; }
+  .cx-scr .u   { color: #E4EAF3; }
+  .cx-scr .ex  { color: #4C9AFF; }
+  .cx-scr .bar { color: #3C5478; }
+  .cx-scr .ok  { color: #5DB98A; }
+  .cx-scr .tline.welcome { color: #66707F; }
+  /* the CLI's boxed banner: >_ OpenAI Codex, model, directory */
+  .tline.cxbox {
+    border: 1px solid #2A3446; border-radius: 6px;
+    padding: 8px 12px; margin: 4px 0 12px; max-width: 430px;
+    color: #B9C1CE;
+  }
+  .tline.cxbox b { color: #E4EAF3; font-weight: 600; }
+  .tline.cxbox .k { color: #66707F; }
+  .cx-scr .tapprove .no { border-color: #2A3446; color: #B9C1CE; }
+  .cx-scr .tapprove .no:hover { border-color: #3E4A60; }
+  /* the OS scrollbar was the loudest thing on a dark screen — hush it */
+  .cx-scr { scrollbar-width: thin; scrollbar-color: #2A3446 transparent; }
+  .cx-scr::-webkit-scrollbar { width: 8px; }
+  .cx-scr::-webkit-scrollbar-track { background: transparent; }
+  .cx-scr::-webkit-scrollbar-thumb { background: #2A3446; border-radius: 4px; }
+  .cx-scr::-webkit-scrollbar-thumb:hover { background: #3A4760; }
+  .cc-scr { scrollbar-width: thin; scrollbar-color: #35353E transparent; }
+  .cc-scr::-webkit-scrollbar { width: 8px; }
+  .cc-scr::-webkit-scrollbar-track { background: transparent; }
+  .cc-scr::-webkit-scrollbar-thumb { background: #35353E; border-radius: 4px; }
+  .cc-scr::-webkit-scrollbar-thumb:hover { background: #45454F; }
 
   /* in-terminal approval prompts */
   .tapprove { display: flex; gap: 8px; margin: 7px 0 3px; }
@@ -2207,7 +2240,7 @@
   /* wallpapers */
   .wall { position: absolute; inset: 0; }
   .wall.mac { background: radial-gradient(130% 120% at 28% 18%, #7D6BE0 0%, #4152A8 42%, #1C2856 100%); }
-  .wall.win { background: radial-gradient(130% 120% at 50% 38%, #2A82E0 0%, #0C56A8 42%, #06285E 100%); }
+  .wall.win { background: radial-gradient(130% 120% at 50% 38%, #24507C 0%, #10304F 46%, #071729 100%); }
 
   /* macOS menu bar */
   .menubar {
@@ -2271,10 +2304,10 @@
   .taskbar.gone { opacity: 0; transform: translateX(-50%) translateY(8px); pointer-events: none; }
 
   /* Windows Terminal tab strip */
-  .cx-tabs { display: flex; align-items: center; height: 30px; background: #1B1B22; padding-left: 8px; }
-  .cx-tab { font-family: var(--mono); font-size: 10.5px; color: #DADAE0; background: #0B0E17; padding: 7px 15px; border-radius: 7px 7px 0 0; margin-top: 4px; }
-  .cx-tab-plus { color: #9A9AA2; padding: 0 11px; font-family: var(--mono); }
-  .cx-wc { margin-left: auto; display: inline-flex; gap: 13px; color: #9A9AA2; padding-right: 11px; font-style: normal; }
+  .cx-tabs { display: flex; align-items: center; height: 30px; background: #161B25; padding-left: 8px; }
+  .cx-tab { font-family: var(--mono); font-size: 10.5px; color: #C3CAD6; background: #0E131D; padding: 7px 15px; border-radius: 7px 7px 0 0; margin-top: 4px; }
+  .cx-tab-plus { color: #6C7686; padding: 0 11px; font-family: var(--mono); }
+  .cx-wc { margin-left: auto; display: inline-flex; gap: 13px; color: #6C7686; padding-right: 11px; font-style: normal; }
 
   /* agent launcher */
   .pick {
@@ -2301,7 +2334,7 @@
   .pick-opt.dim { opacity: 0.45; cursor: default; }
   .pk-ic { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 14px; flex-shrink: 0; }
   .pk-ic.claude { background: #2A1E12; color: #C9812B; }
-  .pk-ic.codex { background: #0E2222; color: #56C7C7; }
+  .pk-ic.codex { background: #16202E; color: #A9C4EC; }
   .pk-tx { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .pk-tx b { font-size: 12.5px; color: #EDEDF2; } .pk-tx em { font-style: normal; font-size: 10px; color: #8A8A94; margin-top: 1px; }
   .pk-go { font-family: var(--mono); font-size: 10.5px; color: #fff; background: #1F6FEB; border-radius: 6px; padding: 5px 12px; flex-shrink: 0; }
@@ -3224,7 +3257,7 @@
                 <div class="cx-compose hidden" id="cc-compose-b">
                   <div class="cc-presets" id="cc-presets-b"></div>
                   <div class="cc-box cx">
-                    <span class="cc-caretmark cx">codex&gt;</span>
+                    <span class="cc-caretmark cx">›</span>
                     <input id="cc-input-b" class="cc-input" autocomplete="off" spellcheck="false"
                            placeholder="ask Team A to do something…" />
                     <span class="cc-enter">⏎ send</span>
@@ -5614,7 +5647,7 @@ usesObs.observe(document.querySelector(".uses-show"));
   }
   const w = (s, h, c) => tline(s.scrEl, h, c);
   const isMac = (s) => s.key === "a";
-  function pPrompt(s, t) { isMac(s) ? w(s, '<span class="dim">&gt;</span> <span class="u">' + t + '</span>') : w(s, '<span class="dim">codex&gt;</span> <span class="u">' + t + '</span>'); }
+  function pPrompt(s, t) { isMac(s) ? w(s, '<span class="dim">&gt;</span> <span class="u">' + t + '</span>') : w(s, '<span class="dim">›</span> <span class="u">' + t + '</span>'); }
   function pAction(s, t) { isMac(s) ? w(s, '<span class="dot">⏺</span> ' + t) : w(s, '<span class="bar">▌</span> ' + t); }
   function pRes(s, t) { isMac(s) ? w(s, '  <span class="res">⎿</span> ' + t) : w(s, '  <span class="dim">' + t + '</span>', "dim"); }
   function pMcp(s, t) { isMac(s) ? w(s, '<span class="dot">⏺</span> <span class="mcp">dispatch</span> ' + t) : w(s, '<span class="bar">▌</span> <span class="mcp">dispatch</span> ' + t); }
@@ -5956,15 +5989,16 @@ usesObs.observe(document.querySelector(".uses-show"));
   }
   async function bootB(tok) {
     const zz = () => sleep(0);
-    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex mcp add dispatch</span>');
+    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="ex">codex</span> <span class="u">mcp add dispatch</span>');
     await zz(900); if (tok !== token) return;
     w(B, '  <span class="ok">✓</span> added MCP server <span class="mcp">dispatch</span> <span class="dim">· dispatch@0.1</span>');
     await zz(700); if (tok !== token) return;
-    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="u">codex</span>');
+    w(B, '<span class="dim">PS C:\\team-b&gt;</span> <span class="ex">codex</span>');
     await zz(650); if (tok !== token) return;
-    w(B, '<span class="ex">&gt;_</span> OpenAI Codex <span class="dim">(v0.48.0)</span>', "welcome");
-    await zz(450); if (tok !== token) return;
-    w(B, '  <span class="dim">model gpt-5-codex · C:\\team-b</span>', "welcome");
+    /* the CLI's own banner box, not a log line */
+    w(B, '<span class="ex">&gt;_</span> <b>OpenAI Codex</b>\n\n'
+       + '<span class="k">model:</span>     gpt-5-codex <span class="dim">medium</span>\n'
+       + '<span class="k">directory:</span> C:\\team-b', "cxbox");
     await zz(800); if (tok !== token) return;
     w(B, '<span class="bar">▌</span> <span class="mcp">MCP: dispatch</span> <span class="ok">✓ connected</span> · 3 tools <span class="dim">(send · act · read)</span>');
     await zz(800); if (tok !== token) return;
