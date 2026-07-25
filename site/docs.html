@@ -221,6 +221,36 @@
     display: flex; justify-content: space-between; gap: 16px;
     font-family: var(--serif); font-size: 14.5px;
   }
+
+  /* ── footer — same map as the home page, in the docs' own dark ── */
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 72px;
+    padding: 48px 0 56px;
+  }
+  .foot-wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px; }
+  .foot-grid { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 34px 56px; }
+  .foot-brand { max-width: 320px; }
+  .foot-brand p { font-size: 13.5px; color: var(--muted); margin-top: 12px; }
+  .foot-cols { display: flex; flex-wrap: wrap; gap: 30px 52px; }
+  .foot-h {
+    font-family: var(--sans); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 12px;
+  }
+  .foot-col a {
+    display: block;
+    font-family: var(--serif); font-size: 14.5px;
+    color: var(--ink); text-decoration: none;
+    margin-bottom: 8px;
+  }
+  .foot-col a:hover { color: var(--strong); text-decoration: none; }
+  .foot-bar {
+    margin-top: 44px; padding-top: 20px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 24px;
+    font-size: 13px; color: var(--muted);
+  }
 </style>
 </head>
 <body>
@@ -684,6 +714,50 @@ ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch</code></pre>
 
   </main>
 </div>
+
+<footer>
+  <div class="foot-wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="wordmark" href="index.html"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
+        <p>Peer-to-peer delegation for agentic work. Signed by devices, scoped by
+           people, approved by hand.</p>
+      </div>
+
+      <div class="foot-cols">
+        <div class="foot-col">
+          <div class="foot-h">Start</div>
+          <a href="#what-is-dispatch">What is Talaria?</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="#running-the-broker">Running the broker</a>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Concepts</div>
+          <a href="#trust-model">The trust model</a>
+          <a href="#scopes">Scopes &amp; MCP sharing</a>
+          <a href="#security">Security model</a>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Reference</div>
+          <a href="#cli">The dispatch CLI</a>
+          <a href="#api">API &amp; signing</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Elsewhere</div>
+          <a href="index.html">Home</a>
+          <a href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
+          <a href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot-bar">
+      <span>© 2026 Talaria · MIT licensed</span>
+      <span>Built by Kaan Eroltu.</span>
+    </div>
+  </div>
+</footer>
 
 <script>
 (function () {

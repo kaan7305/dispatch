@@ -2744,8 +2744,8 @@
      warm near-black ink, one green accent. Zapier is the reference. */
 
   /* no divider lines between page sections */
-  #boundary, #scopes, #overview { background: #ECE9E1; }
-  #scale, #boundary, #uses, #layers, #scopes, #overview, footer { border-top: none; }
+  #boundary, #scopes, #security, #overview, #invite, footer { background: #ECE9E1; }
+  #scale, #boundary, #uses, #layers, #scopes, #security, #overview, #faq, #invite, footer { border-top: none; }
 
   /* no gradient washes on the page */
   .ambient { display: none; }
@@ -2846,6 +2846,108 @@
     white-space: nowrap;
   }
   .ov-desc { font-size: 13.5px; line-height: 1.55; color: var(--muted); margin: 8px 0 0 25px; }
+
+  /* ── works-with strip: what it runs with, under the hero ── */
+  .works {
+    display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+    gap: 8px 20px;
+    padding: 24px 0 40px;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .works i { font-style: normal; color: #C9C5BA; }
+  @media (max-width: 700px) { .works { font-size: 11.5px; gap: 6px 13px; padding-bottom: 24px; } }
+
+  /* ── security: one card, two honest columns ── */
+  .sec-card { padding: 30px 32px; }
+  .sec-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 34px 52px; }
+  @media (max-width: 860px) { .sec-cols { grid-template-columns: 1fr; gap: 30px; } }
+  .sec-h {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding-bottom: 12px; margin-bottom: 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .sec-h.ok { color: var(--green-ink); }
+  .sec-h.open { color: var(--yellow-ink); }
+  .sec-item { display: flex; gap: 11px; align-items: flex-start; }
+  .sec-item + .sec-item { margin-top: 17px; }
+  .sec-ic {
+    flex-shrink: 0; width: 19px; height: 19px; margin-top: 2px;
+    border-radius: 50%; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 11px; line-height: 1;
+  }
+  .sec-ic.ok { background: var(--pale-green); color: var(--green-ink); }
+  .sec-ic.open { background: var(--pale-yellow); color: var(--yellow-ink); }
+  .sec-item b {
+    display: block;
+    font-family: var(--geist); font-weight: 600; font-size: 15.5px;
+    color: var(--ink-strong); line-height: 1.35;
+  }
+  .sec-item p { font-size: 13.5px; line-height: 1.55; color: var(--muted); margin-top: 5px; }
+  .sec-item .ov-badge { margin: 7px 0 0; display: inline-block; }
+  .sec-foot {
+    display: flex; flex-wrap: wrap; gap: 8px 28px;
+    margin-top: 28px; padding-top: 20px;
+    border-top: 1px solid var(--hairline);
+  }
+  .sec-foot .ov-link { margin-top: 0; }
+
+  /* ── faq ── */
+  .faq { max-width: 780px; }
+  .faq details { border-bottom: 1px solid var(--hairline); }
+  .faq details:first-of-type { border-top: 1px solid var(--hairline); }
+  .faq summary {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 22px;
+    padding: 19px 0; cursor: pointer; list-style: none;
+    font-family: var(--geist); font-weight: 600; font-size: 19px; line-height: 1.35;
+    color: var(--ink-strong);
+    transition: color 200ms;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary:hover { color: #000; }
+  .faq summary::after {
+    content: ""; flex-shrink: 0;
+    width: 13px; height: 13px; margin-top: 6px;
+    background:
+      linear-gradient(var(--muted), var(--muted)) center/13px 1.5px no-repeat,
+      linear-gradient(var(--muted), var(--muted)) center/1.5px 13px no-repeat;
+    transition: transform 260ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq .fa {
+    font-family: var(--serif); font-size: 17.5px; line-height: 1.6;
+    color: var(--ink); max-width: 660px;
+    padding: 0 0 22px;
+  }
+  @media (max-width: 700px) { .faq summary { font-size: 17px; } .faq .fa { font-size: 16.5px; } }
+
+  /* ── closing ask ── */
+  #invite .wrap { text-align: center; }
+  #invite .section-intro { margin: 0 auto 40px; }
+  #invite .cta-row { justify-content: center; flex-wrap: wrap; }
+  #invite .onboard-box { margin: 30px auto 0; text-align: left; }
+
+  /* ── footer columns ── */
+  .footer-grid { gap: 44px 64px; }
+  .foot-brand { max-width: 330px; }
+  .foot-cols { display: flex; flex-wrap: wrap; gap: 34px 56px; }
+  .foot-h {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 13px;
+  }
+  .foot-col .foot-links { flex-direction: column; gap: 9px; }
+  .foot-col .foot-links a { border-bottom-color: transparent; }
+  .foot-col .foot-links a:hover { border-bottom-color: var(--ink); }
+  .foot-bar {
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 24px;
+    margin-top: 52px; padding-top: 22px;
+    border-top: 1px solid var(--hairline);
+    font-size: 13px; color: var(--muted);
+  }
+  @media (max-width: 700px) { .foot-cols { gap: 26px 40px; } footer { padding: 52px 0 60px; } }
 </style>
 </head>
 <body>
@@ -2861,6 +2963,7 @@
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
       <a href="#boundary">Across orgs</a>
+      <a href="#security">Security</a>
       <a href="docs.html">Docs</a>
     </nav>
     </div>
@@ -3073,6 +3176,21 @@
       <div class="demo-status" id="demo-status">Scroll on — the demo starts by itself.</div>
     </div>
     </div>
+  </div>
+</div>
+
+<!-- ── what it runs with. no logos we haven't earned ── -->
+<div class="wrap-wide">
+  <div class="works reveal">
+    <span>Claude Code</span><i>·</i>
+    <span>Codex</span><i>·</i>
+    <span>macOS</span><i>·</i>
+    <span>Windows</span><i>·</i>
+    <span>Linux</span><i>·</i>
+    <span>MCP</span><i>·</i>
+    <span>Ed25519</span><i>·</i>
+    <span>self-hosted or Railway</span><i>·</i>
+    <span>MIT</span>
   </div>
 </div>
 
@@ -3437,6 +3555,113 @@
   </div>
 </section>
 
+<!-- ── SECURITY: the guarantees, and the gaps, side by side ── -->
+<section id="security">
+  <div class="wrap">
+    <h2 class="reveal">What it guarantees, and what it doesn't.</h2>
+    <p class="section-intro reveal">
+      Three checks stand between a dispatch and your machine. Here's exactly what
+      they cover — and the parts we haven't closed yet.
+    </p>
+
+    <div class="ov-card sec-card reveal">
+      <div class="sec-cols">
+
+        <div class="sec-col">
+          <div class="sec-h ok">Guaranteed by the design</div>
+
+          <div class="sec-item">
+            <span class="sec-ic ok">✓</span>
+            <div>
+              <b>Nothing runs without an edge.</b>
+              <p>No dispatch runs without an accepted, in-scope, unexpired trust
+                 edge from that sender.</p>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic ok">✓</span>
+            <div>
+              <b>Tied to a device, not a login.</b>
+              <p>A dispatch is cryptographically bound to a device of the named
+                 sender. A compromised broker can't forge a sender or swap a
+                 pinned key.</p>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic ok">✓</span>
+            <div>
+              <b>Confined to what you granted.</b>
+              <p>The agent is held to the edge's tools and, when you set one, its
+                 path allowlist.</p>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic ok">✓</span>
+            <div>
+              <b>Revocation is immediate.</b>
+              <p>Pull an edge and in-flight work stops with it.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-col">
+          <div class="sec-h open">Known limitations</div>
+
+          <div class="sec-item">
+            <span class="sec-ic open">!</span>
+            <div>
+              <b>Signing proves origin, not authorship.</b>
+              <p>Composing happens in the browser and the daemon signs what's
+                 relayed, so a fully-compromised broker could get a sender's
+                 daemon to sign a task they didn't type.</p>
+              <span class="ov-badge">compose surface</span>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic open">!</span>
+            <div>
+              <b>Key pinning is trust-on-first-use.</b>
+              <p>A broker compromised before a device's first contact could seed
+                 the wrong key.</p>
+              <span class="ov-badge">TOFU</span>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic open">!</span>
+            <div>
+              <b>Bash isn't path-checkable.</b>
+              <p>The paths allowlist is enforced on Read, Write, Edit, Glob and
+                 Grep. Granting Bash grants the shell, full stop.</p>
+              <span class="ov-badge">by design</span>
+            </div>
+          </div>
+
+          <div class="sec-item">
+            <span class="sec-ic open">!</span>
+            <div>
+              <b>No end-to-end encryption.</b>
+              <p>The broker relays plaintext instructions. Sealed envelopes are
+                 deferred, not done.</p>
+              <span class="ov-badge">deferred</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="sec-foot">
+        <a class="ov-link" href="docs.html#security">Read the security model →</a>
+        <a class="ov-link" href="mailto:castrumai@gmail.com?subject=Talaria%20threat%20model">Ask for the threat model →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ── OVERVIEW + SAFE BY DEFAULT ── -->
 <section id="overview">
   <div class="wrap-wide">
@@ -3510,6 +3735,138 @@
   </div>
 </section>
 
+<!-- ── FAQ ── -->
+<section id="faq">
+  <div class="wrap">
+    <h2 class="reveal">Questions people ask.</h2>
+    <p class="section-intro reveal">The five that come up first, answered plainly.</p>
+
+    <div class="faq reveal">
+      <details>
+        <summary>Does the broker see my code or my files?</summary>
+        <p class="fa">No. It relays envelopes — it holds no signing key and runs no
+           code. The work happens on the recipient's machine, against their files,
+           with their API key.</p>
+      </details>
+      <details>
+        <summary>What if the recipient's machine is offline?</summary>
+        <p class="fa">It queues. A signed dispatch stays valid for delivery up to
+           30 days by design, and the replay-nonce guard is durable, so the wait
+           doesn't widen the window for a replay.</p>
+      </details>
+      <details>
+        <summary>Which agents does this work with?</summary>
+        <p class="fa">Claude Code and Codex today, on macOS, Windows and Linux. The
+           envelope is agent-agnostic — the daemon runs whichever CLI is installed
+           on the recipient's machine.</p>
+      </details>
+      <details>
+        <summary>Can I revoke access after I've granted it?</summary>
+        <p class="fa">Immediately, and it cancels in-flight work. You can also
+           narrow a scope, set a path allowlist, cap dispatches per day, or give
+           the edge an expiry date and forget about it.</p>
+      </details>
+      <details>
+        <summary>Do I have to use your broker?</summary>
+        <p class="fa">No. It's a FastAPI service you can run yourself — locally or
+           on your own Railway project. See
+           <a href="docs.html#running-the-broker">running the broker</a>.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ── CLOSING ASK ── -->
+<section id="invite">
+  <div class="wrap">
+    <h2 class="reveal">Trust someone with your keyboard.</h2>
+    <p class="section-intro reveal">
+      Talaria is in development and invite-only. Ask, and we'll set up your trust edge.
+    </p>
+
+    <div class="needs reveal">
+      <div class="need"><span class="n">1</span><span>Both sides install the package and run <code>dispatch login</code> — one command each, macOS, Windows or Linux.</span></div>
+      <div class="need"><span class="n">2</span><span>The recipient runs Claude Code or Codex with their own key — their agent, their cost, their yes.</span></div>
+      <div class="need"><span class="n">3</span><span>One invitation creates the trust edge. Device keys pin on first accept.</span></div>
+    </div>
+
+    <div class="cta-row reveal">
+      <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
+      <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
+    </div>
+
+    <div class="onboard-box reveal">
+      <code id="onboard-cmd-2">Onboard me to Talaria locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
+      <button class="onboard-copy" aria-label="Copy to clipboard" title="Copy">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="wrap-wide">
+    <div class="footer-grid">
+      <div class="foot-brand">
+        <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
+        <p class="colophon" style="margin-top: 12px;">
+          Peer-to-peer delegation for agentic work. Signed by devices, scoped by
+          people, approved by hand.
+        </p>
+        <p class="colophon" style="margin-top: 10px;">Built by Kaan Eroltu.</p>
+      </div>
+
+      <div class="foot-cols">
+        <div class="foot-col">
+          <div class="foot-h">Product</div>
+          <div class="foot-links">
+            <a href="#demo">Try it</a>
+            <a href="#scale">At scale</a>
+            <a href="#boundary">Across orgs</a>
+            <a href="#scopes">Scopes</a>
+            <a href="#security">Security</a>
+            <a href="#faq">FAQ</a>
+          </div>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Docs</div>
+          <div class="foot-links">
+            <a href="docs.html#quickstart">Quickstart</a>
+            <a href="docs.html#trust-model">Trust model</a>
+            <a href="docs.html#scopes">Scopes &amp; MCP</a>
+            <a href="docs.html#cli">The CLI</a>
+            <a href="docs.html#api">API &amp; signing</a>
+            <a href="docs.html#security">Security model</a>
+          </div>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Project</div>
+          <div class="foot-links">
+            <a href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">GitHub</a>
+            <a href="docs.html#running-the-broker">Run the broker</a>
+            <a href="docs.html#troubleshooting">Troubleshooting</a>
+            <a href="https://github.com/kaan7305/dispatch/blob/main/README.md" target="_blank" rel="noopener">README</a>
+          </div>
+        </div>
+        <div class="foot-col">
+          <div class="foot-h">Contact</div>
+          <div class="foot-links">
+            <a href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
+            <a href="mailto:castrumai@gmail.com?subject=Talaria%20threat%20model">Ask for the threat model</a>
+            <a href="mailto:castrumai@gmail.com">Email</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot-bar">
+      <span>© 2026 Talaria · MIT licensed</span>
+      <span>Every demo on this page is a scripted simulation of the real interface — no machines were contacted, which is rather the point.</span>
+    </div>
+  </div>
+</footer>
+
 <script>
 /* ───────────────────────── reveal on scroll ───────────────────────── */
 const revealObs = new IntersectionObserver((entries) => {
@@ -3543,15 +3900,16 @@ document.querySelectorAll(".reveal").forEach(el => revealObs.observe(el));
   apply();
 })();
 
-/* ── hero: copy the agent onboarding one-liner ── */
+/* ── copy the agent onboarding one-liner — hero and closing ask ── */
 (function () {
-  const btn = document.getElementById("onboard-copy");
-  if (!btn) return;
-  btn.addEventListener("click", () => {
-    const text = document.getElementById("onboard-cmd").textContent.trim();
-    navigator.clipboard.writeText(text).then(() => {
-      btn.classList.add("ok");
-      setTimeout(() => btn.classList.remove("ok"), 1200);
+  document.querySelectorAll(".onboard-copy").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.closest(".onboard-box")?.querySelector("code");
+      if (!code) return;
+      navigator.clipboard.writeText(code.textContent.trim()).then(() => {
+        btn.classList.add("ok");
+        setTimeout(() => btn.classList.remove("ok"), 1200);
+      });
     });
   });
 })();
