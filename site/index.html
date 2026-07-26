@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Talaria: Send a task to a machine you trust.</title>
+<title>Signet: Send a task to a machine you trust.</title>
 <meta name="description" content="Describe a task in plain language and name someone you know. Their machine runs it with a local AI agent — signed by your device, scoped by them, approved by hand." />
-<meta property="og:title" content="Talaria: Send a task to a machine you trust." />
+<meta property="og:title" content="Signet: Send a task to a machine you trust." />
 <meta property="og:description" content="A peer-to-peer courier for agentic work. Their machine does the work, with their say-so." />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
 <meta name="theme-color" content="#0F0F0D" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F0F0D'/%3E%3Csvg x='3' y='4' width='26' height='24' viewBox='0 0 40 34' fill='%23F6F5F1'%3E%3Cpath d='M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z'/%3E%3Cpath d='M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z'/%3E%3Cpath d='M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z'/%3E%3Cpath d='M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z'/%3E%3Crect x='18' y='26' width='18' height='2.4' rx='1.2'/%3E%3Cg fill='none' stroke='%23F6F5F1' stroke-width='1.6' stroke-linecap='round' opacity='0.7'%3E%3Cpath d='M11.5 27.2 H15'/%3E%3Cpath d='M7.5 27.2 H9.5'/%3E%3C/g%3E%3C/svg%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230F0F0D'/%3E%3Csvg x='3' y='3' width='26' height='26' viewBox='0 0 32 32' fill='none'%3E%3Cpath d='M22.2 9C18 5.2 10.6 6.4 10.6 11.6C10.6 16.8 21.4 15.4 21.4 20.6C21.4 25.6 14.4 26.8 10 22.9' stroke='%23F6F5F1' stroke-width='2.7' stroke-linecap='round'/%3E%3Ccircle cx='22.2' cy='9' r='2.8' fill='%23F6F5F1'/%3E%3Ccircle cx='10' cy='22.9' r='2.8' fill='%23F6F5F1'/%3E%3C/svg%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet" />
@@ -121,7 +121,7 @@
     color: var(--ink-strong);
     text-decoration: none;
   }
-  .wm-mark { width: 27px; height: 23px; flex-shrink: 0; }
+  .wm-mark { width: 27px; height: 27px; flex-shrink: 0; }
   .wordmark em { font-style: italic; }
   .header-left { display: flex; align-items: center; gap: 22px; }
   .header-right { display: flex; align-items: center; gap: 10px; }
@@ -212,7 +212,9 @@
   .hero > .wrap-wide { max-width: 1680px; padding: 0 64px; }
   .hero-grid {
     display: grid;
-    grid-template-columns: 1fr 66vw;
+    /* the copy column never drops below the width of the onboarding snippet's
+       longest line, so the pipx command stays on one line; the demo yields. */
+    grid-template-columns: minmax(472px, 1fr) minmax(0, 66vw);
     gap: 36px;
     align-items: start;
     max-width: none;
@@ -223,7 +225,7 @@
   .hero .btn { height: 40px; padding: 8px 16px; font-size: 15px; gap: 5px; }
   .hero .btn svg { width: 15px; height: 15px; }
   .hero .onboard-box { padding: 15px 17px; margin-top: 20px; }
-  .hero .onboard-box code { font-size: 12.5px; }
+  .hero .onboard-box code { font-size: 12px; }
   @media (max-width: 1000px) { .hero > .wrap-wide { padding: 0 24px; } }
   .hero-demo { min-width: 0; }
   /* the hero demo is a self-running showcase — clicks don't reach it, the
@@ -713,7 +715,7 @@
     flex: 1;
     font-family: var(--mono); font-size: 13px; line-height: 1.65;
     color: var(--ink);
-    word-break: break-word; white-space: pre-wrap;
+    word-break: normal; overflow-wrap: anywhere; white-space: pre-wrap;
   }
   .onboard-copy {
     border: none; background: transparent; cursor: pointer;
@@ -2961,7 +2963,7 @@
 <header>
   <div class="header-row">
     <div class="header-left">
-    <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
+    <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M22.2 9C18 5.2 10.6 6.4 10.6 11.6C10.6 16.8 21.4 15.4 21.4 20.6C21.4 25.6 14.4 26.8 10 22.9" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"/><circle cx="22.2" cy="9" r="2.8" fill="currentColor"/><circle cx="10" cy="22.9" r="2.8" fill="currentColor"/></svg>Signet</a>
     <nav>
       <a href="#demo">Try it</a>
       <a href="#scale">At scale</a>
@@ -2972,7 +2974,7 @@
     </div>
     <div class="header-right">
       <a class="nav-gh" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
-      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
+      <a class="nav-cta" href="mailto:castrumai@gmail.com?subject=Signet%20invitation">Get an invite</a>
     </div>
   </div>
 </header>
@@ -2983,11 +2985,14 @@
     <div class="hero-copy">
       <h1 class="reveal">Send a task to a person.<br/>Their machine does the work, with their say&#8209;so.</h1>
       <div class="cta-row reveal">
-        <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
+        <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Signet%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
         <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
       </div>
       <div class="onboard-box reveal">
-        <code id="onboard-cmd">Onboard me to Talaria locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
+        <code id="onboard-cmd">Onboard me to Signet locally. Follow the README at
+https://github.com/kaan7305/dispatch
+  pipx install git+https://github.com/kaan7305/dispatch.git
+  dispatch login</code>
         <button class="onboard-copy" id="onboard-copy" aria-label="Copy to clipboard" title="Copy">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
         </button>
@@ -3017,7 +3022,7 @@
         </div>
         <div class="app">
           <div class="app-topbar">
-            <span class="brand">Talaria</span>
+            <span class="brand">Signet</span>
             <div class="app-search">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
               <span>Search dispatches and people</span>
@@ -3055,7 +3060,7 @@
           <div class="dialog">
             <h4>New dispatch</h4>
             <div class="field-label" style="margin-top: 10px;">To</div>
-            <span class="to-chip"><span class="avatar">YO</span>you@yourmac.local</span>
+            <span class="to-chip"><span class="avatar">ED</span>edward.zhu@signet.ai</span>
             <div class="field-label">Task</div>
             <textarea class="task-input" id="task-input" placeholder="Describe the task in plain language…"></textarea>
             <div class="preset-row" id="preset-row"></div>
@@ -3094,19 +3099,19 @@
         <div class="notif" id="recipient-notif">
           <span class="app-ic">D</span>
           <div>
-            <div class="t">Talaria</div>
-            <div class="b">kaan@castrum.ai sent a task — needs your approval</div>
+            <div class="t">Signet</div>
+            <div class="b">kaan.eroltu@signet.ai sent a task — needs your approval</div>
           </div>
         </div>
         <div class="app">
           <div class="app-topbar">
-            <span class="brand">Talaria</span>
+            <span class="brand">Signet</span>
             <div class="app-search">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
               <span>Search dispatches and people</span>
             </div>
             <span class="online"><span class="dot"></span>Online</span>
-            <span class="avatar">YO</span>
+            <span class="avatar">ED</span>
           </div>
           <div class="app-main">
             <aside class="app-side">
@@ -3139,7 +3144,7 @@
       <div class="terminal open" id="terminal">
         <div class="term-titlebar">
           <div class="dots"><span></span><span></span><span></span></div>
-          <span class="who">you@yourmac.local — claude</span>
+          <span class="who">edward.zhu@signet.ai — claude</span>
         </div>
         <div class="term-body" id="term-body"><div class="term-line"><span class="prompt">➜  ~</span> <span class="cmd">claude</span></div><div class="term-line sys">Welcome to Claude Code. Agent idle.</div></div>
       </div>
@@ -3667,12 +3672,15 @@
     </div>
 
     <div class="cta-row reveal">
-      <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Talaria%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
+      <a class="btn btn-green" href="mailto:castrumai@gmail.com?subject=Signet%20invitation&body=I'd%20like%20an%20invite.">Get an invite</a>
       <a class="btn btn-ghost" href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg> GitHub</a>
     </div>
 
     <div class="onboard-box reveal">
-      <code id="onboard-cmd-2">Onboard me to Talaria locally. Use https://github.com/kaan7305/dispatch and follow the README: pipx install git+https://github.com/kaan7305/dispatch.git, then dispatch login.</code>
+      <code id="onboard-cmd-2">Onboard me to Signet locally. Follow the README at
+https://github.com/kaan7305/dispatch
+  pipx install git+https://github.com/kaan7305/dispatch.git
+  dispatch login</code>
       <button class="onboard-copy" aria-label="Copy to clipboard" title="Copy">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
       </button>
@@ -3685,7 +3693,7 @@
   <div class="wrap-wide">
     <div class="footer-grid">
       <div class="foot-brand">
-        <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 40 34" fill="currentColor" aria-hidden="true"><path d="M19.5 13.5 C15 9.5 9.5 6.5 3 5.5 C6.5 9.5 12 12.5 19 14.8 Z"/><path d="M19 16.5 C14.5 14 9.5 12.8 5.5 13 C9 16 13.5 17.8 18.6 18.2 Z"/><path d="M18.6 19.8 C15.5 18.8 12.2 18.7 9.8 19.6 C12.5 21.4 15.5 21.8 18.4 21.6 Z"/><path d="M20 6 H25.5 C25.5 9 26 11.5 27.5 13.8 C29.5 16.5 32.5 18.8 34.3 20.3 C35.6 21.4 35.2 23.4 33.4 23.4 H21.5 C19.4 23.4 18.4 22.2 18.5 20.3 C18.7 16.8 19.6 10.5 19.8 8 Z"/><rect x="18" y="26" width="18" height="2.4" rx="1.2"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"><path d="M11.5 27.2 H15"/><path d="M7.5 27.2 H9.5"/></g></svg>Talaria</a>
+        <a class="wordmark" href="#"><svg class="wm-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M22.2 9C18 5.2 10.6 6.4 10.6 11.6C10.6 16.8 21.4 15.4 21.4 20.6C21.4 25.6 14.4 26.8 10 22.9" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"/><circle cx="22.2" cy="9" r="2.8" fill="currentColor"/><circle cx="10" cy="22.9" r="2.8" fill="currentColor"/></svg>Signet</a>
         <p class="colophon" style="margin-top: 12px;">
           Peer-to-peer delegation for agentic work. Signed by devices, scoped by
           people, approved by hand.
@@ -3726,8 +3734,8 @@
         <div class="foot-col">
           <div class="foot-h">Contact</div>
           <div class="foot-links">
-            <a href="mailto:castrumai@gmail.com?subject=Talaria%20invitation">Get an invite</a>
-            <a href="mailto:castrumai@gmail.com?subject=Talaria%20threat%20model">Ask for the threat model</a>
+            <a href="mailto:castrumai@gmail.com?subject=Signet%20invitation">Get an invite</a>
+            <a href="mailto:castrumai@gmail.com?subject=Signet%20threat%20model">Ask for the threat model</a>
             <a href="mailto:castrumai@gmail.com">Email</a>
           </div>
         </div>
@@ -3735,7 +3743,7 @@
     </div>
 
     <div class="foot-bar">
-      <span>© 2026 Talaria · MIT licensed</span>
+      <span>© 2026 Signet · MIT licensed</span>
     </div>
   </div>
 </footer>
@@ -4639,9 +4647,9 @@ function senderInboxView(withNewRow, task) {
     <div class="rowlist" style="border-top:none;">
       ${withNewRow ? `
       <div class="drow enter" id="sender-new-row">
-        <span class="avatar lg">YO</span>
+        <span class="avatar lg">ED</span>
         <div class="body">
-          <div class="toprow"><span class="name">you@yourmac.local</span>${statusBadge("pending")}</div>
+          <div class="toprow"><span class="name">edward.zhu@signet.ai</span>${statusBadge("pending")}</div>
           <div class="preview">${esc(task)}</div>
           <div class="when">just now</div>
         </div>
@@ -4670,9 +4678,9 @@ function senderDetailView(task) {
     <div class="detail">
       <span class="backlink">← Sent</span>
       <div class="detail-head">
-        <span class="avatar lg">YO</span>
+        <span class="avatar lg">ED</span>
         <div class="who-line">
-          <div class="name">you@yourmac.local</div>
+          <div class="name">edward.zhu@signet.ai</div>
           <div class="sub">signed by this device · ed25519 a41f…9c2e · nonce 7b03</div>
         </div>
         ${statusBadge("pending")}
@@ -4709,7 +4717,7 @@ function recipientDetailView(task) {
       <div class="detail-head">
         <span class="avatar lg">KA</span>
         <div class="who-line">
-          <div class="name">kaan@castrum.ai</div>
+          <div class="name">kaan.eroltu@signet.ai</div>
           <div class="sub">signature valid · key pinned · nonce fresh</div>
         </div>
         ${statusBadge("running")}
@@ -4779,7 +4787,7 @@ function pendingRow(task, animate) {
       <span class="avatar lg">KA</span>
       <div class="body">
         <div class="toprow">
-          <span class="name">kaan@castrum.ai</span>
+          <span class="name">kaan.eroltu@signet.ai</span>
           ${statusBadge("pending")}
           <span class="badge outline">needs approval</span>
         </div>
