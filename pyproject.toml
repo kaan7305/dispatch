@@ -35,6 +35,9 @@ dependencies = [
   "keyring>=24",
   "certifi>=2024",
   "mcp>=1.2",
+  # Reading Codex's config.toml (MCP server discovery + `dispatch codex`).
+  # tomllib is stdlib from 3.11; tomli backfills the 3.10 floor.
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

@@ -1,13 +1,13 @@
 ---
 name: dispatch
-description: Peer-to-peer agentic task courier between two humans. Use when the user wants to delegate a task to a trusted contact's machine (their Claude agent runs it), invite/connect with a new contact, check what's been dispatched to them, or accept/decline/track a dispatch or invitation. Triggers on natural-language patterns like "dispatch this to Edward", "send a task to Kaan's machine", "have Jeff's agent do X", "invite Kaan to dispatch", "accept that invitation", "/dispatch", "what's in my dispatch inbox?", "accept that dispatch".
+description: Peer-to-peer agentic task courier between two humans. Use when the user wants to delegate a task to a trusted contact's machine (their own local agent runs it), invite/connect with a new contact, check what's been dispatched to them, or accept/decline/track a dispatch or invitation. Triggers on natural-language patterns like "dispatch this to Edward", "send a task to Kaan's machine", "have Jeff's agent do X", "invite Kaan to dispatch", "accept that invitation", "/dispatch", "what's in my dispatch inbox?", "accept that dispatch".
 ---
 
 # Dispatch
 
 Dispatch is a peer-to-peer courier for agentic work. One person describes a
-task and names a recipient; the recipient's machine runs it with a local
-Claude agent - but only across an explicit, scoped, revocable trust edge, the
+task and names a recipient; the recipient's machine runs it with their own
+local agent - but only across an explicit, scoped, revocable trust edge, the
 task is cryptographically signed by the sender's device, and the recipient
 approves it. The sender's verbatim task is preserved end to end.
 
@@ -32,8 +32,8 @@ approves it. The sender's verbatim task is preserved end to end.
 
 ## Two surfaces: in-session MCP tools (preferred) vs the CLI
 
-If this plugin is installed, Claude Code runs the `dispatch-mcp` server for the
-session and exposes **four** `dispatch_*` MCP tools:
+If this plugin is installed, the host agent (Claude Code or Codex) runs the
+`dispatch-mcp` server for the session and exposes these `dispatch_*` MCP tools:
 - **`dispatch_read(what, [dispatch_id])`** - `what` ∈ inbox | status | sent |
   contacts | invitations | approvals | whoami. Read-only.
 - **`dispatch_act(action, dispatch_id, [request_id], [grant])`** - `action` ∈
@@ -109,11 +109,15 @@ immediately via the AskUserQuestion tool**
 Always allow this tool / Allow for this session / Deny; the daemon auto-denies
 after ~120s) and relay with
 `dispatch_act(action="approve"|"deny", dispatch_id=…, request_id=…, grant=…)`,
-which resumes the watch and returns the next gate or the final result. (With
-`approval_ui: form` in `~/.dispatch/config.json` or `DISPATCH_APPROVAL_UI=form`,
-accept instead blocks and prompts inline via MCP elicitation - numbered
-options in the client's form - and `approval_needed` only appears when that
-form can't render.)
+which resumes the watch and returns the next gate or the final result.
+(`approval_needed` is the *picker* surface, used on hosts that have a native
+picker - Claude Code. On a host without one, such as Codex, accept instead
+blocks and prompts inline via MCP elicitation: the same numbered options,
+rendered in the client's own form. Set `approval_ui` in
+`~/.dispatch/config.json` or `DISPATCH_APPROVAL_UI` to pin `picker` / `form` /
+`local`; `local` means the human answers in the ⬡ Dispatch tray or the local
+web UI instead of in-session, and accept just keeps watching until they do. In
+that mode the reply's `approval_surface` field says `local`.)
 **You must NOT perform the dispatched task yourself.** Your
 only actions on an inbound dispatch are `dispatch_act` with `accept`/`decline`
 (and answering/relaying the approval prompts). After accept returns a terminal
@@ -291,10 +295,12 @@ machine. You establish an edge with an invitation:
    running the task** - it executes in the sandboxed dp-agent, confined to the
    edge's tools and paths. On a `manual` edge the call pauses at **every** tool
    call and hands it to you as `approval_needed` (step 3) - you ask the human
-   via the AskUserQuestion picker and relay the answer. (In `form` approval-UI
-   mode it instead blocks and prompts inline - numbered Allow once / Always /
-   Session / Deny / Decline-the-dispatch options in the client's elicitation
-   form.)
+   via the AskUserQuestion picker and relay the answer. (On a host without a
+   native picker, and in `form` approval-UI mode, it instead blocks and prompts
+   inline - numbered Allow once / Always / Session / Deny /
+   Decline-the-dispatch options in the client's elicitation form. In `local`
+   mode it blocks while the human answers in the tray or local web UI. Either
+   way you never see `approval_needed`, and never answer on their behalf.)
    **Do NOT tell the user to run `dispatch accept <id>` in a terminal**, and do
    NOT end your turn with a "paste this command" hand-off: the CLI `dispatch
    accept` is fire-and-forget with **no approval prompt attached**, so on a
@@ -350,7 +356,7 @@ user, never bypass them:
   resolves these locally and ignores any decision relayed by the broker, so a
   compromised broker can't fabricate approval.
 
-The recipient (the human, via Claude) decides whether to accept - **never
+The recipient (the human, via their agent) decides whether to accept - **never
 auto-accept a dispatch**, even one that looks safe. The agent is confined to
 the edge's tools and `paths` allowlist; granting `Bash` grants full shell, so
 treat `Bash`-scoped edges with extra care.

@@ -1,0 +1,31 @@
+{
+  "name": "dispatch",
+  "version": "0.2.0",
+  "description": "Peer-to-peer agentic task courier between two humans, run from your terminal. Sign in with `dispatch login`, then delegate a task to a trusted contact's machine — their local agent runs it across an explicit, scoped, revocable trust edge, cryptographically signed by your device and approved by them. A dispatch can use the recipient's own MCP tools, scoped per edge. Invite contacts, check your inbox, accept/decline, and track dispatches in natural language.",
+  "author": {
+    "name": "Kaan",
+    "url": "https://github.com/kaan7305"
+  },
+  "homepage": "https://github.com/kaan7305/dispatch",
+  "repository": "https://github.com/kaan7305/dispatch",
+  "license": "MIT",
+  "keywords": ["dispatch", "delegation", "agent", "peer-to-peer", "task-courier", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Dispatch",
+    "shortDescription": "Delegate a task to a trusted contact's machine — signed, scoped, and approved.",
+    "longDescription": "Dispatch is a courier for agentic work. You describe a task and name a recipient; their machine runs it with their own local agent. Nothing runs unless an accepted trust edge exists from you to them, the dispatch carries a valid signature from your device, and it stays inside the scope that edge grants — with destructive tool calls gated on a per-call human approval. Requires the `dispatch` CLI (pipx) and a one-time `dispatch login`.",
+    "developerName": "Kaan",
+    "category": "Developer Tools",
+    "capabilities": ["delegation", "collaboration", "mcp"],
+    "websiteURL": "https://github.com/kaan7305/dispatch",
+    "brandColor": "#C9812B",
+    "defaultPrompt": [
+      "What's in my dispatch inbox?",
+      "Invite edward@example.com to dispatch",
+      "Dispatch this to Edward: review the auth changes on my branch and reply with what you'd change",
+      "Who can I dispatch to?"
+    ]
+  }
+}

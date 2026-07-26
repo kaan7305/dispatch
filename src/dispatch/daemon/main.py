@@ -63,6 +63,7 @@ from dispatch.daemon.nonces import NonceStore
 from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S as CONN_STANDBY_POLL_S
 from dispatch.daemon import machine_index
 from dispatch.daemon import memory as run_memory
+from dispatch import codex
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
 from dispatch.shared.schema import (
@@ -708,6 +709,13 @@ def discover_installed_mcp() -> dict:
       - local scope:   ~/.claude.json `projects[<path>].mcpServers`
       - project scope: <path>/.mcp.json `mcpServers` for each known project
 
+    Then Codex's own servers ($CODEX_HOME/config.toml `[mcp_servers]`, plus any
+    project-scoped ones), translated into the same entry shape. Codex is scanned
+    last so a server the recipient has in both hosts keeps its Claude config —
+    the shape this pool's consumers were written against. Without this scan a
+    Codex-only recipient has an empty pool and cannot grant an MCP tool on any
+    edge, even though their machine is full of servers.
+
     Best-effort: any parse/IO error on any source is swallowed so a malformed
     config can never crash dispatch — worst case the picker shows fewer
     servers. The 'dispatch' control plane is never discoverable."""
@@ -738,6 +746,11 @@ def discover_installed_mcp() -> dict:
                     )
                 except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
                     pass
+
+    try:
+        _absorb(codex.discover_codex_mcp())                    # codex scopes
+    except Exception:  # noqa: BLE001 — a host-config quirk can't cost us the pool
+        logger.debug("codex mcp discovery failed", exc_info=True)
     return found
 
 

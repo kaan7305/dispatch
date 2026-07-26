@@ -42,6 +42,7 @@ from typing import Any, Optional
 import certifi
 import httpx
 
+from dispatch import codex
 from dispatch.shared.schema import SYNC_TASK_SENTINEL
 
 
@@ -389,7 +390,11 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
         if r.status_code == 200:
             daemon_up = True
             session = r.json()
-    except (httpx.HTTPError, OSError):
+    except (httpx.HTTPError, OSError, CliError):
+        # CliError is what _local_token() raises when the daemon has never
+        # started (no local.token). That is a *finding* for doctor to report as
+        # "daemon not running", not a reason to abort the whole checkup — which
+        # is the state you are most likely running doctor in.
         pass
     report["daemon_running"] = daemon_up
     report["daemon_url"] = base
@@ -406,6 +411,12 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
         pass
     report["broker_reachable"] = broker_ok
     report["signed_in"] = bool(config.get("token"))
+
+    # Is the other host wired up? Purely informational — it never affects the
+    # exit code, since most machines run one host and not the other.
+    codex_status = codex.status()
+    codex_status["relevant"] = codex.codex_installed()
+    report["codex"] = codex_status
 
     # 3. Code-version drift (the "split-version" gotcha): the daemon caches the
     # commit it started on (`running_commit`); `dispatch update` rewrites the
@@ -434,7 +445,9 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
 
     print("Dispatch connectivity:")
     print(f"  {mark(daemon_up)} local daemon       {base}"
-          + ("" if daemon_up else "  — not running (open Claude with the plugin, or `dispatch tray`)"))
+          + ("" if daemon_up
+             else "  — not running (open Claude Code or Codex with the plugin, "
+                  "or `dispatch tray`)"))
     if daemon_up:
         print(f"  {mark(report['broker_connected'])} daemon ↔ broker    "
               + ("online — ready to receive dispatches" if report["broker_connected"]
@@ -452,10 +465,113 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     print(f"  {mark(broker_ok)} broker reachable   {report['broker_url']}")
     if not config.get("token"):
         print("  ✗ not signed in     — run `dispatch login`")
+    # Codex wiring, mentioned only on machines that actually have Codex — a
+    # Claude-only user doesn't need a line about a host they don't run.
+    if report["codex"]["relevant"]:
+        wired = report["codex"]["mcp_server_installed"]
+        print(f"  {mark(wired)} codex host         "
+              + ("dispatch-mcp registered" if wired
+                 else "not wired up — run `dispatch codex install`"))
     # Exit non-zero if the daemon isn't fully online OR is running stale code, so
     # scripts (and humans) can gate on a fully-healthy, up-to-date daemon.
     healthy = daemon_up and report["broker_connected"] and not code_stale
     return 0 if healthy else 1
+
+
+def _fetch_skill_text() -> Optional[str]:
+    """Pull `skills/dispatch/SKILL.md` from the install repo over raw.github.
+
+    The skill ships in the plugin bundle, not the pip wheel, so a pipx install
+    has no local copy. Same public-repo, no-auth assumption as
+    `_plugin_files_changed`. Returns None on any failure — the caller reports
+    the skill as skipped and the MCP tools still work without it."""
+    import re
+    url = _git_url_of(_install_spec(tray=False))
+    if not url:
+        return None
+    m = re.search(r"github\.com[:/]+([^/]+)/([^/.]+)", url)
+    if not m:
+        return None
+    raw = (
+        f"https://raw.githubusercontent.com/{m.group(1)}/{m.group(2)}"
+        f"/HEAD/skills/{codex.SKILL_NAME}/SKILL.md"
+    )
+    try:
+        with httpx.Client(timeout=15.0, verify=certifi.where()) as c:
+            r = c.get(raw)
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200 or not r.text.strip():
+        return None
+    return r.text
+
+
+def cmd_codex(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Wire Dispatch into this machine's Codex CLI, or report whether it is.
+
+    The Codex plugin (`.codex-plugin/plugin.json`) is the packaged route and
+    carries both the MCP server and the skill. This command is the pipx route:
+    it writes `[mcp_servers.dispatch]` into $CODEX_HOME/config.toml and drops
+    the skill into $CODEX_HOME/skills/dispatch/, for people who install the CLI
+    directly and never add a plugin marketplace."""
+    if getattr(args, "action", "status") == "status":
+        st = codex.status()
+        if args.json:
+            print(json.dumps(st, indent=2))
+            return 0
+
+        def mark(ok: bool) -> str:
+            return "✓" if ok else "✗"
+
+        print("Dispatch in Codex:")
+        print(f"  {mark(st['codex_on_path'])} codex CLI          "
+              + ("on PATH" if st["codex_on_path"] else "not on PATH"))
+        print(f"  {mark(st['mcp_server_installed'])} dispatch-mcp       "
+              + (f"registered in {st['config_path']}" if st["mcp_server_installed"]
+                 else f"not in {st['config_path']}  — run `dispatch codex install`"))
+        print(f"  {mark(st['skill_installed'])} dispatch skill     "
+              + (st["skill_path"] if st["skill_installed"]
+                 else "not installed  — optional, gives natural-language triggers"))
+        found = st["discovered_mcp_servers"]
+        print(f"  · your MCP servers   {', '.join(found) if found else '(none found in Codex)'}")
+        return 0 if st["mcp_server_installed"] else 1
+
+    # install
+    report = codex.install(
+        force=bool(getattr(args, "force", False)),
+        skill_text=None if codex.find_skill_source() else _fetch_skill_text(),
+    )
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+
+    state = str(report.get("mcp_server"))
+    if state == "manual_edit_needed":
+        print(f"could not update {report['config_path']} safely:")
+        print(f"  {report['mcp_server_error']}")
+    else:
+        verb = {
+            "written": "registered dispatch-mcp in",
+            "replaced": "rewrote the dispatch-mcp entry in",
+            "already_present": "dispatch-mcp was already registered in",
+        }.get(state, "wrote")
+        print(f"{verb} {report['config_path']}")
+    if report.get("backup"):
+        print(f"  (previous config saved to {report['backup']})")
+    if report.get("skill") in ("copied", "fetched"):
+        print(f"installed the dispatch skill into {report['skill_path']}")
+    else:
+        print(f"skill not installed — {report.get('skill_error', 'unknown reason')}")
+    if not report.get("codex_on_path") and state != "manual_edit_needed":
+        print("note: the `codex` CLI isn't on PATH — the config is written and will "
+              "take effect once Codex is installed.")
+    if state != "manual_edit_needed":
+        print("Start a new Codex session, then try: \"what's in my dispatch inbox?\"")
+    if state == "already_present" and not getattr(args, "force", False):
+        print("(use `dispatch codex install --force` to rewrite the entry)")
+    # Non-zero when the server entry didn't end up wired, so a script that runs
+    # this as a setup step notices.
+    return 1 if state == "manual_edit_needed" else 0
 
 
 def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
@@ -973,10 +1089,11 @@ def _pipx_install(spec: str, *, capture: bool):
                        f"    pipx install --force '{spec}'")
 
 
-# Files that ship in the Claude Code plugin bundle (served by the marketplace,
-# NOT by pipx). A change to any of these is what makes `/plugin marketplace
-# update` necessary; everything else is just code that pipx already refreshed.
-_PLUGIN_PATH_PREFIXES = (".claude-plugin/", "skills/")
+# Files that ship in a plugin bundle (served by the host's marketplace, NOT by
+# pipx). A change to any of these is what makes `/plugin marketplace update`
+# necessary; everything else is just code that pipx already refreshed. Both
+# hosts' manifests count, and `skills/` is shared by both.
+_PLUGIN_PATH_PREFIXES = (".claude-plugin/", ".codex-plugin/", ".mcp.json", "skills/")
 
 
 def _plugin_files_changed(spec: str, base_sha: str, head_sha: Optional[str]) -> Optional[bool]:
@@ -1228,8 +1345,9 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
         _poke_tray_recheck(_load_config())
 
     message = (
-        "Updated. Restart your Claude Code session so the in-session dispatch-mcp "
-        "reloads the new code (a running process keeps the old code until it restarts)."
+        "Updated. Restart your agent session (Claude Code or Codex) so the "
+        "in-session dispatch-mcp reloads the new code (a running process keeps "
+        "the old code until it restarts)."
     )
 
     # The MCP isn't the only long-running process: a daemon/tray launched
@@ -1242,7 +1360,9 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
     _plugin_refresh = (
         "refresh the plugin too — in Claude Code run `/plugin marketplace update "
         "dispatch`, or from a terminal run `claude plugin marketplace update "
-        "dispatch && claude plugin update dispatch`."
+        "dispatch && claude plugin update dispatch`. In Codex, reinstall from "
+        "`/plugins` (or re-run `dispatch codex install --force` if you wired it "
+        "up with the CLI)."
     )
     if plugin_changed is True:
         message += " The plugin's skill/manifest changed — " + _plugin_refresh
@@ -1588,6 +1708,20 @@ def build_parser() -> argparse.ArgumentParser:
         return 0
     add("help", "Show this help.", _cmd_help).set_defaults(no_auth=True)
 
+    # Codex host wiring (no broker creds needed — it only edits Codex's config).
+    p_codex = add(
+        "codex",
+        "Wire Dispatch into the Codex CLI (MCP server + skill), or show its status.",
+        cmd_codex,
+    )
+    p_codex.set_defaults(no_auth=True)
+    p_codex.add_argument(
+        "action", nargs="?", choices=["status", "install"], default="status",
+        help="'status' (default) reports whether Codex is wired up; 'install' wires it.")
+    p_codex.add_argument(
+        "--force", action="store_true", default=False,
+        help="Rewrite an existing [mcp_servers.dispatch] entry (backs up config.toml first).")
+
     add("whoami", "Show the signed-in user + broker.", cmd_whoami)
     add("doctor", "Check the daemon + broker connectivity.", cmd_doctor).set_defaults(no_auth=True)
     add("contacts", "List trust edges (who can dispatch to whom).", cmd_contacts)
@@ -1794,6 +1928,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    # Windows consoles still default to a legacy codepage (cp1252), which cannot
+    # encode the ✓/✗/⬡/… marks these commands print — the write raises
+    # UnicodeEncodeError and the command dies after emitting half a line. Ask for
+    # UTF-8 and degrade anything unencodable instead of failing. No-op on POSIX,
+    # and skipped when stdout isn't a reconfigurable text stream (e.g. under a
+    # test harness that captured it).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
 

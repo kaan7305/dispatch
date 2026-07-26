@@ -22,7 +22,7 @@ A dispatch never runs on a machine unless all three hold:
 | **Broker** | Multi-tenant FastAPI service, Postgres-backed. Issues identity, routes dispatches, enforces trust policy, relays events. Never holds a signing key; never touches a recipient's filesystem. |
 | **Daemon** (`dispatch-daemon`) | A small background process each user runs on their own machine. Holds that machine's Ed25519 device key, signs the user's outgoing dispatches, verifies incoming ones, and runs the agent. |
 | **Web UI** | A React app (`web/desktop`) served both by the broker (`/app`) and by each daemon on `127.0.0.1`: sign in, manage contacts + per-edge permissions, compose, watch sent dispatches, act on your inbox, run workflows. |
-| **MCP server** (`dispatch-mcp`) | A thin in-session client Claude Code launches per session. Holds no broker connection, key, or executor - it ensures a daemon is running and drives it over the daemon's loopback API so Dispatch works from inside Claude. |
+| **MCP server** (`dispatch-mcp`) | A thin in-session client the host agent launches per session - Claude Code or Codex, from the same command. Holds no broker connection, key, or executor - it ensures a daemon is running and drives it over the daemon's loopback API so Dispatch works from inside your agent. |
 | **Agent** | A Claude Agent SDK session the daemon opens per accepted dispatch, on a clean base (`setting_sources=[]`). Transient - created on accept, gone when the task ends. |
 
 Every user is both a sender and a recipient; everyone runs a daemon.
@@ -84,8 +84,12 @@ domain tools) - that's what makes it powerful - without exposing the rest of
 your machine. **No manual setup:**
 
 1. **Auto-discovery.** Your installed MCP servers are discovered automatically
-   from your Claude config (`~/.claude.json` - user, per-project, and each
-   project's `.mcp.json`). Nothing to curate. (An optional
+   from both hosts' configs: Claude's (`~/.claude.json` - user, per-project, and
+   each project's `.mcp.json`) and Codex's (`$CODEX_HOME/config.toml`
+   `[mcp_servers.*]`, plus each trusted project's `.codex/config.toml`). Codex
+   entries are translated into the same shape, so an HTTP server's
+   `bearer_token_env_var` becomes an `Authorization` header and a
+   `enabled = false` server is skipped. Nothing to curate. (An optional
    `~/.dispatch/shareable-mcp.json`, same shape as a Claude `.mcp.json`, can add
    or override a server the scan can't see; it wins on a name clash.) The
    `dispatch` control plane is never exposable.
@@ -162,17 +166,22 @@ The trust layers need a local **daemon** that holds your device key,
 signs/verifies, runs the agent, and holds the approval prompts. There's always
 exactly **one daemon per machine** (it owns the single broker connection, guarded
 by an advisory lock in `~/.dispatch/connection.lock`). The two setups differ only
-in *how the daemon gets started*: have your **Claude Code session auto-spawn it**,
+in *how the daemon gets started*: have your **agent session auto-spawn it**,
 or run the **installer** so it's always on.
 
-### A) Via Claude Code (auto-spawn) - the low-friction default
+### A) Via your agent (auto-spawn) - the low-friction default
 
-Install the Dispatch **plugin** for Claude Code. It bundles the `/dispatch` skill
-*and* an MCP server (`dispatch-mcp`) that Claude Code launches each session. The
-MCP server is a **thin client**: on startup it checks for a running daemon and,
-if there isn't one, spawns it detached (the menu-bar **tray** on macOS, which
-hosts the daemon; a bare `dispatch-daemon` elsewhere). It then drives that daemon
-over its loopback API - it never opens its own broker connection.
+Install the Dispatch **plugin** for whichever agent you use. It bundles the
+`/dispatch` skill *and* an MCP server (`dispatch-mcp`) that the host launches
+each session. The MCP server is a **thin client**: on startup it checks for a
+running daemon and, if there isn't one, spawns it detached (the menu-bar **tray**
+on macOS, which hosts the daemon; a bare `dispatch-daemon` elsewhere). It then
+drives that daemon over its loopback API - it never opens its own broker
+connection.
+
+Both hosts get the same skill, the same `dispatch-mcp` command, and the same
+tools. The only difference is how the host is told about them, and how it asks
+you to approve a tool call (see *Approval surfaces* below).
 
 ```bash
 # 1. Install the package so the plugin's commands (dispatch-mcp, dispatch,
@@ -184,16 +193,33 @@ dispatch login --broker https://your-broker
 #    Opens the broker sign-in, you confirm the shown code, and the JWT +
 #    broker URL are saved to ~/.dispatch/config.json. No token to copy/paste.
 #    (after the first run, plain `dispatch login` reuses the saved broker.)
+```
 
-# 3. Add the marketplace and install the plugin (one-time), in Claude Code:
+Then wire up your host, once:
+
+**Claude Code** - in a session:
+
+```
 /plugin marketplace add kaan7305/dispatch
 /plugin install dispatch@dispatch
 ```
 
-You don't need a separate Anthropic API key for in-session mode - the agent
-runs on your existing Claude Code login. Restart your Claude Code session;
-the `dispatch-mcp` server starts with each session and exposes the tools it
-drives:
+**Codex** - either the plugin, or one CLI command:
+
+```bash
+# The plugin route: add this repo as a marketplace, then install from /plugins.
+# Same bundle Claude Code gets (.codex-plugin/plugin.json), so the skill and
+# the MCP server arrive together.
+
+# Or the direct route - writes [mcp_servers.dispatch] into
+# $CODEX_HOME/config.toml and drops the skill in $CODEX_HOME/skills/dispatch/:
+dispatch codex install
+dispatch codex status      # what's wired up, and which of your MCP servers Codex exposes
+```
+
+You don't need a separate model API key for in-session mode - the agent runs on
+your existing Claude Code or Codex login. Restart your session; the
+`dispatch-mcp` server starts with each session and exposes the tools it drives:
 
 ```
 dispatch_read(what) - inbox | status | sent | contacts | invitations | approvals | whoami
@@ -211,8 +237,29 @@ the approval futures, and it *ignores* any decision relayed over the broker WS,
 so a compromised broker still can't fabricate your consent. The device key and
 executor live in the daemon; Layers 2 and 3 are unchanged.
 
+#### Approval surfaces
+
+Hosts don't agree on how a server may ask you a question, so Dispatch picks the
+surface from the host that launched it. Override with `approval_ui` in
+`~/.dispatch/config.json` or `$DISPATCH_APPROVAL_UI`.
+
+| Mode | Where you answer | Used by |
+|---|---|---|
+| `picker` | The host's own numbered picker (`AskUserQuestion`) - arrow + Enter, same as a Bash permission prompt. | Claude Code, and any client that doesn't identify itself |
+| `form` | Inline MCP elicitation - the same five options, rendered in the client's form. | Codex, and anything else that implements elicitation |
+| `local` | Not in-session at all: the ⬡ Dispatch tray, the OS notification, or the local web UI. The tool keeps watching while you answer. | Non-interactive sessions, and the automatic fallback below |
+
+Two things route you to `local` on their own. If the client can't render an
+elicitation, there's no in-session surface left to use. And if an *approval*
+comes back faster than a person could have read the call, it's treated as the
+client answering on your behalf rather than consent - the answer is discarded,
+not posted, and the rest of the run's approvals move to the tray. (Codex
+auto-approves elicitations in `danger-full-access` sandbox mode; an elicitation
+response carries no proof a human saw it.) A fast *denial* is honored, since
+denying is the safe direction.
+
 Because the daemon persists across sessions, dispatches are received even when no
-Claude session is open, and what one session accepts is visible in another.
+agent session is open, and what one session accepts is visible in another.
 Anything sent while *no* daemon is running waits in the broker's offline queue
 (an SMS nudges you) and lands when a daemon next comes up. For guaranteed
 always-on reachability or scheduled runs without relying on a session to spawn
@@ -248,12 +295,14 @@ Manual install: `pipx install git+<repo>` then `dispatch-daemon --broker URL
 
 ---
 
-## Claude Code skill (`/dispatch`)
+## Agent skill (`/dispatch`)
 
-Drive Dispatch from inside Claude Code with natural language - "dispatch this
-to Edward", "what's in my dispatch inbox?", "accept that dispatch" - or the
-`/dispatch` slash command. The skill is pure instructions; the real work runs
-through the `dispatch` CLI it calls.
+Drive Dispatch from inside Claude Code or Codex with natural language -
+"dispatch this to Edward", "what's in my dispatch inbox?", "accept that
+dispatch" - or the `/dispatch` slash command. The skill is pure instructions;
+the real work runs through the `dispatch` CLI it calls. One `skills/dispatch/`
+directory serves both hosts, bundled by `.claude-plugin/plugin.json` and
+`.codex-plugin/plugin.json` respectively.
 
 Two pieces ship with the package:
 
@@ -268,6 +317,7 @@ Two pieces ship with the package:
    dispatch login [--broker URL]            # device-code sign-in; saves config
    dispatch update                          # update the package (+ plugin if changed)
    dispatch tray                            # launch the menu-bar tray (hosts the daemon)
+   dispatch codex [status|install]          # wire Dispatch into the Codex CLI
 
    # Broker-backed:
    dispatch whoami                          # who am I + which broker
@@ -301,11 +351,14 @@ Two pieces ship with the package:
    dispatch is **not** blanket approval: under a `manual` edge each tool call
    still needs `dispatch approve`/`deny` (or a click in the local UI).
 
-2. **The skill** - `skills/dispatch/SKILL.md`. Symlink it into Claude Code:
+2. **The skill** - `skills/dispatch/SKILL.md`. Symlink it into your host:
 
    ```bash
-   mkdir -p ~/.claude/skills
+   mkdir -p ~/.claude/skills                                  # Claude Code
    ln -sfn "$PWD/skills/dispatch" ~/.claude/skills/dispatch
+
+   mkdir -p ~/.codex/skills                                   # Codex
+   ln -sfn "$PWD/skills/dispatch" ~/.codex/skills/dispatch
    ```
 
    Confirm with `ls ~/.claude/skills/dispatch/SKILL.md`. After that, Claude
@@ -321,8 +374,8 @@ Two pieces ship with the package:
 1. **Sign in** - the web UI signs you in via Clerk (Google); the CLI/daemon use
    `dispatch login` (a device-code flow: it opens the browser, you confirm a
    code, and the JWT is saved to `~/.dispatch/config.json`).
-2. **Run your daemon** - the install one-liner once, or just open Claude Code
-   with the plugin and let it auto-spawn the daemon.
+2. **Run your daemon** - the install one-liner once, or just open Claude Code or
+   Codex with the plugin and let it auto-spawn the daemon.
 3. **Invite** - in Contacts (or `dispatch invite <email>`), invite a teammate.
    They get an emailed link.
 4. **They accept** - opening the link (or via `dispatch_invite`), they choose the
@@ -402,6 +455,7 @@ still letting a dispatch wait in the offline queue for a recipient who's away.
 src/dispatch/
   cli.py          dispatch - terminal client (broker + loopback daemon API)
   mcp_server.py   dispatch-mcp - in-session thin client; ensures + drives the daemon
+  codex.py        Codex host wiring - config.toml install + MCP server discovery
   shared/
     schema.py     DispatchPayload, DispatchEvent, DispatchStatus, Scopes, …
     identity.py   JWT issue/verify (HS256)
@@ -425,6 +479,12 @@ src/dispatch/
   tray/
     app.py        dispatch-tray - macOS menu-bar indicator that hosts the daemon
   web/desktop/    the React web UI (served by the broker and each daemon)
+
+skills/dispatch/       the /dispatch skill - one copy, both hosts
+.claude-plugin/        Claude Code plugin manifest + marketplace
+.codex-plugin/         Codex plugin manifest (skills + .mcp.json at repo root)
+.mcp.json              the dispatch-mcp entry the Codex plugin bundles
+.agents/plugins/       repo-scoped Codex marketplace (install from a checkout)
 ```
 
 ---

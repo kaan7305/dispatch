@@ -1,0 +1,15 @@
+{
+  "name": "dispatch",
+  "interface": {
+    "displayName": "Dispatch"
+  },
+  "plugins": [
+    {
+      "name": "dispatch",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE" },
+      "category": "Developer Tools",
+      "description": "Peer-to-peer agentic task courier driven from Codex. Terminal sign-in, in-session (no daemon to babysit), scoped + signed + approved; a dispatch can use the recipient's own MCP tools. Delegate, invite, receive, approve, and track dispatches in natural language."
+    }
+  ]
+}

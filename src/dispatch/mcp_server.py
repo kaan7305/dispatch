@@ -1,9 +1,13 @@
 """dispatch-mcp — the in-session Dispatch helper (thin client of the daemon).
 
-Claude Code launches this stdio MCP server per session (declared in the
-plugin's plugin.json). It is **not** a second daemon: it holds no broker
-connection, no device key, and runs no executor. Instead it is a thin client
-of the local daemon's 127.0.0.1 API.
+The host agent launches this stdio MCP server per session: Claude Code from
+`.claude-plugin/plugin.json`, Codex from `.codex-plugin/plugin.json` (or a
+`[mcp_servers.dispatch]` entry written by `dispatch codex install`). Both point
+at the same command and the same skill, because nothing in here is
+host-specific except which surface asks the human to approve a tool call — see
+_approval_ui. It is **not** a second daemon: it holds no broker connection, no
+device key, and runs no executor. Instead it is a thin client of the local
+daemon's 127.0.0.1 API.
 
 Lifecycle:
   1. Read ~/.dispatch/config.json. No broker token → **dormant**: the tools
@@ -24,13 +28,17 @@ Why this shape (vs. the old per-session daemon):
     inbox, so what one terminal accepts is visible in another.
   - **Security layers unchanged.** Layer 2 (signature + TOFU pin) and the
     executor run in the daemon. Layer 3 (human approval) is surfaced per
-    _approval_ui: 'picker' (default) hands each gated call to the host agent
-    as `approval_needed` and the human answers via AskUserQuestion (numbered
-    options, arrow + Enter, no form chrome); 'form' asks inline via
-    `ctx.elicit` (numbered single-select, deterministic on any client), with
-    the picker hand-off as fallback. Every decision is resolved against the
-    daemon — the daemon, not the broker, holds the approval futures, so the
-    broker still can't fabricate consent.
+    _approval_ui, which follows the host: 'picker' hands each gated call to the
+    host agent as `approval_needed` and the human answers via AskUserQuestion
+    (Claude Code); 'form' asks inline via `ctx.elicit` (numbered single-select,
+    the same five choices, rendered by the client — Codex and anything else
+    that implements elicitation); 'local' declines to ask in-session and lets
+    the human answer on the daemon's own surface (tray, OS notification,
+    127.0.0.1 UI), which is where a client that can't be trusted to reach a
+    human gets routed. Every decision is resolved against the daemon — the
+    daemon, not the broker, holds the approval futures, so the broker still
+    can't fabricate consent, and neither can a client that auto-answers
+    prompts (see _HUMAN_READ_FLOOR_S).
 
 The dispatched task itself runs in the daemon's confined executor (a fresh
 ClaudeSDKClient with `setting_sources=[]`); it never inherits this session's
@@ -47,6 +55,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,17 +89,68 @@ _SUPERVISE_TIMEOUT_S = 600.0  # safety cap on a single accepted run
 _LOGIN_HINT = "not signed in — run `dispatch login` in a terminal, then restart this session."
 
 
-def _approval_ui() -> str:
+# A human cannot read a tool call and pick from five options faster than this.
+# Codex auto-approves MCP elicitations when it runs in danger-full-access
+# sandbox mode, and an elicitation response carries no proof a human ever saw
+# it — so an *approval* that returns quicker than this floor is treated as
+# machine-answered, discarded, and re-asked on the daemon's own surface. A fast
+# denial is honored: denying is the safe direction and needs no protecting.
+# Layer 3 is consent from a person; a client answering on their behalf is the
+# same forgery the signature layer exists to stop, just one layer up.
+_HUMAN_READ_FLOOR_S = 1.2
+
+# Clients that can relay an approval to their own native picker. Only Claude
+# Code has AskUserQuestion today; an unknown client is assumed to (that was the
+# behavior before host detection existed, and Claude Code must not regress if
+# it ever stops reporting a name).
+_PICKER_HOSTS = ("claude",)
+
+
+def _host_name(ctx: Optional[Context] = None) -> str:
+    """The client's self-reported name from MCP `initialize`, lowercased
+    ('claude-code', 'codex', …). Empty when it can't be read.
+
+    Deliberately defensive: this walks optional attributes on an SDK-owned
+    session object and the exact path has moved between mcp releases. A miss
+    must cost us the host hint, never the session."""
+    try:
+        params = getattr(getattr(ctx, "session", None), "client_params", None)
+        return str(getattr(getattr(params, "clientInfo", None), "name", "") or "").strip().lower()
+    except Exception:  # noqa: BLE001 — a rename here can't be allowed to throw
+        return ""
+
+
+def _host_has_picker(ctx: Optional[Context] = None) -> bool:
+    """Can this host be asked to relay an approval to a native picker?"""
+    host = _host_name(ctx)
+    return not host or any(h in host for h in _PICKER_HOSTS)
+
+
+def _approval_ui(ctx: Optional[Context] = None) -> str:
     """Which surface asks the human to approve a gated tool call.
-      'picker' (default) — hand every approval to the HOST agent as
-        approval_needed; it asks via its native picker (AskUserQuestion in
-        Claude Code: numbered options, arrow + Enter, no form chrome).
+      'picker' — hand every approval to the HOST agent as approval_needed; it
+        asks via its native picker (AskUserQuestion in Claude Code: numbered
+        options, arrow + Enter, no form chrome).
       'form' — ask inline via MCP elicitation (the client's form, numbered
-        single-select but with its fixed Accept/Decline footer). Deterministic
-        on any client; use on machines whose agent won't relay the picker.
-    Set via DISPATCH_APPROVAL_UI or `approval_ui` in ~/.dispatch/config.json."""
-    value = os.environ.get("DISPATCH_APPROVAL_UI") or _load_config().get("approval_ui") or "picker"
-    return "form" if str(value).lower() == "form" else "picker"
+        single-select but with its fixed Accept/Decline footer). The same five
+        choices as the picker, rendered by the client instead of the agent.
+      'local' — don't ask in-session at all. The daemon holds the approval
+        future and has already notified this machine (OS notification + its
+        127.0.0.1 UI + the tray), so the human answers there while the tool
+        keeps watching. The safe surface when the in-session one can't be
+        trusted to reach a person.
+
+    Explicit config wins: DISPATCH_APPROVAL_UI or `approval_ui` in
+    ~/.dispatch/config.json. Otherwise it follows the host — a client with a
+    native picker gets 'picker', anything else gets 'form', because relaying
+    approval_needed to an agent that has no picker tool would leave it
+    improvising a prompt in chat text, or answering on the human's behalf."""
+    value = str(
+        os.environ.get("DISPATCH_APPROVAL_UI") or _load_config().get("approval_ui") or ""
+    ).lower()
+    if value in ("picker", "form", "local"):
+        return value
+    return "picker" if _host_has_picker(ctx) else "form"
 
 
 # ----------------------------------------------------------------------------
@@ -415,14 +475,37 @@ def _fmt_tool_call(tool: str, tool_input: Any) -> str:
     return f"{headline} ({extras})" if extras else headline
 
 
+async def _notify_local_approval(
+    ctx: Context, dispatch_id: str, sender: str, info: dict
+) -> None:
+    """Tell the session, once, that approvals are being answered off-session.
+
+    'local' mode blocks without asking anything here, which from the terminal
+    looks indistinguishable from a hung tool. The daemon already fired an OS
+    notification, so this is only about not leaving the transcript silent. Sent
+    as an MCP log message: any client may drop it, so nothing depends on it
+    arriving."""
+    try:
+        await ctx.info(
+            f"Dispatch: {sender} needs approval for "
+            f"{_fmt_tool_call(info.get('tool', '?'), info.get('input'))} "
+            f"(dispatch {dispatch_id[:8]}…). Answer it in the ⬡ Dispatch tray or at "
+            f"http://127.0.0.1:{_local_port()} — this session keeps watching. "
+            "Unanswered calls are denied after ~120s."
+        )
+    except Exception:  # noqa: BLE001 — a client without logging must not break the run
+        pass
+
+
 def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict) -> dict:
     """The approval hand-off to the HOST agent: the pending tool call is given
     to the main agent to ask the human via its native picker (AskUserQuestion
     in Claude Code) — the same surface as a Bash permission prompt: numbered
-    options, arrow + Enter, no form chrome. This is the default approval UI
-    ('picker' mode) and the fallback when 'form' mode can't render elicitation.
-    The run stays paused on the daemon's approval future (which auto-denies
-    after ~120s, see TOOL_APPROVAL_TIMEOUT_S in dispatch.daemon.main)."""
+    options, arrow + Enter, no form chrome. This is 'picker' mode, and the
+    fallback when 'form' mode can't render elicitation on a host that has a
+    picker. The run stays paused on the daemon's approval future (which
+    auto-denies after ~120s, see TOOL_APPROVAL_TIMEOUT_S in
+    dispatch.daemon.main)."""
     return {
         "status": "approval_needed",
         "dispatch_id": dispatch_id,
@@ -452,17 +535,42 @@ def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict)
     }
 
 
+def _decision_of(choice: str) -> str:
+    """Map an elicited `_Approve.decision` label to the daemon's decision verb.
+    Anything unrecognized (a declined prompt, an empty response, a client that
+    invented its own answer) lands on 'deny' — the safe direction."""
+    if choice.startswith("1."):
+        return "allow"
+    if choice.startswith("2."):
+        return "always"
+    if choice.startswith("3."):
+        return "session"
+    return "deny"
+
+
 async def _supervise(
     dispatch_id: str, ctx: Context, already_handled: set[str] | None = None
 ) -> dict:
     """Watch a running dispatch to completion, gating each pending tool call on
-    the human (Layer 3). In 'picker' mode (default, see _approval_ui) each
-    pending call is returned as an `approval_needed` payload so the host agent
-    asks the user via AskUserQuestion (arrow + Enter, no form chrome) and
-    relays the decision via dispatch_act(approve/deny) — which re-enters this
-    loop until the next gate or the final result. In 'form' mode the prompt is
-    inline MCP elicitation — a numbered single-select — with the same
-    approval_needed hand-off as fallback when elicitation can't render.
+    the human (Layer 3). The surface follows the host (see _approval_ui):
+
+      'picker' — each pending call is returned as an `approval_needed` payload
+        so the host agent asks via its native picker (AskUserQuestion: arrow +
+        Enter, no form chrome) and relays the decision through
+        dispatch_act(approve/deny), which re-enters this loop until the next
+        gate or the final result.
+      'form' — the prompt is inline MCP elicitation, a numbered single-select
+        with the same five choices.
+      'local' — nobody is asked in-session; we keep watching while the human
+        answers on the daemon's own surface, which already notified them.
+
+    'form' degrades to whichever of the other two can actually reach a person:
+    the picker relay on a host that has one, else the daemon's surface. It also
+    latches to 'local' if an approval comes back too fast to have been read by a
+    human (see _HUMAN_READ_FLOOR_S) — a client that answers for the user has
+    not produced consent, and re-prompting the same client would just fabricate
+    it again.
+
     `already_handled` carries request ids whose decision was just posted, so
     the brief window before the daemon pops them from pending_tools can't
     surface them twice."""
@@ -470,6 +578,8 @@ async def _supervise(
     waited = 0.0
     status: Optional[str] = None
     events = 0
+    ui = _approval_ui(ctx)
+    told_about_local = False
     while waited < _SUPERVISE_TIMEOUT_S:
         detail = await _local_call("GET", f"/api/dispatch/{dispatch_id}")
         if isinstance(detail, dict) and not detail.get("error"):
@@ -479,41 +589,62 @@ async def _supervise(
             for request_id, info in (detail.get("pending_tools") or {}).items():
                 if request_id in handled:
                     continue
-                if _approval_ui() == "picker":
-                    # Default: the host agent asks via its native picker
-                    # (arrow + Enter, no form chrome) and relays the answer
-                    # through dispatch_act(approve/deny).
+                if ui == "picker":
+                    # The host agent asks via its native picker (arrow + Enter,
+                    # no form chrome) and relays the answer through
+                    # dispatch_act(approve/deny).
                     return _approval_needed(dispatch_id, sender, request_id, info)
+                if ui == "local":
+                    # The daemon notified this machine when it created the
+                    # approval future; the human answers in the tray or the
+                    # local UI. Keep polling until they do (or until the
+                    # daemon's own ~120s window auto-denies).
+                    if not told_about_local:
+                        told_about_local = True
+                        await _notify_local_approval(ctx, dispatch_id, sender, info)
+                    continue
                 msg = (
                     f"❓ Approval — {sender} wants to run "
                     f"{_fmt_tool_call(info.get('tool', '?'), info.get('input'))}\n"
                     f"(dispatch {dispatch_id[:8]}… · pick 1-5, then Accept)"
                 )
+                asked_at = time.monotonic()
                 try:
                     res = await ctx.elicit(message=msg, schema=_Approve)
                 except Exception as exc:
-                    # Elicitation is unavailable in this session (e.g. a
-                    # non-interactive surface). Do NOT silently deny, and do
-                    # NOT cancel the run — hand the approval to the host
-                    # agent so the human is asked via its native picker.
-                    # The run keeps waiting on the daemon's future meanwhile.
+                    # Elicitation is unavailable in this session (a
+                    # non-interactive surface, or a client that doesn't
+                    # implement it). Do NOT silently deny, and do NOT cancel
+                    # the run — reach the human some other way. A host with a
+                    # picker gets the relay; one without has no in-session
+                    # surface left, so fall through to the daemon's own.
                     print(
                         f"dispatch-mcp: elicitation unavailable ({exc!r}); "
-                        "relaying approval to the host agent",
+                        "asking the human elsewhere",
                         file=sys.stderr,
                     )
-                    return _approval_needed(dispatch_id, sender, request_id, info)
+                    if _host_has_picker(ctx):
+                        return _approval_needed(dispatch_id, sender, request_id, info)
+                    ui = "local"
+                    continue
                 choice = res.data.decision if isinstance(res, AcceptedElicitation) else ""
-                if choice.startswith("1."):
-                    decision = "allow"
-                elif choice.startswith("2."):
-                    decision = "always"
-                elif choice.startswith("3."):
-                    decision = "session"
-                else:
-                    # "4. Deny", "5. Decline", a declined prompt, or anything
-                    # unexpected.
-                    decision = "deny"
+                decision = _decision_of(choice)
+                if decision != "deny" and (time.monotonic() - asked_at) < _HUMAN_READ_FLOOR_S:
+                    # Answered too fast to have been read — the client approved
+                    # on the human's behalf (Codex does this in
+                    # danger-full-access). Throw the answer away rather than
+                    # post it, and move the whole run's approvals to the
+                    # daemon's surface; re-prompting this client would just
+                    # manufacture the same consent again.
+                    print(
+                        f"dispatch-mcp: elicited approval for {info.get('tool', '?')} "
+                        f"returned in <{_HUMAN_READ_FLOOR_S}s — treating it as "
+                        "client-answered, not human consent; switching approvals "
+                        "to this machine's Dispatch surface",
+                        file=sys.stderr,
+                    )
+                    ui = "local"
+                    continue
                 handled.add(request_id)
                 await _local_call(
                     "POST", f"/api/dispatch/{dispatch_id}/tool/{request_id}/decision",
@@ -529,23 +660,32 @@ async def _supervise(
         await asyncio.sleep(0.25)
         waited += 0.25
 
+    note = (
+        "Ran in the daemon's sandboxed dp-agent (confined to the edge scope); "
+        "every gated tool call was decided by the human. Do NOT perform the "
+        "task yourself or run any tools toward it — it is already done."
+    )
+    if ui == "local":
+        note += (
+            " Approvals for this run were answered on this machine's Dispatch "
+            "surface (tray / local UI), not in this session — a call shown as "
+            "denied may simply have gone unanswered there."
+        )
     return {
         "status": status or "unknown",
         "dispatch_id": dispatch_id,
         "events": events,
-        "note": "Ran in the daemon's sandboxed dp-agent (confined to the edge "
-                "scope); every gated tool call was decided by the human. Do NOT "
-                "perform the task yourself or run any tools toward it — it is "
-                "already done.",
+        "approval_surface": ui,
+        "note": note,
     }
 
 
 async def _run_accept(dispatch_id: str, ctx: Context, cwd: str | None = None) -> dict:
     """Accept + supervise the daemon's confined run to completion, asking the
     human for each tool call on a manual edge. The run executes in the DAEMON's
-    executor; we relay its pending approvals here (the approval_needed hand-off
-    to the host agent's picker by default, or inline elicitation styled like
-    the native picker in 'form' mode).
+    executor; we relay its pending approvals here, on whichever surface the host
+    supports — the approval_needed hand-off to its native picker, inline
+    elicitation, or the daemon's own UI (see _approval_ui).
     `cwd` (optional, recipient-chosen) pins the directory the agent runs in."""
     body: dict = {"decision": "accept"}
     if cwd:
