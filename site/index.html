@@ -3629,10 +3629,31 @@ https://github.com/kaan7305/dispatch
 
     <div class="faq reveal">
       <details>
-        <summary>Does the broker see my code or my files?</summary>
-        <p class="fa">No. The broker relays sealed envelopes and checks policy.
-           It holds no signing keys and runs no code. All work happens on the
-           recipient's machine with their own API key.</p>
+        <summary>Is it open source?</summary>
+        <p class="fa">Yes, MIT licensed, all of it. The daemon, the relay, the web
+           UI, and the agent skill are in one
+           <a href="https://github.com/kaan7305/dispatch" target="_blank" rel="noopener">repository</a>
+           you can read end to end.</p>
+      </details>
+      <details>
+        <summary>Can I host it myself?</summary>
+        <p class="fa">Yes, and nothing here depends on a service we run. Install
+           from source, start the relay on your own machine or your own server, and
+           point everyone at it. See
+           <a href="docs.html#running-the-broker">running the broker</a>.</p>
+      </details>
+      <details>
+        <summary>Do I need an API key?</summary>
+        <p class="fa">Not if you already sign in to Claude Code or Codex. Each side
+           runs on its own login, so a dispatch spends the recipient's quota and not
+           yours. An API key is just the alternative for a machine with nobody
+           sitting at it.</p>
+      </details>
+      <details>
+        <summary>Where does the work actually happen?</summary>
+        <p class="fa">On the recipient's machine, with their agent, their files, and
+           their credentials. Nothing runs anywhere else, and no one else decides
+           what it may touch.</p>
       </details>
       <details>
         <summary>What if the recipient's machine is offline?</summary>
@@ -3649,12 +3670,6 @@ https://github.com/kaan7305/dispatch
         <p class="fa">Yes, immediately, and it cancels anything in flight. You can
            also narrow the scope, set a path allowlist, cap dispatches per day, or
            set an expiry.</p>
-      </details>
-      <details>
-        <summary>Do I have to use your broker?</summary>
-        <p class="fa">No. The broker is a small FastAPI service you can run yourself,
-           locally or on your own server. See
-           <a href="docs.html#running-the-broker">running the broker</a>.</p>
       </details>
     </div>
   </div>
