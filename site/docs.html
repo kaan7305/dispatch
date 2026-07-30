@@ -76,7 +76,11 @@
     gap: 48px;
     padding: 0 28px;
   }
-  @media (max-width: 880px) { .docs { grid-template-columns: 1fr; gap: 0; } }
+  /* minmax(0,…), not 1fr — a bare fr track won't shrink under a wide <pre>,
+     and the whole column walks off the right of the screen */
+  @media (max-width: 880px) { .docs { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+  .docs > * { min-width: 0; }
+  main { min-width: 0; }
 
   /* ── sidebar ── */
   .side {
@@ -259,6 +263,52 @@
     border-top: 1px solid var(--line);
     display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px 24px;
     font-size: 13px; color: var(--muted);
+  }
+
+  /* ═════════════ SMALL SCREENS ═════════════ */
+  html { overflow-x: clip; -webkit-text-size-adjust: 100%; }
+  body { overflow-x: clip; max-width: 100%; }
+
+  @media (max-width: 720px) {
+    header { height: auto; min-height: 56px; padding: 8px 16px; gap: 10px; flex-wrap: wrap; }
+    .wordmark { font-size: 22px; }
+    .wm-mark { width: 24px; height: 24px; }
+    .top-links { gap: 2px; font-size: 14px; }
+    .top-links a { height: 34px; padding: 0 9px; font-size: 14px; }
+    .top-links a.cta { padding: 0 12px; }
+
+    .docs { padding: 0 16px; }
+    .side { padding: 14px 0; }
+    .side a { font-size: 14px; padding: 5px 10px; }
+    main { padding: 30px 0 72px; }
+    body { font-size: 16.5px; }
+    h1 { font-size: clamp(28px, 7.6vw, 36px); }
+    h2 { font-size: 22px; margin: 34px 0 10px; }
+    h3 { font-size: 17px; }
+    .lede { font-size: 17px; }
+    ul, ol { margin-left: 18px; }
+
+    /* a long flag or URL in prose has to be allowed to break — nowrap here
+       was widening the whole column */
+    code { white-space: normal; overflow-wrap: anywhere; }
+    pre { padding: 12px 13px; border-radius: 8px; }
+    pre code { font-size: 11.5px; white-space: pre; overflow-wrap: normal; }
+
+    /* the first column stops being a single unbreakable line */
+    table { font-size: 13.5px; }
+    th, td { padding-right: 10px; }
+    td:first-child { white-space: normal; }
+    .callout { padding: 12px 14px; font-size: 14.5px; }
+    .layer { padding: 13px 14px; }
+    .layer .lh { flex-wrap: wrap; gap: 8px; font-size: 12.5px; }
+    .layer .badge { font-size: 9px; padding: 3px 8px; }
+    .layer p { font-size: 13.5px; }
+    .page-foot { flex-direction: column; gap: 10px; font-size: 14px; }
+    .foot-wrap { padding: 0 16px; }
+    footer { margin-top: 52px; padding: 38px 0 46px; }
+    .foot-grid { gap: 26px 36px; }
+    .foot-cols { gap: 24px 34px; }
+    .foot-col { flex: 1 1 130px; }
   }
 </style>
 </head>
