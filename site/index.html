@@ -3059,7 +3059,9 @@
     .room-row .rr-sub { font-size: 11px; }
     .rd-head { padding: 9px 11px; }
     .rd-log { padding: 8px 11px; }
-    .rlog { flex-wrap: wrap; gap: 0 6px; font-size: 9.5px; line-height: 1.65; }
+    /* the timestamp holds its column and the command wraps under itself —
+       wrapping the flex line instead would drop the stamp onto its own row */
+    .rlog { gap: 6px; font-size: 9.5px; line-height: 1.65; }
     .rlog .x { min-width: 0; overflow-wrap: anywhere; }
     .badge { font-size: 9.5px; padding: 1.5px 6px; }
     .workshop-card { padding: 14px; }
@@ -3112,7 +3114,9 @@
     .us-item { padding: 9px 13px; }
     .us-item b { font-size: 17px; }
     .us-feed { padding: 11px 12px; gap: 6px; }
-    .us-line { flex-wrap: wrap; gap: 0 8px; font-size: 10.5px; }
+    /* same here — the ✓ / ? keeps its column, the sentence wraps beside it */
+    .us-line { gap: 8px; font-size: 10.5px; align-items: flex-start; }
+    .us-line span:last-child { min-width: 0; }
     .uc-step { font-size: 10.5px; padding: 3px 9px; }
     .uc-result { font-size: 11px; padding: 9px 11px; }
 
@@ -3661,23 +3665,28 @@ https://github.com/kaan7305/dispatch
 <!-- ── USE CASES ── -->
 <section id="uses">
   <div class="wrap">
-    <h2 class="reveal">What people send.</h2>
-    <p class="section-intro reveal">Anything you'd trust a friend to do at your keyboard.</p>
+    <h2 class="reveal">Where this earns its keep.</h2>
+    <p class="section-intro reveal">
+      Every one of these has the same shape: the work has to happen on a machine
+      you aren't sitting at, because the software, the hardware, or the data
+      lives there and can't move.
+    </p>
 
     <div class="uses-show reveal">
       <div class="uses-nav" id="uses-nav">
-        <button class="us-item on" data-us="0"><b>Update dad's Zoom</b></button>
-        <button class="us-item" data-us="1"><b>Query the lab workstation</b></button>
-        <button class="us-item" data-us="2"><b>Ship the release</b></button>
-        <button class="us-item" data-us="3"><b>Autograde the whole class</b></button>
+        <button class="us-item on" data-us="0"><b>B2B technical support</b><span>the vendor's software is already there</span></button>
+        <button class="us-item" data-us="1"><b>Internal IT helpdesk</b><span>one org owns both ends</span></button>
+        <button class="us-item" data-us="2"><b>Shared test hardware</b><span>the board can't be virtualized</span></button>
+        <button class="us-item" data-us="3"><b>Data that can't leave</b><span>the constraint is legal</span></button>
+        <button class="us-item" data-us="4"><b>Your own second machine</b><span>no counterparty needed</span></button>
       </div>
 
       <div class="uses-stage">
         <div class="sky-bg" data-sky="uses"></div>
-        <div class="us-quote" id="us-quote">Update Zoom before your call tonight.</div>
+        <div class="us-quote" id="us-quote">Find why orders stopped syncing on Tuesday.</div>
         <div class="uc-steps" id="us-steps"></div>
         <div class="us-feed" id="us-feed"></div>
-        <div class="uc-result" id="us-result">Done. Test call works.</div>
+        <div class="uc-result" id="us-result">Diagnosed and fixed in four minutes. No screen share.</div>
       </div>
     </div>
   </div>
@@ -5873,40 +5882,60 @@ scaleObs.observe(roomTable);
 
 /* ═════════ use cases: one story at a time, played out on the stage ═════════ */
 const USES = [
-  { route: "to his dad's Mac",
-    quote: "Update Zoom before your call tonight.",
+  /* the vendor's own software is already installed on the customer's box, so
+     the daemon rides in with it. the engineer never asks for a screen share. */
+  { route: "to the customer's server",
+    quote: "Find why orders stopped syncing on Tuesday.",
+    steps: ["read the logs", "find the cause", "propose a fix", "wait for yes"],
+    feed: [
+      { k: "run",  txt: "tail -2000 /var/log/ordersync/*.log" },
+      { k: "ok",   txt: "423 rejects since 02:14 Tue · one webhook, expired secret" },
+      { k: "ask",  txt: "rotate the secret and restart the worker? — their admin approves" },
+      { k: "ok",   txt: "worker back up · queue draining · 0 rejects" },
+    ],
+    result: "Diagnosed and fixed in four minutes. No screen share.", declined: false },
+  /* one company on both ends — MDM already put the daemon on every laptop */
+  { route: "to an employee laptop",
+    quote: "VPN stopped connecting after the OS update. Sort it out.",
     steps: [],
     feed: [
-      { k: "run",  txt: "curl -O zoom.us/client/6.1.4/Zoom.pkg" },
-      { k: "ask",  txt: "installer needs admin — dad taps Allow" },
-      { k: "ok",   txt: "Zoom 6.1.4 installed · test call connects" },
+      { k: "run",  txt: "scutil --nc list · inspect tunnel profile" },
+      { k: "ok",   txt: "cert stale since the 14.4 upgrade" },
+      { k: "ask",  txt: "replace the profile? — she taps Allow" },
+      { k: "ok",   txt: "profile reinstalled · tunnel up" },
     ],
-    result: "Done. Test call works.", declined: false },
-  { route: "to the lab workstation",
-    quote: "Run the survey query — send me only the totals.",
+    result: "Closed without a call. The daemon shipped with MDM to all 400 laptops.", declined: false },
+  /* a board on a bench: can't be moved, can't be virtualized, and a bad
+     script bricks it — which is why the lab wants the approval gate */
+  { route: "to the bench PC",
+    quote: "Flash the new firmware to board 3 and run the regression suite.",
+    steps: ["flash", "regression", "collect traces"],
+    feed: [
+      { k: "ask",  txt: "erase and flash board 3? — the tech at the bench confirms" },
+      { k: "run",  txt: "openocd -f board3.cfg -c \"program fw.elf verify\"" },
+      { k: "ok",   txt: "214/214 pass · scope traces attached" },
+    ],
+    result: "The board never left the bench. Nobody had to be in the room.", declined: false },
+  /* the data is the thing that can't move, and a custodian signs for each step */
+  { route: "to the hospital workstation",
+    quote: "Run the cohort analysis on 2024 admissions. Send back aggregates only.",
     steps: [],
     feed: [
-      { k: "run",  txt: "duckdb survey.db \"SELECT region, sum(n)…\"" },
-      { k: "ok",   txt: "9 rows → totals.csv" },
-      { k: "ok",   txt: "48,112 raw rows never leave the machine" },
+      { k: "ask",  txt: "read /phi/admissions_2024? — the data custodian approves" },
+      { k: "run",  txt: "python cohort.py --aggregate-only" },
+      { k: "ok",   txt: "6 summary rows out · 91,400 patient records stayed put" },
     ],
-    result: "Totals sent. The dataset stayed on the workstation.", declined: false },
-  { route: "to the build Mac",
-    quote: "Ship the release: build, notarize, upload to the CDN, paste the checksum in the thread.",
-    steps: ["build 2.4.0", "notarize", "upload · 3 artifacts", "checksum → thread"],
+    result: "Aggregates came back. The PHI never crossed the boundary.", declined: false },
+  /* no trust edge to build — this is the one you can run on day one */
+  { route: "to your Windows box",
+    quote: "Train the model on the 4090 and send me the validation curve.",
+    steps: [],
     feed: [
-      { k: "ok",   txt: "notarization ticket stapled · Gatekeeper ✓" },
-      { k: "ok",   txt: "sha256 9f3c1a… posted to the thread" },
+      { k: "run",  txt: "python train.py --epochs 40 --device cuda:0" },
+      { k: "ok",   txt: "40 epochs · val_acc 0.918 · curve.png" },
+      { k: "ok",   txt: "plot posted back · GPU idle again" },
     ],
-    result: "2.4.0 live. Checksum posted.", declined: false },
-  { route: "to 30 student Macs",
-    quote: "Collect assignment.zip from every student, run the autograder, post scores to the sheet.",
-    steps: ["collect 30 zips", "autograde", "post scores", "2 missing → threads"],
-    feed: [
-      { k: "run",  txt: "30 dispatches → 30 inboxes · signed once" },
-      { k: "ok",   txt: "28 zips in · autograded · mean 84.2" },
-    ],
-    result: "28 graded and posted. Follow-ups opened for 2 missing files.", declined: false },
+    result: "No counterparty, no invitation. Just your other machine.", declined: false },
 ];
 
 const usItems = Array.from(document.querySelectorAll(".us-item"));
