@@ -34,6 +34,7 @@ dependencies = [
   "pynacl>=1.5",
   "keyring>=24",
   "certifi>=2024",
+  "croniter>=2.0",
   "mcp>=1.2",
   # Reading Codex's config.toml (MCP server discovery + `dispatch codex`).
   # tomllib is stdlib from 3.11; tomli backfills the 3.10 floor.
