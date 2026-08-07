@@ -15,3 +15,40 @@ workspace/
 node_modules/
 *.log
 .DS_Store
+
+# Not needed to build/run the broker image (Dockerfile only COPYs
+# requirements.txt + src/, this is belt-and-suspenders for build-context
+# size and cache hygiene).
+tests/
+docs/
+site/
+scripts/
+skills/
+loopback/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.claude/
+.claude-plugin/
+.codex-plugin/
+.agents/
+.mcp.json
+*.pdf
+*.spec
+Dispatch.txt
+dispatch-diagram.html
+README.md
+CLAUDE.md
+
+# Frontend source for the desktop UI — the built dist/ it produces is
+# already committed under src/dispatch/web/desktop/dist/ and IS needed
+# (do not ignore that path); only the source/tooling around it is dead
+# weight for this image.
+src/dispatch/web/desktop/src/
+src/dispatch/web/desktop/node_modules/
+src/dispatch/web/desktop/pnpm-lock.yaml
+src/dispatch/web/desktop/package.json
+src/dispatch/web/desktop/package-lock.json
+src/dispatch/web/desktop/*.config.*
+src/dispatch/web/desktop/tsconfig*.json
