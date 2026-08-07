@@ -490,6 +490,20 @@ class Store:
                     )
                 return [dict(r) for r in rows]
 
+    async def earliest_pending_expiry(self):
+        """MIN(expires_at) among dispatches still eligible to expire, or None.
+
+        Called once at broker startup to seed the event-driven sweeper's wake
+        time. After that the sweeper tracks new deadlines in memory as
+        dispatches are created, so this query is never repeated on a poll."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                """
+                SELECT MIN(expires_at) FROM dispatches
+                WHERE status IN ('awaiting_signature', 'pending', 'delivered')
+                """
+            )
+
     # ---------------- devices ----------------
 
     async def enroll_device(

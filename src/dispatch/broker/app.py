@@ -15,12 +15,13 @@ unchanged by other components.
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import UUID
@@ -82,9 +83,11 @@ INVITATION_TTL_DAYS = 7
 
 SIGN_TIMEOUT_S = 20.0
 
-# How often the broker sweeps for dispatches that passed their expires_at
-# without being started, marks them expired, and clears them from the queues.
-EXPIRY_SWEEP_INTERVAL_S = 60.0
+# Floor on the sweeper's sleep, not a polling interval: guards against a
+# near-zero or negative sleep_s (clock rounding, or a burst of exceptions)
+# turning into a hot loop. Real dispatch TTLs are minutes+, so this never
+# meaningfully delays a genuine expiry.
+EXPIRY_SWEEP_FLOOR_S = 0.05
 
 logger = logging.getLogger("dispatch.broker")
 
@@ -94,13 +97,71 @@ _pending_signatures: dict[str, asyncio.Future] = {}
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "app"
 
+# Event-driven expiry sweep: a min-heap of known future expires_at values
+# (only dispatch creation introduces a new deadline — status transitions
+# like delivery never move one earlier) plus a wake signal so the sweeper
+# can sleep exactly until the next deadline instead of polling the DB.
+# Idle steady state (no dispatches being created) drains the heap to empty
+# and the sweeper blocks on the Event indefinitely — zero queries.
+_expiry_heap: list[datetime] = []
+_expiry_wake = asyncio.Event()
+
+
+def _note_expiry(expires_at: datetime) -> None:
+    """Record a newly-created dispatch's deadline and wake the sweeper if
+    this moves the earliest known expiry earlier (or the heap was empty)."""
+    heapq.heappush(_expiry_heap, expires_at)
+    _expiry_wake.set()
+
 
 async def _expiry_sweeper() -> None:
     """Background loop: expire overdue, not-yet-started dispatches and notify
-    watchers. Runs for the life of the app."""
+    watchers. Runs for the life of the app.
+
+    No fixed polling interval. One seed query at startup (there may be rows
+    from before this process started) establishes the initial wake time;
+    after that, _note_expiry() pushed by every dispatch creation is the only
+    thing that moves the wake time. A stale heap entry (its dispatch already
+    left the eligible statuses before its deadline) costs one no-op sweep
+    query at that moment, not a repeating poll.
+    """
+    try:
+        for row in await STORE.expire_overdue():
+            await _broadcast_status(
+                row["dispatch_id"], row["recipient_id"], DispatchStatus.expired
+            )
+        seed = await STORE.earliest_pending_expiry()
+        if seed is not None:
+            heapq.heappush(_expiry_heap, seed)
+    except Exception:
+        logger.exception("expiry sweep seed failed")
+
     while True:
         try:
-            await asyncio.sleep(EXPIRY_SWEEP_INTERVAL_S)
+            now = utcnow()
+            due = False
+            while _expiry_heap and _expiry_heap[0] <= now:
+                heapq.heappop(_expiry_heap)
+                due = True
+
+            if not due:
+                if not _expiry_heap:
+                    _expiry_wake.clear()
+                    await _expiry_wake.wait()
+                    # Something was noted while we slept — recompute the
+                    # target instead of sweeping blind; it may not be due yet.
+                    continue
+                sleep_s = max(
+                    EXPIRY_SWEEP_FLOOR_S, (_expiry_heap[0] - now).total_seconds()
+                )
+                _expiry_wake.clear()
+                try:
+                    await asyncio.wait_for(_expiry_wake.wait(), timeout=sleep_s)
+                    # Woken early by a new, earlier deadline — recompute.
+                    continue
+                except asyncio.TimeoutError:
+                    pass  # reached the deadline; fall through to sweep
+
             for row in await STORE.expire_overdue():
                 await _broadcast_status(
                     row["dispatch_id"], row["recipient_id"], DispatchStatus.expired
@@ -109,6 +170,8 @@ async def _expiry_sweeper() -> None:
             raise
         except Exception:
             logger.exception("expiry sweep failed")
+            # Don't spin hot on a persistent failure (e.g. DB unreachable).
+            await asyncio.sleep(EXPIRY_SWEEP_FLOOR_S)
 
 
 @asynccontextmanager
@@ -480,14 +543,13 @@ fi
 
 @app.get("/health")
 async def health() -> dict:
-    """Liveness + DB readiness check. Railway hits this on every deploy."""
-    db_ok = True
-    try:
-        async with STORE.pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
-    except Exception:
-        db_ok = False
-    return {"status": "ok" if db_ok else "degraded", "database": "up" if db_ok else "down"}
+    """Liveness check. Railway polls this continuously, so it must never
+    touch Postgres — a periodic query here would keep Neon's serverless
+    compute awake forever regardless of how the pool or the expiry sweeper
+    behave. "database" reflects whether the pool was constructed at startup,
+    not a live round-trip; a Neon cold-start on the next real query is
+    expected and not a health-check failure."""
+    return {"status": "ok", "database": "up" if STORE.pool is not None else "down"}
 
 
 @app.get("/me")
@@ -795,6 +857,7 @@ async def _create_one_dispatch(
             signature=None,
         )
         await STORE.enqueue_for_signature(sender, payload.dispatch_id)
+        _note_expiry(payload.expires_at)
         return {
             "recipient_id": recipient,
             "dispatch_id": str(payload.dispatch_id),
@@ -826,6 +889,7 @@ async def _create_one_dispatch(
         nonce=nonce,
         signature=signature,
     )
+    _note_expiry(payload.expires_at)
 
     final_status = await _deliver_or_queue(payload)
     return {
