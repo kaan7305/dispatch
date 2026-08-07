@@ -1,12 +1,15 @@
 """Recipient daemon — pure WebSocket client.
 
 Usage:
-  dispatch-daemon                       # uses saved config from ~/.dispatch/config.json
-  dispatch-daemon --broker URL --token JWT   # explicit; also saves config for next time
+  dispatch-daemon                       # every broker in ~/.dispatch/config.json
+  dispatch-daemon --broker URL --token JWT   # pin to one broker; also saves its entry
   python -m dispatch.daemon ...         # equivalent if installed in a venv
 
 What it does:
-  - Connects to the broker via WebSocket as the authenticated user.
+  - Connects to EVERY configured broker via WebSocket as the authenticated
+    user (multi-home: one machine identity, N brokers, each with its own
+    enrollment + reconnect loop; brokers never learn about each other).
+    Events for a dispatch always flow back on the WS it arrived on.
   - Serves a local FastAPI app on 127.0.0.1 — the ONLY surface that can
     resolve user-intent decisions (Accept/Reject + Allow/Deny). The broker
     WS no longer carries approval messages, so a compromised broker can
@@ -64,6 +67,8 @@ from dispatch.daemon.connlock import ConnectionLock, STANDBY_POLL_S as CONN_STAN
 from dispatch.daemon import machine_index
 from dispatch.daemon import memory as run_memory
 from dispatch import codex
+from dispatch.shared import config as shared_config
+from dispatch.shared.config import BrokerLink
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
 from dispatch.shared.schema import (
@@ -280,18 +285,23 @@ def _ssl_context_for(url: str) -> ssl.SSLContext | None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    # Resolution order for broker/token: CLI flag > env var > saved config file.
+    # An explicit --broker / $DISPATCH_BROKER pins the session to ONE broker;
+    # otherwise every broker entry in ~/.dispatch/config.json gets its own
+    # connection (multi-home). Resolution happens in _resolve_links.
     config = _load_config()
     parser = argparse.ArgumentParser(prog="dispatch-daemon")
     parser.add_argument(
         "--broker",
-        default=os.environ.get("DISPATCH_BROKER") or config.get("broker") or "http://localhost:8000",
-        help="Broker base URL. Default: $DISPATCH_BROKER, then ~/.dispatch/config.json, then localhost.",
+        default=os.environ.get("DISPATCH_BROKER"),
+        help="Pin to a single broker base URL. Default: every broker in "
+             "~/.dispatch/config.json (falling back to localhost:8000 when "
+             "none are configured).",
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("DISPATCH_TOKEN") or config.get("token"),
-        help="JWT bearer token. Default: $DISPATCH_TOKEN, then ~/.dispatch/config.json.",
+        default=os.environ.get("DISPATCH_TOKEN"),
+        help="JWT bearer token (only meaningful with --broker). Default: "
+             "$DISPATCH_TOKEN, then the matching ~/.dispatch/config.json entry.",
     )
     parser.add_argument(
         "--workspace",
@@ -316,19 +326,55 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _resolve_links(args: argparse.Namespace, config: dict) -> list[BrokerLink]:
+    """The brokers this session should hold connections to.
+
+    An explicit --broker / $DISPATCH_BROKER pins to that single broker (token
+    from --token / $DISPATCH_TOKEN / the matching config entry). Otherwise
+    every configured broker entry with a token gets its own link — one machine
+    identity, N broker connections. Brokers never learn about each other."""
+    if args.broker:
+        url = shared_config.normalize_url(args.broker)
+        entry = next(
+            (e for e in shared_config.broker_entries(config) if e["url"] == url), {},
+        )
+        token = args.token or entry.get("token") or ""
+        if not token:
+            return []
+        return [BrokerLink(url=url, token=token, label=entry.get("label", ""),
+                           device_id=entry.get("device_id"))]
+    entries = shared_config.broker_entries(config)
+    if not entries:
+        # Never configured: keep the old localhost default so the dev flow
+        # (`dispatch-daemon --token JWT`) still works.
+        if args.token:
+            return [BrokerLink(url="http://localhost:8000", token=args.token)]
+        return []
+    return [
+        BrokerLink(url=e["url"], token=e["token"], label=e.get("label", ""),
+                   device_id=e.get("device_id"))
+        for e in entries if e.get("token")
+    ]
+
+
 async def run_session(
     args: argparse.Namespace, on_status=None, on_notification=None, on_signout=None,
     on_recheck=None,
 ) -> int:
-    """Run a single broker session.
+    """Run one daemon session holding a connection to EVERY configured broker.
 
     on_status: optional callback called with one of
         "enrolling" | "connecting" | "connected" | "disconnected"
-    so a supervisor (e.g. the tray app) can show live status.
+    (aggregated across brokers: "connected" while any broker WS is up) so a
+    supervisor (e.g. the tray app) can show live status.
 
     on_notification: optional callback `(title, subtitle, message)` invoked
     on user-visible events (incoming dispatch, tool needing approval).
     The tray app supplies this to post a macOS UserNotification.
+
+    Returns 7 only when every broker signed this daemon out (so the tray stops
+    reconnecting); a single broker being down degrades only that broker — its
+    link retries independently with its own backoff.
     """
     def _emit(state: str) -> None:
         if on_status is not None:
@@ -343,51 +389,41 @@ async def run_session(
     from dispatch.executor import prepare_agent_runtime
     prepare_agent_runtime()
 
-    if not args.token:
+    links = _resolve_links(args, _load_config())
+    if not links:
         print(
-            "error: no token. Sign in on the broker's web page, then either:\n"
+            "error: no signed-in broker. Sign in on the broker's web page, then either:\n"
             "  - run the one-line installer it shows you, or\n"
             "  - run: dispatch-daemon --broker <url> --token <jwt>",
             file=sys.stderr,
         )
         return 2
+    for link in links:
+        link.user_id = verify_token_user(link.token)
+    primary = links[0]
 
     _emit("enrolling")
-    print(f"[daemon] >>> begin enrollment, broker={args.broker}", flush=True)
+    print(f"[daemon] brokers: {', '.join(l.url for l in links)}", flush=True)
 
-    # Device enrollment: ensure this machine has an Ed25519 keypair and a
-    # broker-issued device_id. Generates the keypair on first run.
+    # The machine keypair is broker-agnostic — create it once, up front.
+    # Per-broker enrollment (each broker issues its own device_id for the same
+    # public key) happens inside each link's connection loop, so one
+    # unreachable broker can never block the others from coming up.
+    from dispatch.daemon.identity import load_or_create_keypair
     try:
-        device_id = await asyncio.wait_for(
-            ensure_enrolled(
-                args.broker, args.token, _load_config().get("device_id")
-            ),
-            timeout=15.0,
-        )
-        print(f"[daemon] enrollment OK -> {device_id}", flush=True)
-    except asyncio.TimeoutError:
-        print("[daemon] enrollment TIMED OUT after 15s", file=sys.stderr, flush=True)
-        return 5
+        load_or_create_keypair()
     except Exception as exc:
-        print(f"[daemon] device enrollment FAILED: {type(exc).__name__}: {exc}",
+        print(f"[daemon] keypair setup FAILED: {type(exc).__name__}: {exc}",
               file=sys.stderr, flush=True)
-        import traceback; traceback.print_exc(file=sys.stderr)
         return 5
 
     # If the user passed --anthropic-key (or env / saved config supplied one),
     # make sure the agent SDK sees it AND it gets persisted so future bare
-    # `dispatch-daemon` runs Just Work.
+    # `dispatch-daemon` runs Just Work. Broker/token/device_id persistence is
+    # per-link (upsert_broker at enrollment).
     if args.anthropic_key:
         os.environ["ANTHROPIC_API_KEY"] = args.anthropic_key
-
-    # Remember broker + token + device + api key so future runs can be a
-    # bare `dispatch-daemon`. (None values are skipped by _save_config.)
-    _save_config(
-        broker=args.broker,
-        token=args.token,
-        device_id=device_id,
-        anthropic_api_key=args.anthropic_key,
-    )
+    _save_config(anthropic_api_key=args.anthropic_key)
 
     # Two ways to be authenticated: an API key in the environment/config, OR a
     # subscription login the vendored `claude` CLI stored in ~/.claude.json
@@ -409,11 +445,10 @@ async def run_session(
     workspace = Path(args.workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     print(f"[daemon] workspace: {workspace}")
-    print(f"[daemon] device: {device_id}")
 
     private_key = get_private_key()
     if private_key is None:
-        print("[daemon] no device private key found after enrollment", file=sys.stderr)
+        print("[daemon] no device private key found after keypair setup", file=sys.stderr)
         return 5
 
     state = DaemonState()
@@ -422,7 +457,7 @@ async def run_session(
     # across restarts lets us widen the freshness window to a long horizon so
     # dispatches can wait for an offline recipient — without ever re-running a
     # replayed dispatch. Prune on startup so the table stays bounded.
-    my_user = verify_token_user(args.token)
+    my_user = primary.user_id
     nonce_store = NonceStore(dispatch_home() / "nonces.db", FRESHNESS_WINDOW_S)
     try:
         nonce_store.prune(datetime.now(timezone.utc).timestamp())
@@ -449,8 +484,9 @@ async def run_session(
         running_commit = ""
     local_state = LocalState(
         user_id=my_user,
-        broker_url=args.broker,
-        broker_token=args.token,
+        broker_url=primary.url,
+        broker_token=primary.token,
+        brokers=links,
         notify=on_notification,
         on_signout=on_signout,
         on_recheck=on_recheck,
@@ -462,22 +498,27 @@ async def run_session(
     _evict_port(local_port)  # kill any stale process holding our port
     local_token = issue_local_token()
 
-    # Workflow engine lives alongside the local UI so the routes mounted
-    # on the FastAPI app and the broker WS handler both see the same
-    # instance. The broker WS pushes workflow_run_start frames; the engine
-    # walks the graph and PATCHes run state back to the broker.
+    # Workflow engines: one per broker link, because an engine PATCHes run
+    # state back to the broker its dispatch came from. The engine wired into
+    # the local routes + cron scheduler is the PRIMARY broker's.
+    # TODO(multi-broker): per-broker workflow definitions/schedules in the
+    # local UI (today the UI's workflow surface only sees the primary).
     from dispatch.daemon.workflows import WorkflowEngine
-    workflow_engine = WorkflowEngine(
-        local_state=local_state,
-        broker_url=args.broker,
-        broker_token=args.token,
-    )
+    engines = {
+        link.url: WorkflowEngine(
+            local_state=local_state,
+            broker_url=link.url,
+            broker_token=link.token,
+        )
+        for link in links
+    }
+    workflow_engine = engines[primary.url]
 
     from dispatch.daemon.workflow_scheduler import CronScheduler
     scheduler = CronScheduler(
         workflow_engine,
-        args.broker,
-        lambda: args.token,
+        primary.url,
+        lambda: primary.token,
     )
     await scheduler.start()
 
@@ -506,17 +547,116 @@ async def run_session(
               file=sys.stderr, flush=True)
     print(f"[daemon] local UI: http://127.0.0.1:{local_port}?t=<see ~/.dispatch/local.token>", flush=True)
 
-    # Populate the inbox from the broker DB so past dispatches are visible
-    # immediately after a restart, before any new ones arrive over the WS.
+    # Populate the inbox from every broker's DB so past dispatches are visible
+    # immediately after a restart, before any new ones arrive over the WSes.
     await local_state.seed_from_broker()
 
-    ws_url = _broker_ws_url(args.broker, args.token)
-    ssl_ctx = _ssl_context_for(ws_url)
+    def _emit_connection_state() -> None:
+        # Aggregated status for the tray badge: online while ANY link is up.
+        connected = any(l.connected for l in links)
+        local_state.broker_connected = connected
+        _emit("connected" if connected else "disconnected")
+
+    async def _link_session(link: BrokerLink) -> int:
+        """One broker's connection loop: enroll, connect, handle, reconnect
+        with its own backoff. Failures here degrade only this broker. Returns
+        7 when this broker signed us out (loop ends), otherwise runs forever."""
+        backoff = 2.0
+        while True:
+            try:
+                if not link.device_id:
+                    # Per-broker enrollment: same public key, broker-issued
+                    # device_id. Persisted onto this broker's config entry.
+                    link.device_id = await asyncio.wait_for(
+                        ensure_enrolled(link.url, link.token, None), timeout=15.0,
+                    )
+                    shared_config.upsert_broker(
+                        link.url, token=link.token, label=link.label or None,
+                        device_id=link.device_id,
+                    )
+                    print(f"[daemon] enrolled with {link.url} -> {link.device_id}",
+                          flush=True)
+                ws_url = _broker_ws_url(link.url, link.token)
+                print(f"[daemon] connecting to broker: {link.url}")
+                if not any(l.connected for l in links):
+                    _emit("connecting")
+                async with websockets.connect(
+                    ws_url,
+                    max_size=None,
+                    ssl=_ssl_context_for(ws_url),
+                    # Detect a dead socket fast. The library defaults (20s/20s)
+                    # leave a zombie connection alive for up to ~20s after a
+                    # laptop wakes or the network changes. A 15s ping with a 10s
+                    # pong deadline catches a dead peer in ~10s and keeps idle
+                    # proxies (Railway/LB) from reaping us.
+                    ping_interval=15,
+                    ping_timeout=10,
+                    close_timeout=5,
+                ) as ws:
+                    # First frame identifies this device to this broker.
+                    await ws.send(json.dumps({"type": "hello", "device_id": link.device_id}))
+                    print(
+                        f"[daemon] connected to {link.url}. "
+                        f"Open http://127.0.0.1:{local_port} to approve dispatches."
+                    )
+                    link.ws = ws
+                    link.connected = True
+                    _emit_connection_state()
+                    backoff = 2.0
+                    await handle_broker(
+                        ws, state, workspace, private_key,
+                        local_state=local_state,
+                        workflow_engine=engines[link.url],
+                        my_user=link.user_id or my_user,
+                        my_device=link.device_id,
+                        link=link,
+                    )
+            except SignedOutByBroker:
+                # This broker signed us out; clear only ITS token and stop this
+                # link. The other brokers' links keep running.
+                print(f"[daemon] {link.url} signaled sign-out — clearing its token",
+                      flush=True)
+                try:
+                    shared_config.clear_broker_token(link.url)
+                except Exception:
+                    logger.exception("failed to clear token on sign-out (%s)", link.url)
+                link.token = ""
+                return 7
+            except websockets.InvalidStatus as e:
+                # 401/403 means the JWT is revoked or otherwise rejected by this
+                # broker — treat it the same as a signed_out push and stop trying.
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if status_code in (401, 403):
+                    print(f"[daemon] {link.url} rejected our token ({status_code}) — signed out",
+                          flush=True)
+                    try:
+                        shared_config.clear_broker_token(link.url)
+                    except Exception:
+                        logger.exception("failed to clear token after auth rejection (%s)",
+                                         link.url)
+                    link.token = ""
+                    return 7
+                print(f"[daemon] handshake with {link.url} failed: {e}", file=sys.stderr)
+            except asyncio.CancelledError:
+                raise
+            except asyncio.TimeoutError:
+                print(f"[daemon] enrollment with {link.url} timed out", file=sys.stderr,
+                      flush=True)
+            except OSError as e:
+                print(f"[daemon] could not reach {link.url}: {e}", file=sys.stderr)
+            except Exception:
+                logger.exception("broker session error (%s)", link.url)
+            finally:
+                link.ws = None
+                link.connected = False
+                _emit_connection_state()
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60.0)
 
     # Single connection-owner: only one process per machine may hold the broker
-    # WS. Stand by (don't connect, don't evict) while another process owns it;
-    # take over when it exits. The lock auto-releases on death, so this is a
-    # poll for a freed lock, not a busy-wait on a live owner.
+    # WSes. Stand by (don't connect, don't evict) while another process owns
+    # them; take over when it exits. The lock auto-releases on death, so this is
+    # a poll for a freed lock, not a busy-wait on a live owner.
     conn_lock = ConnectionLock(dispatch_home() / "connection.lock")
     while not conn_lock.acquire():
         print("[daemon] another process owns the broker connection; standing by…", flush=True)
@@ -531,59 +671,17 @@ async def run_session(
         conn_lock.write_owner(role="daemon", local_port=local_port)
         print("[daemon] holding broker-connection ownership", flush=True)
 
-        print(f"[daemon] connecting to broker: {args.broker}")
-        _emit("connecting")
-        local_state.broker_connected = False
-        async with websockets.connect(
-            ws_url,
-            max_size=None,
-            ssl=ssl_ctx,
-            # Detect a dead socket fast. The library defaults (20s/20s) leave a
-            # zombie connection alive for up to ~20s after a laptop wakes or the
-            # network changes, which is the bulk of the "disconnected for a
-            # while" window. A 15s ping with a 10s pong deadline catches a dead
-            # peer in ~10s and keeps idle proxies (Railway/LB) from reaping us.
-            ping_interval=15,
-            ping_timeout=10,
-            close_timeout=5,
-        ) as ws:
-            # First frame identifies this device to the broker.
-            await ws.send(json.dumps({"type": "hello", "device_id": device_id}))
-            print(
-                f"[daemon] connected. Open http://127.0.0.1:{local_port} to approve dispatches."
-            )
-            _emit("connected")
-            local_state.broker_connected = True
-            await handle_broker(
-                ws, state, workspace, private_key,
-                local_state=local_state,
-                workflow_engine=workflow_engine,
-                my_user=my_user,
-                my_device=device_id,
-            )
-    except websockets.InvalidStatus as e:
-        # 401/403 means the JWT is revoked or otherwise rejected by the
-        # broker — treat it the same as a signed_out push and stop trying.
-        status_code = getattr(getattr(e, "response", None), "status_code", None)
-        if status_code in (401, 403):
-            print(f"[daemon] broker rejected our token ({status_code}) — signed out", flush=True)
-            try:
-                cfg = _load_config()
-                cfg.pop("token", None)
-                _config_path().write_text(json.dumps(cfg, indent=2))
-                _config_path().chmod(0o600)
-            except Exception:
-                logger.exception("failed to clear token after auth rejection")
+        # One connection loop per broker; a broker being down degrades only
+        # itself. run_session only returns once every loop has permanently
+        # stopped (signed out everywhere) or on cancellation.
+        link_tasks = [asyncio.create_task(_link_session(link)) for link in links]
+        results = await asyncio.gather(*link_tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+                logger.error("broker link crashed: %r", r)
+        if results and all(r == 7 for r in results):
+            # Every broker signed us out — tell the supervisor to stop retrying.
             return 7
-        print(f"[daemon] handshake failed: {e}", file=sys.stderr)
-        return 3
-    except OSError as e:
-        print(f"[daemon] could not reach broker: {e}", file=sys.stderr)
-        return 4
-    except SignedOutByBroker:
-        # Special exit code so the supervisor stops retrying instead of
-        # reconnecting with a now-cleared token.
-        return 7
     finally:
         # Whatever happens during local cleanup, the connection-ownership lock
         # MUST be released. It's an in-process flock and the tray supervises
@@ -942,15 +1040,21 @@ def verify_inbound(
     return True, ""
 
 
-async def _refresh_device_keys(state: DaemonState, local_state) -> None:
+async def _refresh_device_keys(state: DaemonState, local_state, link=None) -> None:
     """Refresh the cached roster of this user's device public keys from the
     broker, so a runner can verify a *remote* tool approval (phone-as-approver).
     Best-effort: on failure the cache simply stays as-is and the next remote
-    decision that misses triggers another refresh."""
-    if local_state is None:
-        return
-    broker = (getattr(local_state, "broker_url", "") or "").rstrip("/")
-    token = getattr(local_state, "broker_token", "") or ""
+    decision that misses triggers another refresh. `link` names the broker to
+    ask (each broker holds its own device roster); without one, fall back to
+    the legacy single-broker fields on local_state."""
+    if link is not None:
+        broker = link.base
+        token = link.token or ""
+    else:
+        if local_state is None:
+            return
+        broker = (getattr(local_state, "broker_url", "") or "").rstrip("/")
+        token = getattr(local_state, "broker_token", "") or ""
     if not (broker and token):
         return
     try:
@@ -968,12 +1072,14 @@ async def _refresh_device_keys(state: DaemonState, local_state) -> None:
                 keys[d["device_id"]] = crypto.b64decode(d["public_key"])
             except Exception:
                 continue
-        state.device_keys = keys
+        # Merge, don't replace: rosters fetched from OTHER brokers must survive
+        # a refresh against this one (device ids are broker-issued UUIDs).
+        state.device_keys.update(keys)
     except Exception:
         logger.exception("device-keys refresh failed")
 
 
-async def _resolve_remote_approval(msg: dict, state: DaemonState, local_state) -> None:
+async def _resolve_remote_approval(msg: dict, state: DaemonState, local_state, link=None) -> None:
     """Verify a signed remote approval frame and, if good, resolve the matching
     pending tool-call Future — the exact same Future the local 127.0.0.1 endpoint
     resolves. Only the device actually running this dispatch holds that Future;
@@ -1025,7 +1131,7 @@ async def _resolve_remote_approval(msg: dict, state: DaemonState, local_state) -
 
     pubkey = state.device_keys.get(approver_device)
     if pubkey is None:
-        await _refresh_device_keys(state, local_state)  # newly-enrolled approver?
+        await _refresh_device_keys(state, local_state, link)  # newly-enrolled approver?
         pubkey = state.device_keys.get(approver_device)
     if pubkey is None:
         logger.warning("remote approval from unknown device %s — ignoring", approver_device)
@@ -1065,7 +1171,13 @@ async def handle_broker(
     workflow_engine=None,
     my_user: str | None = None,
     my_device: str | None = None,
+    link: BrokerLink | None = None,
 ) -> None:
+    # `link` identifies which broker this WS belongs to. Everything about a
+    # dispatch that arrives on it stays on it: send_status/send_event close
+    # over THIS ws, and the link is threaded into process_dispatch so per-run
+    # broker calls (persist always-allow, device-key refresh) hit the same
+    # broker the dispatch came from — never a sibling broker.
     async def send_status(dispatch_id, status: DispatchStatus) -> None:
         # Best-effort: the broker socket carries the sender's live /watch view,
         # but the run itself (and the LOCAL approval gate) must not die if it
@@ -1102,7 +1214,7 @@ async def handle_broker(
 
     # Warm the device-key roster so the first remote approval can be verified
     # without a round-trip. Best-effort; a miss later re-fetches anyway.
-    await _refresh_device_keys(state, local_state)
+    await _refresh_device_keys(state, local_state, link)
 
     async for raw in ws:
         try:
@@ -1179,7 +1291,7 @@ async def handle_broker(
                 continue
             did = str(payload.dispatch_id)
             if local_state is not None:
-                local_state.on_new_dispatch(payload, msg.get("scopes"))
+                local_state.on_new_dispatch(payload, msg.get("scopes"), broker=link)
             task = asyncio.create_task(
                 process_dispatch(
                     payload, msg.get("scopes"), state, workspace,
@@ -1187,6 +1299,7 @@ async def handle_broker(
                     local_state=local_state,
                     workflow_engine=workflow_engine,
                     trust_link_id=msg.get("trust_link_id"),
+                    broker_link=link,
                 )
             )
             state.running[did] = task
@@ -1199,7 +1312,7 @@ async def handle_broker(
             # this user's devices answered a pending tool call. Verify the
             # signature and resolve the same Future the local UI would — only the
             # device running this dispatch holds it; elsewhere this no-ops.
-            await _resolve_remote_approval(msg, state, local_state)
+            await _resolve_remote_approval(msg, state, local_state, link)
 
         elif mtype == "cancel_dispatch":
             # The broker is telling us a trust edge was revoked — stop now.
@@ -1224,17 +1337,10 @@ async def handle_broker(
                     logger.exception("failed to mirror dispatch_message")
 
         elif mtype == "signed_out":
-            # The user signed out from the broker's web page. Clear the
-            # cached broker JWT from disk and propagate the signal upward
-            # so the supervisor stops the session without reconnecting.
-            print("[daemon] broker signaled sign-out — clearing local credentials")
-            try:
-                cfg = _load_config()
-                cfg.pop("token", None)
-                _config_path().write_text(json.dumps(cfg, indent=2))
-                _config_path().chmod(0o600)
-            except Exception:
-                logger.exception("failed to clear token on sign-out")
+            # The user signed out from THIS broker's web page. Propagate the
+            # signal upward: the link loop clears this broker's token (only
+            # this broker's — the other links keep their credentials) and
+            # stops reconnecting this link.
             raise SignedOutByBroker()
 
         # Approval decisions (top-level Accept/Reject + per-tool Allow/Deny)
@@ -1463,6 +1569,7 @@ async def process_dispatch(
     local_state=None,
     workflow_engine=None,
     trust_link_id: str | None = None,
+    broker_link: BrokerLink | None = None,
 ) -> None:
     dispatch_id = str(payload.dispatch_id)
     scope = Scopes(**(scopes_data or {}))
@@ -1710,12 +1817,17 @@ async def process_dispatch(
         grant (added by the caller) already covers the current run, so a broker
         hiccup just means the recipient re-approves on a future dispatch — never
         a hard failure of the live task. Requires the edge id (threaded from the
-        new_dispatch frame) and the recipient's broker creds (held by the local
-        UI state, which authenticates as the trustor who may edit this edge)."""
-        if not trust_link_id or local_state is None:
+        new_dispatch frame) and the recipient's broker creds. The edge lives on
+        the broker this dispatch arrived from (broker_link), never a sibling."""
+        if not trust_link_id:
             return
-        broker = (getattr(local_state, "broker_url", "") or "").rstrip("/")
-        token = getattr(local_state, "broker_token", "") or ""
+        if broker_link is not None:
+            broker, token = broker_link.base, broker_link.token or ""
+        else:
+            if local_state is None:
+                return
+            broker = (getattr(local_state, "broker_url", "") or "").rstrip("/")
+            token = getattr(local_state, "broker_token", "") or ""
         if not (broker and token):
             return
         merged = sorted(set(scope.auto_tools or []) | {tool_name})

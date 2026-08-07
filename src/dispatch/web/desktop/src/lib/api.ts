@@ -309,6 +309,8 @@ export interface DispatchSummary {
   expires_at?: string;
   thread_id?: string;
   parent_id?: string | null;
+  broker_url?: string;
+  broker_label?: string;
 }
 
 export interface TrustEdge {
@@ -460,6 +462,9 @@ export interface InboxEntry {
   pending_tools: Record<string, { tool: string; input: Record<string, unknown> }>;
   thread_id?: string;
   parent_id?: string | null;
+  // Multi-home provenance: which broker this dispatch arrived from.
+  broker_url?: string;
+  broker_label?: string;
 }
 
 export interface DispatchEvent {

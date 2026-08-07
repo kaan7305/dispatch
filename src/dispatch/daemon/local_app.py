@@ -39,6 +39,8 @@ from pydantic import BaseModel
 from dispatch.daemon.broker_http import broker_request, make_broker_client
 from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon import memory as run_memory
+from dispatch.shared import config as shared_config
+from dispatch.shared.config import BrokerLink
 from dispatch.shared.schema import (
     ATTACHMENT_NAME_RE,
     MESSAGE_MAX_CHARS,
@@ -102,6 +104,9 @@ class InboxEntry:
     status: DispatchStatus
     events: list[DispatchEvent] = field(default_factory=list)
     pending_tools: dict[str, dict] = field(default_factory=dict)  # request_id → {tool, input}
+    # Provenance: which broker this dispatch arrived from (multi-home client).
+    broker_url: str = ""
+    broker_label: str = ""
 
 
 @dataclass
@@ -122,7 +127,13 @@ class LocalState:
     user_id: str = ""
     broker_url: str = ""
     broker_token: str = ""   # Dispatch JWT — used by the proxy handlers, never returned to the SPA
-    broker_connected: bool = False   # is the daemon's broker WS up right now?
+    broker_connected: bool = False   # is ANY of the daemon's broker WSes up right now?
+    # Multi-home: every configured broker as a BrokerLink (primary first). The
+    # flat broker_url/broker_token above mirror the primary for back-compat.
+    brokers: list = field(default_factory=list)
+    # dispatch_id → the BrokerLink it arrived from/lives on, so actions on a
+    # dispatch route to its home broker instead of being probed.
+    broker_of: dict = field(default_factory=dict)
     # Agent working dir; attachments materialize under <workspace>/attachments/.
     # Lets the local API serve attachment files back to the recipient's UI.
     workspace: Optional[Path] = None
@@ -142,40 +153,63 @@ class LocalState:
     # poll. No-op when the daemon runs without a tray.
     on_recheck: Optional[Callable[[], None]] = None
 
+    def broker_targets(self) -> list:
+        """Configured brokers as BrokerLinks, primary first. Falls back to a
+        synthetic single link built from the legacy flat fields for callers
+        (and tests) that never supplied a `brokers` list."""
+        if self.brokers:
+            return list(self.brokers)
+        if self.broker_url:
+            return [BrokerLink(url=self.broker_url, token=self.broker_token,
+                               connected=self.broker_connected)]
+        return []
+
+    def broker_for(self, dispatch_id: UUID):
+        """The broker a dispatch lives on, defaulting to the primary."""
+        link = self.broker_of.get(dispatch_id)
+        if link is not None:
+            return link
+        targets = self.broker_targets()
+        return targets[0] if targets else None
+
     async def seed_from_broker(self) -> None:
-        """Populate entries from the broker DB on startup so the inbox
-        isn't empty after a daemon restart."""
-        if not (self.broker_url and self.broker_token):
-            return
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{self.broker_url.rstrip('/')}/dispatches",
-                    params={"role": "received"},
-                    headers={"Authorization": f"Bearer {self.broker_token}"},
-                )
-            if resp.status_code != 200:
-                return
-            from datetime import datetime
-            for d in resp.json().get("dispatches", []):
-                did = UUID(d["dispatch_id"])
-                if did in self.entries:
-                    continue  # live entry takes precedence
-                payload = DispatchPayload(
-                    dispatch_id=did,
-                    sender_id=d["sender_id"],
-                    recipient_id=d["recipient_id"],
-                    task=d["task"],
-                    created_at=datetime.fromisoformat(d["created_at"]),
-                    expires_at=datetime.fromisoformat(d["expires_at"]),
-                )
-                self.entries[did] = InboxEntry(
-                    payload=payload,
-                    scopes={},
-                    status=DispatchStatus(d["status"]),
-                )
-        except Exception:
-            pass  # best-effort — a fresh inbox is better than a crash
+        """Populate entries from EVERY configured broker's DB on startup so
+        the combined inbox isn't empty after a daemon restart."""
+        from datetime import datetime
+        for link in self.broker_targets():
+            if not link.token:
+                continue
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        f"{link.base}/dispatches",
+                        params={"role": "received"},
+                        headers={"Authorization": f"Bearer {link.token}"},
+                    )
+                if resp.status_code != 200:
+                    continue
+                for d in resp.json().get("dispatches", []):
+                    did = UUID(d["dispatch_id"])
+                    self.broker_of.setdefault(did, link)
+                    if did in self.entries:
+                        continue  # live entry takes precedence
+                    payload = DispatchPayload(
+                        dispatch_id=did,
+                        sender_id=d["sender_id"],
+                        recipient_id=d["recipient_id"],
+                        task=d["task"],
+                        created_at=datetime.fromisoformat(d["created_at"]),
+                        expires_at=datetime.fromisoformat(d["expires_at"]),
+                    )
+                    self.entries[did] = InboxEntry(
+                        payload=payload,
+                        scopes={},
+                        status=DispatchStatus(d["status"]),
+                        broker_url=link.url,
+                        broker_label=link.label,
+                    )
+            except Exception:
+                pass  # best-effort per broker — a partial inbox beats a crash
 
     def _push_notification(
         self, title: str, subtitle: str, message: str,
@@ -194,11 +228,17 @@ class LocalState:
         except Exception:
             logger.exception("notify callback failed")
 
-    def on_new_dispatch(self, payload: DispatchPayload, scopes: dict | None) -> None:
+    def on_new_dispatch(
+        self, payload: DispatchPayload, scopes: dict | None, broker=None,
+    ) -> None:
+        if broker is not None:
+            self.broker_of[payload.dispatch_id] = broker
         entry = InboxEntry(
             payload=payload,
             scopes=scopes or {},
             status=DispatchStatus.delivered,
+            broker_url=getattr(broker, "url", "") or "",
+            broker_label=getattr(broker, "label", "") or "",
         )
         self.entries[payload.dispatch_id] = entry
         self._broadcast({"type": "inbox_new", "data": _entry_summary(entry)})
@@ -334,6 +374,9 @@ def _entry_summary(entry: InboxEntry) -> dict:
         # Threading: group follow-ups under one conversation in list views.
         "thread_id": md.get("thread_id") or str(p.dispatch_id),
         "parent_id": md.get("parent_id"),
+        # Provenance: which broker this dispatch arrived from.
+        "broker_url": entry.broker_url,
+        "broker_label": entry.broker_label,
     }
 
 
@@ -363,6 +406,10 @@ class _Compose(BaseModel):
     # stamps thread/parent pointers, and inherits its working directory +
     # prior result as context before signing/sending.
     parent_id: Optional[str] = None
+    # Multi-home: which broker to send through. Omitted, the daemon routes to
+    # the broker holding the outgoing trust edge to the recipient (a follow-up
+    # goes to its parent's home broker); ambiguity returns 409 listing options.
+    broker_url: Optional[str] = None
 
 
 class _ScopesUpdate(BaseModel):
@@ -371,6 +418,9 @@ class _ScopesUpdate(BaseModel):
 
 class _Invite(BaseModel):
     to_email: str
+    # Multi-home: which broker the invitation is created on (the acceptor must
+    # sign in there). Omitted → the primary broker.
+    broker_url: Optional[str] = None
 
 
 class _AcceptInvite(BaseModel):
@@ -441,6 +491,14 @@ def make_app(
             "broker_url": local_state.broker_url,
             "broker_connected": local_state.broker_connected,
             "running_commit": local_state.running_commit,
+            # Multi-home: per-broker connection state (no tokens).
+            "brokers": [
+                t.public() if hasattr(t, "public") else {
+                    "url": getattr(t, "url", ""), "label": getattr(t, "label", ""),
+                    "connected": bool(getattr(t, "connected", False)),
+                }
+                for t in local_state.broker_targets()
+            ],
         }
 
     @app.post("/api/internal/recheck-update", dependencies=[Depends(require_local_token)])
@@ -495,25 +553,20 @@ def make_app(
 
     @app.post("/api/sign-out", dependencies=[Depends(require_local_token)])
     async def sign_out() -> dict:
-        """Clear the broker JWT from disk and from in-memory state so the
+        """Clear every broker JWT from disk and from in-memory state so the
         daemon can't authenticate any more. The tray app will detect the
         disconnect and either show a re-sign-in alert or quit. We keep
-        device_id + anthropic_api_key so the next sign-in is one-step."""
-        from dispatch.daemon.main import _save_config, _load_config
-        cfg = _load_config()
+        device_ids + anthropic_api_key so the next sign-in is one-step."""
+        cfg = shared_config.load_config()
+        for entry in shared_config.broker_entries(cfg):
+            shared_config.clear_broker_token(entry["url"], config=cfg)
+        # Legacy key removal for pre-multi-broker readers (tray is_complete).
         cfg.pop("token", None)
-        cfg.pop("broker", None)
-        # Rewrite with the surviving fields.
-        from pathlib import Path
-        import json as _json
-        path = Path.home() / ".dispatch" / "config.json"
-        try:
-            path.write_text(_json.dumps(cfg, indent=2))
-            path.chmod(0o600)
-        except OSError:
-            pass
+        shared_config.save_config(cfg)
         local_state.broker_token = ""
         local_state.user_id = ""
+        for t in local_state.broker_targets():
+            t.token = ""
         local_state.entries.clear()  # wipe stale inbox cache
         result = {"status": "signed_out", "broker": local_state.broker_url}
         # Tell the tray supervisor to stop the daemon so it exits the broker
@@ -548,13 +601,17 @@ def make_app(
         is_live = str(dispatch_id) in daemon_state.running
         if entry is not None and (is_live or entry.events):
             return {**_entry_summary(entry), "events": entry.events}
-        return await _broker_request("GET", f"/dispatch/{dispatch_id}")
+        return await _routed_request(
+            "GET", f"/dispatch/{dispatch_id}", dispatch_id=dispatch_id,
+        )
 
     @app.get("/api/dispatch/{dispatch_id}/thread", dependencies=[Depends(require_local_token)])
     async def dispatch_thread(dispatch_id: UUID) -> Response:
         """The dispatch's thread (root + follow-ups). Always broker-served — the
-        broker is the only place that holds every dispatch in a thread."""
-        return await _broker_request("GET", f"/dispatch/{dispatch_id}/thread")
+        dispatch's HOME broker is the only place that holds its whole thread."""
+        return await _routed_request(
+            "GET", f"/dispatch/{dispatch_id}/thread", dispatch_id=dispatch_id,
+        )
 
     @app.get(
         "/api/dispatch/{dispatch_id}/attachment/{name}",
@@ -628,8 +685,9 @@ def make_app(
         reason = (body.reason or "").strip()
         if body.decision == "reject" and reason:
             try:
-                await _broker_request(
+                await _routed_request(
                     "POST", f"/dispatch/{dispatch_id}/messages",
+                    dispatch_id=dispatch_id,
                     json_body={"body": reason[:MESSAGE_MAX_CHARS], "kind": "decline_reason"},
                 )
             except Exception:
@@ -647,8 +705,9 @@ def make_app(
         if not text:
             raise HTTPException(status_code=400, detail="empty message")
         kind = body.kind if body.kind in ("note", "decline_reason") else "note"
-        return await _broker_request(
+        return await _routed_request(
             "POST", f"/dispatch/{dispatch_id}/messages",
+            dispatch_id=dispatch_id,
             json_body={"body": text[:MESSAGE_MAX_CHARS], "kind": kind},
         )
 
@@ -699,6 +758,12 @@ def make_app(
     # The SPA never holds the broker JWT — the daemon does, in LocalState.
     # These handlers forward requests to the broker with the JWT attached.
 
+    def _primary_broker():
+        targets = local_state.broker_targets()
+        if not targets:
+            raise HTTPException(status_code=503, detail="no broker configured")
+        return targets[0]
+
     async def _broker_request(
         method: str,
         path: str,
@@ -707,13 +772,17 @@ def make_app(
         params: Optional[dict[str, Any]] = None,
         require_auth: bool = True,
         timeout: float = 30.0,
+        broker=None,
     ) -> Response:
-        if require_auth and not local_state.broker_token:
+        """One proxied call to ONE broker (default: the primary)."""
+        target = broker if broker is not None else _primary_broker()
+        token = getattr(target, "token", "") or ""
+        if require_auth and not token:
             raise HTTPException(status_code=503, detail="broker token unavailable")
-        url = f"{local_state.broker_url.rstrip('/')}{path}"
+        url = f"{target.base}{path}"
         headers: dict[str, str] = {}
         if require_auth:
-            headers["Authorization"] = f"Bearer {local_state.broker_token}"
+            headers["Authorization"] = f"Bearer {token}"
         try:
             resp = await broker_request(
                 broker_client, method, url,
@@ -728,18 +797,171 @@ def make_app(
             media_type=resp.headers.get("content-type", "application/json"),
         )
 
+    async def _routed_request(
+        method: str,
+        path: str,
+        *,
+        dispatch_id: Optional[UUID] = None,
+        json_body: Any = None,
+        params: Optional[dict[str, Any]] = None,
+        require_auth: bool = True,
+        timeout: float = 30.0,
+    ) -> Response:
+        """A per-dispatch call routed to the dispatch's home broker. When the
+        home broker isn't known (daemon restarted before seeding finished),
+        probe the others in order — a wrong broker answers 404, which is safe
+        for every route this is used on."""
+        targets = local_state.broker_targets()
+        if dispatch_id is not None:
+            owner = local_state.broker_of.get(dispatch_id)
+            if owner is not None:
+                targets = [owner] + [t for t in targets if t.url != owner.url]
+        last: Optional[Response] = None
+        unavailable = 0
+        for t in targets:
+            if require_auth and not (getattr(t, "token", "") or ""):
+                unavailable += 1
+                continue
+            try:
+                resp = await _broker_request(
+                    method, path, json_body=json_body, params=params,
+                    require_auth=require_auth, timeout=timeout, broker=t,
+                )
+            except HTTPException as exc:
+                if exc.status_code == 502 and len(targets) > 1:
+                    unavailable += 1
+                    continue  # one broker down must not fail the probe
+                raise
+            if resp.status_code != 404:
+                if dispatch_id is not None and resp.status_code < 400:
+                    local_state.broker_of.setdefault(dispatch_id, t)
+                return resp
+            last = resp
+        if last is not None:
+            return last
+        raise HTTPException(
+            status_code=503,
+            detail="no broker available" if unavailable else "no broker configured",
+        )
+
+    async def _aggregate_get(
+        path: str,
+        list_keys: tuple[str, ...],
+        *,
+        params: Optional[dict[str, Any]] = None,
+        sort_created_at: bool = False,
+    ) -> dict:
+        """Fan a GET out to every configured broker and merge the named list
+        keys, tagging each item with its home broker (provenance). Non-list
+        top-level keys come from the first broker that answered. One broker
+        failing degrades to a partial view, reported under `broker_errors`."""
+        merged: dict[str, Any] = {k: [] for k in list_keys}
+        errors: list[dict] = []
+        got_base = False
+        for t in local_state.broker_targets():
+            if not (getattr(t, "token", "") or ""):
+                continue
+            try:
+                resp = await _broker_request("GET", path, params=params, broker=t)
+            except HTTPException as exc:
+                errors.append({"broker_url": t.url, "detail": str(exc.detail)})
+                continue
+            if resp.status_code >= 400:
+                errors.append({"broker_url": t.url, "status": resp.status_code})
+                continue
+            try:
+                body = json.loads(resp.body or b"{}")
+            except ValueError:
+                errors.append({"broker_url": t.url, "detail": "unparseable body"})
+                continue
+            if not isinstance(body, dict):
+                continue
+            if not got_base:
+                for k, v in body.items():
+                    if k not in list_keys:
+                        merged[k] = v
+                got_base = True
+            for k in list_keys:
+                for item in body.get(k) or []:
+                    if isinstance(item, dict):
+                        item.setdefault("broker_url", t.url)
+                        item.setdefault("broker_label", t.label)
+                    merged[k].append(item)
+        if sort_created_at:
+            for k in list_keys:
+                merged[k].sort(key=lambda d: str((d or {}).get("created_at") or ""),
+                               reverse=True)
+        if errors:
+            merged["broker_errors"] = errors
+        return merged
+
+    async def _broker_for_send(
+        recipients: list[str], broker_url: Optional[str],
+    ):
+        """Which broker a new dispatch should be sent through. An explicit
+        broker_url wins; otherwise the broker holding an outgoing trust edge
+        to every recipient. The same contact existing on multiple brokers is
+        ambiguous → 409 listing the options; no edge anywhere falls through to
+        the primary so the broker's own trust error surfaces unchanged."""
+        targets = [t for t in local_state.broker_targets() if getattr(t, "token", "")]
+        if not targets:
+            raise HTTPException(status_code=503, detail="no broker configured")
+        if broker_url:
+            wanted = broker_url.rstrip("/")
+            t = next((t for t in targets if t.url == wanted), None)
+            if t is None:
+                raise HTTPException(status_code=400, detail=f"unknown broker: {broker_url}")
+            return t
+        if len(targets) == 1 or not recipients:
+            return targets[0]
+        matches = []
+        for t in targets:
+            try:
+                resp = await _broker_request("GET", "/trust", broker=t)
+            except HTTPException:
+                continue  # a broker being down must not block sends via the rest
+            if resp.status_code != 200:
+                continue
+            try:
+                edges = json.loads(resp.body or b"{}").get("trust", [])
+            except ValueError:
+                continue
+            peers = {e.get("peer") for e in edges if e.get("direction") == "outgoing"}
+            if all(r in peers for r in recipients):
+                matches.append(t)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "ambiguous_broker",
+                    "detail": "recipient is a contact on multiple brokers — pass "
+                              "broker_url to choose",
+                    "brokers": [{"url": t.url, "label": t.label} for t in matches],
+                },
+            )
+        return targets[0]
+
     @app.post("/api/compose", dependencies=[Depends(require_local_token)])
     async def compose(body: _Compose) -> Response:
         # Generous timeout: a dispatch may carry up to ~16 MB of attachments
         # (~21 MB as base64), and the sign round-trip happens inside this call.
         payload = body.model_dump(exclude_none=True)
+        broker_url = payload.pop("broker_url", None)
         # Follow-up: fetch the parent, stamp thread/parent pointers, and inherit
         # its cwd + result before sending. `parent_id` is a compose-only field —
         # it never travels to the broker top-level; it lives in metadata. Accept
         # it either as a top-level field (MCP) or inside metadata (web UI).
         parent_id = payload.pop("parent_id", None) or (payload.get("metadata") or {}).get("parent_id")
         if parent_id:
-            parent_resp = await _broker_request("GET", f"/dispatch/{parent_id}")
+            try:
+                parent_uuid = UUID(str(parent_id))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="bad parent_id")
+            parent_resp = await _routed_request(
+                "GET", f"/dispatch/{parent_id}", dispatch_id=parent_uuid,
+            )
             if parent_resp.status_code != 200:
                 raise HTTPException(status_code=404, detail="parent dispatch not found")
             try:
@@ -749,27 +971,54 @@ def make_app(
             payload["metadata"] = _build_followup_metadata(
                 parent, dict(payload.get("metadata") or {}), str(parent_id)
             )
-        return await _broker_request(
-            "POST", "/dispatch", json_body=payload, timeout=120.0,
+            # A follow-up thread lives wholly on the parent's home broker.
+            if not broker_url:
+                owner = local_state.broker_of.get(parent_uuid)
+                if owner is not None:
+                    broker_url = owner.url
+        recipients = [r for r in ([body.recipient_id] if body.recipient_id else
+                                  (body.recipient_ids or [])) if r]
+        target = await _broker_for_send(recipients, broker_url)
+        resp = await _broker_request(
+            "POST", "/dispatch", json_body=payload, timeout=120.0, broker=target,
         )
+        # Remember where the new dispatch lives so status/cancel route straight
+        # to its home broker without probing.
+        if resp.status_code < 400:
+            try:
+                created = json.loads(resp.body or b"{}")
+                ids = [created.get("dispatch_id")] if created.get("dispatch_id") else [
+                    d.get("dispatch_id") for d in created.get("dispatches") or []
+                ]
+                for did in ids:
+                    if did:
+                        local_state.broker_of.setdefault(UUID(str(did)), target)
+            except (ValueError, TypeError):
+                pass
+        return resp
 
     @app.get("/api/trust", dependencies=[Depends(require_local_token)])
-    async def list_trust() -> Response:
-        return await _broker_request("GET", "/trust")
+    async def list_trust() -> dict:
+        # Combined across every configured broker; each edge is tagged with
+        # its home broker (the broker the invite was accepted on).
+        return await _aggregate_get("/trust", ("trust",))
 
     @app.get("/api/account/events", dependencies=[Depends(require_local_token)])
-    async def list_account_events() -> Response:
-        return await _broker_request("GET", "/account/events")
+    async def list_account_events() -> dict:
+        return await _aggregate_get(
+            "/account/events", ("events",), sort_created_at=True,
+        )
 
     @app.patch("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def update_trust(trust_link_id: str, body: _ScopesUpdate) -> Response:
-        return await _broker_request(
+        # Edge ids are broker-local; probe until the home broker claims it.
+        return await _routed_request(
             "PATCH", f"/trust/{trust_link_id}", json_body=body.model_dump(),
         )
 
     @app.delete("/api/trust/{trust_link_id}", dependencies=[Depends(require_local_token)])
     async def revoke_trust(trust_link_id: str) -> Response:
-        return await _broker_request("DELETE", f"/trust/{trust_link_id}")
+        return await _routed_request("DELETE", f"/trust/{trust_link_id}")
 
     # ── Learned context (cross-dispatch memory) ─────────────────────────
     # Memory lives on THIS machine, keyed by capability bucket — but the UI
@@ -779,19 +1028,11 @@ def make_app(
     # peer's machine, not here.
 
     async def _incoming_edge(trust_link_id: str) -> dict:
-        if not local_state.broker_token:
-            raise HTTPException(status_code=503, detail="broker token unavailable")
-        url = f"{local_state.broker_url.rstrip('/')}/trust"
-        try:
-            resp = await broker_request(
-                broker_client, "GET", url,
-                headers={"Authorization": f"Bearer {local_state.broker_token}"},
-            )
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"broker unreachable: {exc}")
-        if resp.status_code != 200:
-            raise HTTPException(status_code=resp.status_code, detail="trust lookup failed")
-        edges = (resp.json() or {}).get("trust", [])
+        # Edges live on their home brokers; memory buckets are machine-local.
+        # Search the combined edge list (same-bucket sharing is real across
+        # brokers — the capability envelope, not the broker, keys the bucket).
+        data = await _aggregate_get("/trust", ("trust",))
+        edges = data.get("trust", [])
         edge = next(
             (e for e in edges if e.get("trust_link_id") == trust_link_id), None,
         )
@@ -847,27 +1088,48 @@ def make_app(
 
     @app.post("/api/invitations", dependencies=[Depends(require_local_token)])
     async def create_invitation(body: _Invite) -> Response:
-        return await _broker_request("POST", "/invitations", json_body=body.model_dump())
+        # An invitation is created ON one broker (its acceptor must sign in
+        # there — the broker origin travels with the invite link). Explicit
+        # broker_url wins; default is the primary.
+        target = None
+        if body.broker_url:
+            wanted = body.broker_url.rstrip("/")
+            target = next(
+                (t for t in local_state.broker_targets() if t.url == wanted), None,
+            )
+            if target is None:
+                raise HTTPException(status_code=400, detail=f"unknown broker: {body.broker_url}")
+        return await _broker_request(
+            "POST", "/invitations", json_body={"to_email": body.to_email},
+            broker=target,
+        )
 
     @app.get("/api/invitations", dependencies=[Depends(require_local_token)])
-    async def list_invitations() -> Response:
-        return await _broker_request("GET", "/invitations")
+    async def list_invitations() -> dict:
+        # Combined across brokers; each invite is tagged with its home broker
+        # so the acceptor knows where the resulting edge will live.
+        return await _aggregate_get("/invitations", ("sent", "received"))
 
     # Public — accepting an invite requires only the token + the (eventually)
     # authed user. We still wrap it locally so the broker JWT is attached.
+    # Invite tokens are broker-local: probe brokers until one claims it.
     @app.get("/api/invitations/{token}", dependencies=[Depends(require_local_token)])
     async def get_invitation(token: str) -> Response:
-        return await _broker_request("GET", f"/invitations/{token}", require_auth=False)
+        return await _routed_request(
+            "GET", f"/invitations/{token}", require_auth=False,
+        )
 
     @app.post("/api/invitations/{token}/accept", dependencies=[Depends(require_local_token)])
     async def accept_invitation(token: str, body: _AcceptInvite) -> Response:
-        return await _broker_request(
+        return await _routed_request(
             "POST", f"/invitations/{token}/accept", json_body=body.model_dump(),
         )
 
     @app.post("/api/invitations/{token}/decline", dependencies=[Depends(require_local_token)])
     async def decline_invitation(token: str) -> Response:
-        return await _broker_request("POST", f"/invitations/{token}/decline", json_body={})
+        return await _routed_request(
+            "POST", f"/invitations/{token}/decline", json_body={},
+        )
 
     @app.get("/api/mcp/servers", dependencies=[Depends(require_local_token)])
     def list_mcp_servers() -> list[dict]:
@@ -904,24 +1166,34 @@ def make_app(
         return {"name": name, "ok": True, "tools": tools}
 
     @app.get("/api/dispatches", dependencies=[Depends(require_local_token)])
-    async def list_dispatches(role: str = Query(default="received")) -> Response:
-        return await _broker_request("GET", "/dispatches", params={"role": role})
+    async def list_dispatches(role: str = Query(default="received")) -> dict:
+        # The combined inbox/sent view: merged across brokers, newest first,
+        # each dispatch tagged with its home broker.
+        return await _aggregate_get(
+            "/dispatches", ("dispatches",), params={"role": role},
+            sort_created_at=True,
+        )
 
     @app.post("/api/dispatch/{dispatch_id}/cancel", dependencies=[Depends(require_local_token)])
     async def cancel_dispatch_endpoint(dispatch_id: UUID) -> Response:
-        return await _broker_request("POST", f"/dispatch/{dispatch_id}/cancel")
+        return await _routed_request(
+            "POST", f"/dispatch/{dispatch_id}/cancel", dispatch_id=dispatch_id,
+        )
 
     @app.get("/api/devices", dependencies=[Depends(require_local_token)])
-    async def list_devices() -> Response:
-        return await _broker_request("GET", "/devices")
+    async def list_devices() -> dict:
+        # Each broker issues its own device_id for this machine's one keypair.
+        return await _aggregate_get("/devices", ("devices",))
 
     @app.patch("/api/devices/{device_id}", dependencies=[Depends(require_local_token)])
     async def rename_device(device_id: str, body: _DeviceRename) -> Response:
-        return await _broker_request("PATCH", f"/devices/{device_id}", json_body=body.model_dump())
+        return await _routed_request(
+            "PATCH", f"/devices/{device_id}", json_body=body.model_dump(),
+        )
 
     @app.delete("/api/devices/{device_id}", dependencies=[Depends(require_local_token)])
     async def revoke_device(device_id: str) -> Response:
-        return await _broker_request("DELETE", f"/devices/{device_id}")
+        return await _routed_request("DELETE", f"/devices/{device_id}")
 
     @app.get("/api/me/phone", dependencies=[Depends(require_local_token)])
     async def get_phone() -> Response:
@@ -946,7 +1218,13 @@ def make_app(
             await client_ws.close(code=4401)
             return
         await client_ws.accept()
-        if not local_state.broker_token:
+        # Watch the dispatch on its HOME broker (falls back to the primary for
+        # an id this daemon never saw arrive).
+        try:
+            owner = local_state.broker_for(UUID(dispatch_id))
+        except ValueError:
+            owner = None
+        if owner is None or not (getattr(owner, "token", "") or ""):
             await client_ws.send_text(json.dumps({
                 "type": "error",
                 "data": {"message": "broker token unavailable", "exception": "Unauthenticated"},
@@ -955,8 +1233,8 @@ def make_app(
             return
 
         broker_ws_url = (
-            local_state.broker_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://")
-            + f"/dispatch/{dispatch_id}/watch?token={local_state.broker_token}"
+            owner.base.replace("https://", "wss://").replace("http://", "ws://")
+            + f"/dispatch/{dispatch_id}/watch?token={owner.token}"
         )
 
         import ssl as _ssl

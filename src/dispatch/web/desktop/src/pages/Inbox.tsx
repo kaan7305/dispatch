@@ -131,6 +131,7 @@ export default function Inbox() {
                   createdAt={group[0].created_at}
                   status={group[0].status}
                   hint={tab === "inbox" ? statusHint(group[0] as InboxEntry) : undefined}
+                  brokerLabel={group[0].broker_label || undefined}
                   emphasized={
                     tab === "inbox" &&
                     (group[0].status === "delivered" || group[0].status === "pending")

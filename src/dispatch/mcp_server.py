@@ -71,6 +71,7 @@ from dispatch.daemon.identity import dispatch_home
 from dispatch.daemon.local_app import read_local_token
 from dispatch.daemon.connlock import ConnectionLock
 from dispatch.daemon.main import _load_config
+from dispatch.shared import config as shared_config
 from dispatch.shared.schema import (
     ATTACHMENT_MAX_BYTES,
     ATTACHMENTS_MAX_COUNT,
@@ -164,7 +165,8 @@ class _Link:
     local_token: str    # bearer for the daemon's local API
     user_id: str
     device_id: str
-    broker: str
+    broker: str         # the PRIMARY broker; see `brokers` for all of them
+    brokers: list = None  # [{url, label}] — every configured broker (multi-home)
 
 
 # Set during the MCP lifespan; read by the tools. One MCP process per session.
@@ -173,11 +175,19 @@ LOGGED_OUT = False      # True when there's no broker token → dormant mode
 
 
 def _resolve_conn() -> tuple[str, Optional[str]]:
+    """(primary broker, any usable token). The daemon aggregates across all
+    configured brokers behind its local API; this only decides dormancy and
+    the primary shown in whoami."""
     config = _load_config()
+    entries = shared_config.broker_entries(config)
     broker = (
-        os.environ.get("DISPATCH_BROKER") or config.get("broker") or "http://localhost:8000"
+        os.environ.get("DISPATCH_BROKER")
+        or (entries[0]["url"] if entries else "")
+        or "http://localhost:8000"
     ).rstrip("/")
-    token = os.environ.get("DISPATCH_TOKEN") or config.get("token")
+    token = os.environ.get("DISPATCH_TOKEN") or next(
+        (e["token"] for e in entries if e.get("token")), None,
+    )
     return broker, token
 
 
@@ -274,6 +284,10 @@ async def _ensure_daemon() -> _Link:
         user_id=session.get("user_id", ""),
         device_id=str(config.get("device_id", "")),
         broker=broker,
+        brokers=[
+            {"url": e["url"], "label": e.get("label", "")}
+            for e in shared_config.broker_entries(config) if e.get("token")
+        ],
     )
 
 
@@ -420,7 +434,13 @@ async def _local_call(method: str, path: str, **kw: Any) -> Any:
 
 def _do_whoami() -> dict:
     link = _require_link()
-    return {"user_id": link.user_id, "broker": link.broker, "device_id": link.device_id}
+    return {
+        "user_id": link.user_id, "broker": link.broker,
+        "device_id": link.device_id,
+        # Multi-home: every broker this machine is signed in to. Inbox/sent/
+        # contacts results carry broker_url/broker_label provenance tags.
+        "brokers": link.brokers or [{"url": link.broker, "label": ""}],
+    }
 
 
 async def _do_inbox() -> Any:
@@ -892,6 +912,7 @@ async def dispatch_send(
     deliverable: str = "",
     background: str = "",
     parent_id: str = "",
+    broker: str = "",
 ) -> dict:
     """Send a dispatch to a trusted contact. The verbatim `task` runs on their
     machine across an accepted, scoped trust edge. Returns the dispatch_id
@@ -916,6 +937,10 @@ async def dispatch_send(
       left off. Each follow-up is still a fresh, separately-approved dispatch
       (NOT a resumed session); the recipient is whoever you address now (a
       follow-up back to the original sender needs an edge in that direction).
+    - `broker`: only needed when this machine is signed in to multiple brokers
+      AND the recipient is a contact on more than one of them — the daemon
+      routes to the broker holding the trust edge otherwise, and returns an
+      ambiguous_broker error listing the choices when it can't.
     """
     metadata: dict = {}
     if files:
@@ -942,6 +967,8 @@ async def dispatch_send(
         }
         if parent_id.strip():
             body["parent_id"] = parent_id.strip()
+        if broker.strip():
+            body["broker_url"] = broker.strip()
         return await _local_call("POST", "/api/compose", json=body)
     except _Dormant:
         return {"error": "logged_out", "detail": _LOGIN_HINT}

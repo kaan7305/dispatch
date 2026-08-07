@@ -10,6 +10,13 @@ Resolution order for broker/token (matches the daemon):
     CLI flag  >  $DISPATCH_BROKER / $DISPATCH_TOKEN  >  ~/.dispatch/config.json
     >  http://localhost:8000 (broker default; no token default)
 
+Multi-home: ~/.dispatch/config.json may hold a `brokers` list (one entry per
+broker this machine is signed in to). Read commands (inbox/sent/contacts/
+invitations) aggregate across ALL of them, tagging each item with its home
+broker; actions (send/accept/approve/trust edits) route to the broker that
+owns the edge or dispatch. An explicit --broker / $DISPATCH_BROKER pins any
+command to that single broker. Brokers never learn about each other.
+
 Commands:
     dispatch whoami                         GET  /me
     dispatch contacts                       GET  /trust
@@ -43,6 +50,7 @@ import certifi
 import httpx
 
 from dispatch import codex
+from dispatch.shared import config as shared_config
 from dispatch.shared.schema import SYNC_TASK_SENTINEL
 
 
@@ -117,8 +125,165 @@ def _resolve_token(arg: Optional[str], config: dict) -> Optional[str]:
     return arg or os.environ.get("DISPATCH_TOKEN") or config.get("token")
 
 
+def _broker_targets(args: argparse.Namespace, config: dict) -> list[dict]:
+    """Every broker a command should talk to: [{url, token, label}].
+
+    An explicit --broker / $DISPATCH_BROKER narrows to that single broker
+    (token: --token / $DISPATCH_TOKEN / the matching config entry / legacy
+    keys). Otherwise all configured brokers, primary first — the combined
+    inbox spans all of them."""
+    explicit = getattr(args, "broker", None) or os.environ.get("DISPATCH_BROKER")
+    entries = shared_config.broker_entries(config)
+    if explicit:
+        url = explicit.rstrip("/")
+        entry = next((e for e in entries if e["url"] == url), {})
+        token = (
+            getattr(args, "token", None) or os.environ.get("DISPATCH_TOKEN")
+            or entry.get("token") or None
+        )
+        return [{"url": url, "token": token, "label": entry.get("label", "")}]
+    if not entries:
+        return [{
+            "url": "http://localhost:8000",
+            "token": _resolve_token(getattr(args, "token", None), config),
+            "label": "",
+        }]
+    token_override = getattr(args, "token", None) or os.environ.get("DISPATCH_TOKEN")
+    return [
+        {"url": e["url"],
+         "token": (token_override if len(entries) == 1 else None) or e.get("token"),
+         "label": e.get("label", "")}
+        for e in entries
+    ]
+
+
+def _broker_name(t: dict) -> str:
+    """Human handle for a broker target: 'label (url)' or the bare url."""
+    return f"{t['label']} ({t['url']})" if t.get("label") else t["url"]
+
+
+def _tag(item: dict, t: dict) -> dict:
+    item.setdefault("broker_url", t["url"])
+    item.setdefault("broker_label", t.get("label", ""))
+    return item
+
+
 class CliError(Exception):
     """A user-facing error: printed to stderr, exit code 1, no traceback."""
+
+
+class BrokerError(CliError):
+    """A broker rejected the request; carries the HTTP status so multi-broker
+    probes can treat a 404 ('not mine') differently from a real failure."""
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _each_broker(
+    targets: list[dict], method: str, path: str, **kw: Any
+) -> list[tuple[dict, Any]]:
+    """Run one request against every signed-in target; a failing broker yields
+    its CliError instead of data so one broker being down degrades, not fails."""
+    out: list[tuple[dict, Any]] = []
+    for t in targets:
+        if not t.get("token"):
+            out.append((t, CliError(f"not signed in to {t['url']}")))
+            continue
+        try:
+            out.append((t, _request(t["url"], t["token"], method, path, **kw)))
+        except CliError as e:
+            out.append((t, e))
+    return out
+
+
+def _locate_dispatch(targets: list[dict], dispatch_id: str) -> tuple[dict, dict]:
+    """Find which broker owns a dispatch: first 200 wins, 404s move on.
+    Returns (target, detail)."""
+    errors: list[str] = []
+    for t in targets:
+        if not t.get("token"):
+            continue
+        try:
+            return t, _request(t["url"], t["token"], "GET", f"/dispatch/{dispatch_id}")
+        except BrokerError as e:
+            if e.status_code == 404:
+                continue
+            errors.append(f"{t['url']}: {e}")
+        except CliError as e:
+            errors.append(f"{t['url']}: {e}")
+    if errors:
+        raise CliError("could not locate dispatch — " + "; ".join(errors))
+    raise CliError(
+        f"no configured broker knows dispatch {dispatch_id} "
+        f"(checked {', '.join(t['url'] for t in targets)})."
+    )
+
+
+def _route_by_contact(targets: list[dict], recipient: str) -> dict:
+    """Which broker holds the outgoing trust edge to `recipient`. With one
+    target, no lookup — the broker enforces trust anyway. The same contact on
+    multiple brokers is ambiguous and needs --broker."""
+    if len(targets) == 1:
+        return targets[0]
+    matches: list[dict] = []
+    for t, data in _each_broker(targets, "GET", "/trust"):
+        if isinstance(data, Exception):
+            continue
+        for e in data.get("trust", []):
+            if e.get("direction") == "outgoing" and e.get("peer") == recipient:
+                matches.append(t)
+                break
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise CliError(
+            f"'{recipient}' is a contact on multiple brokers: "
+            + ", ".join(_broker_name(t) for t in matches)
+            + ". Pass --broker <url> to choose."
+        )
+    raise CliError(
+        f"no outgoing trust edge to '{recipient}' on any configured broker "
+        f"({', '.join(t['url'] for t in targets)}). They must accept your "
+        "invitation first."
+    )
+
+
+def _probe_brokers(
+    targets: list[dict], method: str, path: str, **kw: Any
+) -> tuple[dict, Any]:
+    """Run a request against brokers in order until one claims the resource
+    (anything but 404). Used for broker-local identifiers (invite tokens).
+    Returns (target, result); re-raises the single-target error unchanged."""
+    last: Optional[CliError] = None
+    for t in targets:
+        if not t.get("token"):
+            continue
+        try:
+            return t, _request(t["url"], t["token"], method, path, **kw)
+        except BrokerError as e:
+            if e.status_code == 404 and len(targets) > 1:
+                last = e
+                continue
+            raise
+    if last is not None:
+        raise last
+    raise CliError("not signed in to any configured broker.")
+
+
+def _route_by_edge(
+    targets: list[dict], trust_link_id: str
+) -> tuple[Optional[dict], Optional[dict]]:
+    """Which broker holds trust edge `trust_link_id`. Returns (target, edge)
+    or (None, None)."""
+    for t, data in _each_broker(targets, "GET", "/trust"):
+        if isinstance(data, Exception):
+            continue
+        for e in data.get("trust", []):
+            if e.get("trust_link_id") == trust_link_id:
+                return t, e
+    return None, None
 
 
 # ----------------------------------------------------------------------------
@@ -148,14 +313,14 @@ def _request(broker: str, token: str, method: str, path: str, **kw: Any) -> Any:
         raise CliError(f"request to {path} failed: {e}")
 
     if resp.status_code == 401:
-        raise CliError(
-            "broker rejected the token (401). It's missing or expired — "
-            "sign in again and re-run the daemon installer to refresh "
-            "~/.dispatch/config.json."
+        raise BrokerError(
+            f"broker {broker} rejected the token (401). It's missing or expired — "
+            "sign in again with `dispatch login --broker " + broker + "`.",
+            401,
         )
     if resp.status_code >= 400:
         detail = _detail(resp)
-        raise CliError(f"broker error {resp.status_code}: {detail}")
+        raise BrokerError(f"broker error {resp.status_code}: {detail}", resp.status_code)
     if not resp.content:
         return {}
     try:
@@ -290,9 +455,19 @@ def cmd_login(args: argparse.Namespace, broker: str, token: str) -> int:
     """Terminal-native sign-in via the device-authorization grant (RFC 8628).
 
     Starts a flow with the broker, opens the browser to approve (Clerk/Google
-    sign-in), polls until approved, then saves broker + token to
-    ~/.dispatch/config.json. Needs no existing token.
+    sign-in), polls until approved, then ADDS or UPDATES that broker's entry
+    (matched by URL) in ~/.dispatch/config.json — signing in to a second
+    broker never overwrites the first. Needs no existing token.
     """
+    # The token that matters here is THIS broker's entry token (the primary
+    # resolution in main() may belong to a different broker).
+    entry = next(
+        (e for e in shared_config.broker_entries(_load_config())
+         if e["url"] == broker.rstrip("/")),
+        {},
+    )
+    token = getattr(args, "token", None) or os.environ.get("DISPATCH_TOKEN") \
+        or entry.get("token")
     # Already signed in? Don't open a browser — verify the saved token first.
     if token and not getattr(args, "force", False):
         try:
@@ -349,11 +524,16 @@ def cmd_login(args: argparse.Namespace, broker: str, token: str) -> int:
             body = r.json()
             st = body.get("status")
             if st == "approved":
-                _save_config(broker=broker, token=body["token"])
+                # Add/update this broker's entry; other brokers are untouched.
+                shared_config.upsert_broker(
+                    broker, token=body["token"],
+                    label=getattr(args, "label", None),
+                )
                 _emit(
                     args,
                     {"status": "ok", "user_id": body.get("user_id"), "broker": broker},
-                    f"Signed in as {body.get('user_id')}. Saved to {_config_path()}.",
+                    f"Signed in as {body.get('user_id')} on {broker}. "
+                    f"Saved to {_config_path()}.",
                 )
                 return 0
             if st == "expired":
@@ -365,8 +545,63 @@ def cmd_login(args: argparse.Namespace, broker: str, token: str) -> int:
 
 
 def cmd_whoami(args: argparse.Namespace, broker: str, token: str) -> int:
-    me = _request(broker, token, "GET", "/me")
-    _emit(args, me, f"You are {me.get('user_id', '(unknown)')} on {broker}.")
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    if len(targets) == 1:
+        me = _request(broker, token, "GET", "/me")
+        _emit(args, _tag(me, targets[0]),
+              f"You are {me.get('user_id', '(unknown)')} on {broker}.")
+        return 0
+    identities = []
+    lines = []
+    for t, data in _each_broker(targets, "GET", "/me"):
+        if isinstance(data, Exception):
+            identities.append({"broker_url": t["url"], "broker_label": t.get("label", ""),
+                               "error": str(data)})
+            lines.append(f"  {_broker_name(t)}: error — {data}")
+        else:
+            identities.append(_tag(data, t))
+            lines.append(f"  {_broker_name(t)}: {data.get('user_id', '(unknown)')}")
+    _emit(args, {"identities": identities}, "You are signed in as:\n" + "\n".join(lines))
+    return 0
+
+
+def cmd_brokers(args: argparse.Namespace, broker: str, token: str) -> int:
+    """List the configured brokers and their live connection state (from the
+    local daemon, when one is running). One machine identity, N brokers; the
+    first entry is the primary that legacy single-broker code paths see."""
+    config = _load_config()
+    entries = shared_config.broker_entries(config)
+    session = _daemon_session(config) or {}
+    live = {b.get("url"): b for b in session.get("brokers") or [] if isinstance(b, dict)}
+    rows = []
+    for i, e in enumerate(entries):
+        st = live.get(e["url"], {})
+        rows.append({
+            "url": e["url"],
+            "label": e.get("label", ""),
+            "primary": i == 0,
+            "signed_in": bool(e.get("token")),
+            "device_id": e.get("device_id"),
+            "connected": st.get("connected"),
+            "user_id": st.get("user_id") or None,
+        })
+    if args.json:
+        print(json.dumps({"brokers": rows, "daemon_running": bool(session)}, indent=2))
+        return 0
+    if not rows:
+        print("No brokers configured. Run `dispatch login --broker <url>` to add one.")
+        return 0
+    print(f"Brokers ({len(rows)}):")
+    for r in rows:
+        name = f"{r['label']} " if r["label"] else ""
+        conn = ("connected" if r["connected"]
+                else "disconnected" if r["connected"] is False
+                else "daemon not running")
+        state = conn if r["signed_in"] else "signed out"
+        tail = f"  as {r['user_id']}" if r.get("user_id") else ""
+        primary = "  (primary)" if r["primary"] else ""
+        print(f"  {name}{r['url']:<44} [{state}]{tail}{primary}")
+    print("\nAdd another:  dispatch login --broker <url> [--label <name>]")
     return 0
 
 
@@ -401,6 +636,7 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     report["broker_connected"] = bool(session.get("broker_connected"))
     report["user_id"] = session.get("user_id")
     report["broker_url"] = session.get("broker_url") or broker
+    report["brokers"] = session.get("brokers") or []
 
     # 2. Broker reachability (independent of our daemon).
     broker_ok = False
@@ -410,7 +646,9 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     except (httpx.HTTPError, OSError):
         pass
     report["broker_reachable"] = broker_ok
-    report["signed_in"] = bool(config.get("token"))
+    report["signed_in"] = any(
+        e.get("token") for e in shared_config.broker_entries(config)
+    )
 
     # Is the other host wired up? Purely informational — it never affects the
     # exit code, since most machines run one host and not the other.
@@ -453,6 +691,12 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
               + ("online — ready to receive dispatches" if report["broker_connected"]
                  else "NOT connected — dispatches won't arrive until it reconnects"))
         print(f"      signed in as   {report['user_id'] or '(unknown)'}")
+        # Multi-home: per-broker connection state when more than one is wired.
+        if len(report["brokers"]) > 1:
+            for b in report["brokers"]:
+                name = b.get("label") or b.get("url")
+                print(f"      {mark(bool(b.get('connected')))} {name}"
+                      + (f"  as {b['user_id']}" if b.get("user_id") else ""))
         if code_stale is None:
             short = (running_commit or "unknown")[:7]
             print(f"  - code version       daemon {short}  (can't compare to installed)")
@@ -463,7 +707,7 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
         else:
             print(f"  {mark(True)} code version       daemon {running_commit[:7]}  (matches installed)")
     print(f"  {mark(broker_ok)} broker reachable   {report['broker_url']}")
-    if not config.get("token"):
+    if not report["signed_in"]:
         print("  ✗ not signed in     — run `dispatch login`")
     # Codex wiring, mentioned only on machines that actually have Codex — a
     # Claude-only user doesn't need a line about a host they don't run.
@@ -575,14 +819,28 @@ def cmd_codex(args: argparse.Namespace, broker: str, token: str) -> int:
 
 
 def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
-    data = _request(broker, token, "GET", "/trust")
-    trust = data.get("trust", [])
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    multi = len(targets) > 1
+    trust: list[dict] = []
+    errors: list[dict] = []
+    for t, data in _each_broker(targets, "GET", "/trust"):
+        if isinstance(data, Exception):
+            errors.append({"broker_url": t["url"], "error": str(data)})
+            if not multi:
+                raise data
+            continue
+        trust.extend(_tag(e, t) for e in data.get("trust", []))
     outgoing = [t for t in trust if t.get("direction") == "outgoing"]
 
     if args.json:
-        print(json.dumps(data, indent=2))
+        out: dict[str, Any] = {"trust": trust}
+        if errors:
+            out["broker_errors"] = errors
+        print(json.dumps(out, indent=2))
         return 0
 
+    for e in errors:
+        print(f"warning: {e['broker_url']}: {e['error']}", file=sys.stderr)
     if not trust:
         print("No contacts yet. Invite someone (or accept an invite) in the web UI first.")
         return 0
@@ -596,7 +854,8 @@ def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
         mcp = scopes.get("mcp", [])
         mcp_str = "*(all)" if "*" in mcp else (",".join(mcp) or "none")
         approval = scopes.get("approval", "?")
-        print(f"  {arrow} {t['peer']:<28} [{online}]  tools={tools} mcp={mcp_str} approval={approval}")
+        via = f" via {t.get('broker_label') or t.get('broker_url')}" if multi else ""
+        print(f"  {arrow} {t['peer']:<28} [{online}]  tools={tools} mcp={mcp_str} approval={approval}{via}")
         # Tools the recipient said "always allow" for on a manual edge — these
         # skip the per-call prompt from now on. Only meaningful on incoming edges.
         auto_tools = scopes.get("auto_tools") or []
@@ -614,42 +873,70 @@ def cmd_contacts(args: argparse.Namespace, broker: str, token: str) -> int:
 
 def cmd_invite(args: argparse.Namespace, broker: str, token: str) -> int:
     """Invite someone (by email) to let you dispatch to them. They must accept
-    and set the scopes before any outgoing edge exists."""
+    and set the scopes before any outgoing edge exists. The invitation lives
+    on ONE broker — the acceptor signs in there, and that's where the
+    resulting trust edge will live."""
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    if len(targets) > 1:
+        raise CliError(
+            "multiple brokers configured — pass --broker <url> so the invitee "
+            "knows which broker to sign in to. Configured: "
+            + ", ".join(_broker_name(t) for t in targets)
+        )
     result = _request(broker, token, "POST", "/invitations", json={"to_email": args.email})
     if args.json:
-        print(json.dumps(result, indent=2))
+        print(json.dumps(_tag(result, targets[0]), indent=2))
         return 0
     if result.get("delivered"):
-        print(f"Invitation emailed to {result.get('to_email', args.email)}.")
+        print(f"Invitation emailed to {result.get('to_email', args.email)} via {broker}.")
     else:
         print(f"Invitation created for {result.get('to_email', args.email)} "
               "(email delivery is off on this broker).")
         if result.get("dev_link"):
             print(f"  Share this link:  {result['dev_link']}")
-    print("They accept it (and choose the scopes your agent runs under) before "
-          "you can `dispatch send` to them.")
+    # The broker origin travels alongside the invite so the acceptor knows
+    # where to log in (`dispatch login --broker <url>`).
+    print(f"They must be signed in to {broker} to accept it — then they choose "
+          "the scopes your agent runs under, before you can `dispatch send` to them.")
     return 0
 
 
 def cmd_invitations(args: argparse.Namespace, broker: str, token: str) -> int:
-    """List pending invitations sent and received."""
-    data = _request(broker, token, "GET", "/invitations")
+    """List pending invitations sent and received, across all brokers."""
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    multi = len(targets) > 1
+    sent: list[dict] = []
+    received: list[dict] = []
+    errors: list[dict] = []
+    for t, data in _each_broker(targets, "GET", "/invitations"):
+        if isinstance(data, Exception):
+            errors.append({"broker_url": t["url"], "error": str(data)})
+            if not multi:
+                raise data
+            continue
+        sent.extend(_tag(i, t) for i in data.get("sent", []))
+        received.extend(_tag(i, t) for i in data.get("received", []))
     if args.json:
-        print(json.dumps(data, indent=2))
+        out: dict[str, Any] = {"sent": sent, "received": received}
+        if errors:
+            out["broker_errors"] = errors
+        print(json.dumps(out, indent=2))
         return 0
-    sent = data.get("sent", [])
-    received = data.get("received", [])
+    for e in errors:
+        print(f"warning: {e['broker_url']}: {e['error']}", file=sys.stderr)
     if not sent and not received:
         print("No pending invitations.")
         return 0
     if received:
         print(f"Received ({len(received)}) — accept/decline with the token:")
         for inv in received:
-            print(f"  from {inv['from_user']:<28} token={inv['token']}")
+            via = f"  via {inv.get('broker_label') or inv.get('broker_url')}" if multi else ""
+            print(f"  from {inv['from_user']:<28} token={inv['token']}{via}")
     if sent:
         print(f"Sent ({len(sent)}) — awaiting the invitee's acceptance:")
         for inv in sent:
-            print(f"  to   {inv['to_email']:<28} [{inv.get('status', '?')}]")
+            via = f"  via {inv.get('broker_label') or inv.get('broker_url')}" if multi else ""
+            print(f"  to   {inv['to_email']:<28} [{inv.get('status', '?')}]{via}")
     return 0
 
 
@@ -679,27 +966,39 @@ def cmd_accept_invitation(args: argparse.Namespace, broker: str, token: str) -> 
         scopes["tools"] = [t.strip() for t in args.tools.split(",") if t.strip()]
     if args.paths is not None:
         scopes["paths"] = [p.strip() for p in args.paths.split(",") if p.strip()]
-    result = _request(
-        broker, token, "POST", f"/invitations/{args.token}/accept", json={"scopes": scopes}
+    # Invite tokens are broker-local — probe the configured brokers until the
+    # invite's home broker claims it. The new trust edge lives there.
+    # TODO(multi-broker): auto-registration on accept — when the invite names a
+    # broker this machine has no entry for, run the device-auth login against
+    # that broker first (today the acceptor must `dispatch login --broker <url>`
+    # before accepting; the invite text tells them which broker).
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    home, result = _probe_brokers(
+        targets, "POST", f"/invitations/{args.token}/accept", json={"scopes": scopes}
     )
     _emit(
-        args, result,
-        f"Accepted. The inviter can now dispatch to you "
+        args, _tag(result, home),
+        f"Accepted on {home['url']}. The inviter can now dispatch to you "
         f"(trust_link_id={result.get('trust_link_id', '?')}, approval={args.approval}).",
     )
     return 0
 
 
 def cmd_decline_invitation(args: argparse.Namespace, broker: str, token: str) -> int:
-    result = _request(broker, token, "POST", f"/invitations/{args.token}/decline")
-    _emit(args, result, "Declined the invitation; no trust edge created.")
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    home, result = _probe_brokers(
+        targets, "POST", f"/invitations/{args.token}/decline"
+    )
+    _emit(args, _tag(result, home), "Declined the invitation; no trust edge created.")
     return 0
 
 
 def cmd_revoke(args: argparse.Namespace, broker: str, token: str) -> int:
     """Delete a trust edge (you must be the trustor). Also cancels anything
-    in-flight on it."""
-    result = _request(broker, token, "DELETE", f"/trust/{args.trust_link_id}")
+    in-flight on it. Edge ids are broker-local, so the delete is probed to the
+    edge's home broker."""
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    _home, result = _probe_brokers(targets, "DELETE", f"/trust/{args.trust_link_id}")
     n = result.get("cancelled_dispatches", 0) if isinstance(result, dict) else 0
     tail = f" Cancelled {n} in-flight dispatch(es)." if n else ""
     _emit(args, result,
@@ -710,16 +1009,16 @@ def cmd_revoke(args: argparse.Namespace, broker: str, token: str) -> int:
 def cmd_set_scope(args: argparse.Namespace, broker: str, token: str) -> int:
     """Edit an existing edge's tool/MCP permissions. PATCH replaces the whole
     scopes object, so we fetch the current scopes first and only overwrite the
-    flags you passed — unspecified fields are preserved."""
-    data = _request(broker, token, "GET", "/trust")
-    edge = next(
-        (e for e in data.get("trust", []) if e.get("trust_link_id") == args.trust_link_id),
-        None,
-    )
+    flags you passed — unspecified fields are preserved. The edge's home
+    broker is found across all configured brokers."""
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    home, edge = _route_by_edge(targets, args.trust_link_id)
     if edge is None:
-        print(f"error: no such trust edge {args.trust_link_id} (see `dispatch contacts`).",
+        print(f"error: no such trust edge {args.trust_link_id} on any configured "
+              "broker (see `dispatch contacts`).",
               file=sys.stderr)
         return 1
+    broker, token = home["url"], home["token"]
     if not edge.get("can_edit_scopes"):
         print("error: only the recipient (the trustor) may edit this edge's scopes.",
               file=sys.stderr)
@@ -754,15 +1053,14 @@ def cmd_sync_grant(args: argparse.Namespace, broker: str, token: str) -> int:
     sender on an INCOMING edge (you must be the trustor). This is what lets that
     contact run `dispatch sync <you>`. PATCH replaces the whole scopes object, so
     we fetch current scopes and only touch the `sync` block."""
-    data = _request(broker, token, "GET", "/trust")
-    edge = next(
-        (e for e in data.get("trust", []) if e.get("trust_link_id") == args.trust_link_id),
-        None,
-    )
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    home, edge = _route_by_edge(targets, args.trust_link_id)
     if edge is None:
-        print(f"error: no such trust edge {args.trust_link_id} (see `dispatch contacts`).",
+        print(f"error: no such trust edge {args.trust_link_id} on any configured "
+              "broker (see `dispatch contacts`).",
               file=sys.stderr)
         return 1
+    broker, token = home["url"], home["token"]
     if not edge.get("can_edit_scopes"):
         print("error: only the recipient (the trustor) may grant sync on this edge.",
               file=sys.stderr)
@@ -805,6 +1103,11 @@ def cmd_sync(args: argparse.Namespace, broker: str, token: str) -> int:
     have granted you sync). Sends a sync dispatch, then waits for the digest.
 
     Like `send`, this needs YOUR daemon online to sign (Layer 2)."""
+    # Route to the broker holding the edge to this contact; the whole
+    # request/poll conversation stays on that broker.
+    home = _route_by_contact(getattr(args, "_targets", [{"url": broker, "token": token}]),
+                             args.recipient)
+    broker, token = home["url"], home["token"]
     metadata = {
         "sync": {
             "window_hours": _parse_window(args.window),
@@ -869,6 +1172,12 @@ def cmd_sync(args: argparse.Namespace, broker: str, token: str) -> int:
 
 
 def cmd_send(args: argparse.Namespace, broker: str, token: str) -> int:
+    # The dispatch goes to the broker holding the outgoing edge to this
+    # contact (the edge's home broker = where the invite was accepted). A
+    # contact on multiple brokers requires --broker to disambiguate.
+    home = _route_by_contact(getattr(args, "_targets", [{"url": broker, "token": token}]),
+                             args.recipient)
+    broker, token = home["url"], home["token"]
     metadata: dict[str, Any] = {}
     for kv in args.meta or []:
         if "=" not in kv:
@@ -888,8 +1197,9 @@ def cmd_send(args: argparse.Namespace, broker: str, token: str) -> int:
     if "dispatch_id" in result:
         _emit(
             args,
-            result,
-            f"Sent. dispatch_id={result['dispatch_id']} status={result.get('status', '?')}\n"
+            _tag(result, home),
+            f"Sent via {broker}. dispatch_id={result['dispatch_id']} "
+            f"status={result.get('status', '?')}\n"
             f"  Watch it:  dispatch status {result['dispatch_id']}",
         )
         return 0
@@ -915,8 +1225,13 @@ def cmd_reply(args: argparse.Namespace, broker: str, token: str) -> int:
         body = sys.stdin.read().strip()
     if not body:
         raise CliError("nothing to say — pass a message or pipe one on stdin.")
-    _request(broker, token, "POST", f"/dispatch/{args.dispatch_id}/messages",
-             json={"body": body, "kind": "note"})
+    # The thread lives on the dispatch's home broker; probe for it (a wrong
+    # broker answers 404 without side effects).
+    _probe_brokers(
+        getattr(args, "_targets", [{"url": broker, "token": token}]),
+        "POST", f"/dispatch/{args.dispatch_id}/messages",
+        json={"body": body, "kind": "note"},
+    )
     _emit(args, {"dispatch_id": args.dispatch_id, "ok": True},
           f"Replied on {_short(args.dispatch_id)}.")
     return 0
@@ -926,8 +1241,12 @@ def cmd_followup(args: argparse.Namespace, broker: str, token: str) -> int:
     """Send a NEW dispatch threaded onto an existing one. It inherits the
     parent's working directory + result as context, but is a fresh, separately
     signed + approved dispatch — not a resumed session. Recipient defaults to
-    the parent's other party (override with --to)."""
-    parent = _request(broker, token, "GET", f"/dispatch/{args.dispatch_id}")
+    the parent's other party (override with --to). The follow-up stays on the
+    parent's home broker (the thread lives there)."""
+    home, parent = _locate_dispatch(
+        getattr(args, "_targets", [{"url": broker, "token": token}]), args.dispatch_id,
+    )
+    broker, token = home["url"], home["token"]
     me = _request(broker, token, "GET", "/me").get("user_id")
     sender = parent.get("sender_id")
     recipient = parent.get("recipient_id")
@@ -980,27 +1299,53 @@ def cmd_inbox(args: argparse.Namespace, broker: str, token: str) -> int:
 def _list_dispatches(
     args: argparse.Namespace, broker: str, token: str, *, role: str, who_key: str, label: str
 ) -> int:
-    data = _request(broker, token, "GET", "/dispatches", params={"role": role})
-    items = data.get("dispatches", [])
+    # Combined across all configured brokers, merged newest-first, each item
+    # tagged with its home broker.
+    targets = getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}])
+    multi = len(targets) > 1
+    items: list[dict] = []
+    errors: list[dict] = []
+    for t, data in _each_broker(targets, "GET", "/dispatches", params={"role": role}):
+        if isinstance(data, Exception):
+            errors.append({"broker_url": t["url"], "error": str(data)})
+            if not multi:
+                raise data
+            continue
+        items.extend(_tag(d, t) for d in data.get("dispatches", []))
+    items.sort(key=lambda d: str(d.get("created_at") or ""), reverse=True)
     if args.json:
-        print(json.dumps(data, indent=2))
+        out: dict[str, Any] = {"dispatches": items}
+        if errors:
+            out["broker_errors"] = errors
+        print(json.dumps(out, indent=2))
         return 0
+    for e in errors:
+        print(f"warning: {e['broker_url']}: {e['error']}", file=sys.stderr)
     if not items:
         print(f"{label}: empty.")
         return 0
     header = "from" if role == "received" else "to"
     print(f"{label} ({len(items)}):  id        [status]      {header}")
     for d in items:
-        print(_fmt_dispatch_line(d, who_key))
+        line = _fmt_dispatch_line(d, who_key)
+        if multi:
+            line += f"  ⟨{d.get('broker_label') or d.get('broker_url')}⟩"
+        print(line)
     return 0
 
 
 def cmd_status(args: argparse.Namespace, broker: str, token: str) -> int:
-    d = _request(broker, token, "GET", f"/dispatch/{args.dispatch_id}")
+    home, d = _locate_dispatch(
+        getattr(args, "_targets", [{"url": broker, "token": token, "label": ""}]),
+        args.dispatch_id,
+    )
+    _tag(d, home)
     if args.json:
         print(json.dumps(d, indent=2))
         return 0
     print(f"dispatch {d['dispatch_id']}")
+    if len(getattr(args, "_targets", [])) > 1:
+        print(f"  broker:  {_broker_name(home)}")
     print(f"  from:    {d.get('sender_id')}")
     print(f"  to:      {d.get('recipient_id')}")
     print(f"  status:  {d.get('status')}")
@@ -1438,7 +1783,11 @@ def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
 
 
 def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
-    result = _request(broker, token, "POST", f"/dispatch/{args.dispatch_id}/cancel")
+    # Cancel on the dispatch's home broker (a wrong broker 404s harmlessly).
+    _home, result = _probe_brokers(
+        getattr(args, "_targets", [{"url": broker, "token": token}]),
+        "POST", f"/dispatch/{args.dispatch_id}/cancel",
+    )
     status = result.get("status", "?")
     if status == "noop":
         _emit(args, result, f"Already terminal ({result.get('current_status')}); nothing to cancel.")
@@ -1589,7 +1938,22 @@ def cmd_approve_remote(args: argparse.Namespace, broker: str, token: str) -> int
     from dispatch.shared.signing import canonical_approval_bytes
 
     config = _load_config()
-    device_id = config.get("device_id")
+    # The relay + verification happen on the dispatch's HOME broker, and each
+    # broker issues this machine its own device_id — locate the dispatch first
+    # so the signature names the device_id that broker's roster knows.
+    targets = getattr(args, "_targets", None) or [
+        {"url": broker, "token": token, "label": ""}
+    ]
+    if len(targets) > 1:
+        home, _detail = _locate_dispatch(targets, args.dispatch_id)
+        broker, token = home["url"], home["token"]
+    else:
+        home = targets[0]
+    entry = next(
+        (e for e in shared_config.broker_entries(config) if e["url"] == home["url"]),
+        {},
+    )
+    device_id = entry.get("device_id") or config.get("device_id")
     if not device_id:
         raise CliError(
             "this machine isn't enrolled as a device yet (no device_id in "
@@ -1678,12 +2042,19 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=func)
         return p
 
-    p_login = add("login", "Sign in from the terminal (device-authorization flow).", cmd_login)
+    p_login = add("login", "Sign in from the terminal (device-authorization flow). "
+                           "With --broker, ADDS that broker alongside existing ones.", cmd_login)
     p_login.add_argument("--no-browser", action="store_true", default=False,
                          help="Don't auto-open the browser; just print the URL + code.")
     p_login.add_argument("--force", action="store_true", default=False,
                          help="Re-authenticate even if already signed in.")
+    p_login.add_argument("--label", default=None,
+                         help="Short display name for this broker (e.g. 'work'), "
+                              "shown as provenance on inbox items.")
     p_login.set_defaults(no_auth=True)  # login is how you GET a token
+
+    add("brokers", "List configured brokers and their connection state.",
+        cmd_brokers).set_defaults(no_auth=True)
 
     # Launch the menu-bar app (no broker creds needed).
     add("tray", "Launch the macOS menu-bar app (always-on daemon supervisor).",
@@ -1952,14 +2323,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     # can read args.json / resolve broker+token uniformly.
     args.json = getattr(args, "json", False)
     config = _load_config()
-    broker = _resolve_broker(getattr(args, "broker", None), config)
-    token = _resolve_token(getattr(args, "token", None), config)
+    # Multi-home: every configured broker (or the one pinned by --broker/env).
+    # Commands that stayed single-broker use the primary (first) target; the
+    # aggregating/routing commands read args._targets.
+    targets = _broker_targets(args, config)
+    args._targets = targets
+    broker = targets[0]["url"]
+    token = targets[0]["token"]
 
     # Local-only commands (accept/decline/approve/deny/approvals) talk to the
     # loopback daemon and don't need broker creds.
     local_only = getattr(args, "local_only", False)
     no_auth = getattr(args, "no_auth", False)  # `login` — it's how you get a token
-    if not token and not local_only and not no_auth:
+    if not any(t.get("token") for t in targets) and not local_only and not no_auth:
         sys.stderr.write(
             "error: no token. Run `dispatch login` to sign in from the terminal, "
             "or pass --token / set $DISPATCH_TOKEN.\n"

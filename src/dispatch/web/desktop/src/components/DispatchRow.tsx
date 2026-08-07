@@ -16,6 +16,8 @@ interface Props {
   createdAt: string;
   status: DispatchStatus;
   hint?: string;
+  /** Multi-home provenance: broker label (or host) shown as a small tag. */
+  brokerLabel?: string;
   onClick?: () => void;
   emphasized?: boolean;
   /** When true and status is pending/delivered, show inline Accept/Reject. */
@@ -26,7 +28,7 @@ interface Props {
 }
 
 export function DispatchRow({
-  dispatchId, who, task, createdAt, status, hint, onClick, emphasized, showQuickDecision, indented,
+  dispatchId, who, task, createdAt, status, hint, brokerLabel, onClick, emphasized, showQuickDecision, indented,
 }: Props) {
   const decisionPending = status === "pending" || status === "delivered";
   const qc = useQueryClient();
@@ -62,6 +64,11 @@ export function DispatchRow({
           <span className="font-semibold">{who}</span>
           <StatusBadge status={status} />
           {hint && <Badge variant="outline">{hint}</Badge>}
+          {brokerLabel && (
+            <Badge variant="outline" className="text-muted-foreground">
+              {brokerLabel}
+            </Badge>
+          )}
         </div>
         <div className="mt-1 text-sm leading-snug line-clamp-2">{plainPreview(task)}</div>
         <div className="mt-1 text-xs text-muted-foreground">

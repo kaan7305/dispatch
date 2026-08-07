@@ -337,8 +337,10 @@ class DispatchTrayApp(rumps.App):
         backoff = 2
         while True:
             args = Namespace(
-                broker=self.config.broker,
-                token=self.config.token,
+                # No pinned broker: run_session multi-homes across every broker
+                # entry in ~/.dispatch/config.json (legacy flat keys included).
+                broker=None,
+                token=None,
                 workspace=str(DEFAULT_WORKSPACE),
                 anthropic_key=self.config.anthropic_api_key or None,
                 local_port=self.config.local_port,

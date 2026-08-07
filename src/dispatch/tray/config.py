@@ -44,4 +44,12 @@ class Config:
         CONFIG_PATH.chmod(0o600)
 
     def is_complete(self) -> bool:
-        return bool(self.broker and self.token)
+        if self.broker and self.token:
+            return True
+        # Multi-home: the flat keys mirror only the PRIMARY broker; any other
+        # signed-in broker entry still makes the daemon worth running.
+        try:
+            from dispatch.shared.config import broker_entries
+            return any(e.get("token") for e in broker_entries())
+        except Exception:
+            return False
