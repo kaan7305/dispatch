@@ -26,8 +26,11 @@ TASK_MAX_CHARS = 100_000
 # A human chat message pinned to a dispatch thread (display-only — never reaches
 # the executor). Generous, but bounded so one message can't blow the event row.
 MESSAGE_MAX_CHARS = 8_000
-ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024           # one file
-ATTACHMENTS_MAX_TOTAL_BYTES = 250 * 1024 * 1024  # whole dispatch (50 × 5 MB)
+ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024         # one file
+# Whole dispatch. Attachment bytes land base64 in the broker's JSONB row, so
+# this is ~1.33× on disk and never purged — the total is what bounds storage,
+# not the per-file cap.
+ATTACHMENTS_MAX_TOTAL_BYTES = 5 * 1024 * 1024
 ATTACHMENTS_MAX_COUNT = 50
 ATTACHMENT_NAME_RE = r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$"
 

@@ -4,7 +4,7 @@
  *  with a readable message, instead of as a 422 after upload. */
 
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
-export const ATTACHMENTS_MAX_TOTAL_BYTES = 250 * 1024 * 1024;
+export const ATTACHMENTS_MAX_TOTAL_BYTES = 5 * 1024 * 1024;
 export const ATTACHMENTS_MAX_COUNT = 50;
 
 export interface Attachment {
