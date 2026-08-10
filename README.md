@@ -317,6 +317,7 @@ Two pieces ship with the package:
    dispatch login [--broker URL]            # device-code sign-in; saves config
    dispatch update                          # update the package (+ plugin if changed)
    dispatch tray                            # launch the menu-bar tray (hosts the daemon)
+   dispatch open [<id>] [--shortcut]        # open the desktop UI in its own window
    dispatch codex [status|install]          # wire Dispatch into the Codex CLI
 
    # Broker-backed:
@@ -456,6 +457,7 @@ src/dispatch/
   cli.py          dispatch - terminal client (broker + loopback daemon API)
   mcp_server.py   dispatch-mcp - in-session thin client; ensures + drives the daemon
   codex.py        Codex host wiring - config.toml install + MCP server discovery
+  desktop.py      `dispatch open` - app-mode window on the daemon's UI + OS launcher
   shared/
     schema.py     DispatchPayload, DispatchEvent, DispatchStatus, Scopes, …
     identity.py   JWT issue/verify (HS256)

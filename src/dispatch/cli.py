@@ -50,6 +50,7 @@ import certifi
 import httpx
 
 from dispatch import codex
+from dispatch import desktop
 from dispatch.shared import config as shared_config
 from dispatch.shared.schema import SYNC_TASK_SENTINEL
 
@@ -1782,6 +1783,94 @@ def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def _spawn_local_daemon() -> str:
+    """Start a daemon detached and return the executable used.
+
+    Same preference order as ``dispatch.mcp_server._spawn_daemon`` — the tray
+    on macOS (it hosts the daemon *and* gives the indicator), the bare daemon
+    everywhere else — duplicated rather than imported so the CLI never pulls in
+    the MCP SDK just to start a process. Both read broker/token/port from
+    ~/.dispatch/config.json, so neither needs arguments.
+    """
+    import shutil
+    import subprocess
+    exe = None
+    if sys.platform == "darwin" and _tray_installed():
+        exe = shutil.which("dispatch-tray")
+    if not exe:
+        exe = shutil.which("dispatch-daemon")
+    if not exe:
+        raise CliError(
+            "no daemon is running and neither dispatch-tray nor dispatch-daemon "
+            "is on PATH. Reinstall the package, or start the daemon by opening "
+            "Claude Code or Codex with the dispatch plugin."
+        )
+    try:
+        log = open(_dispatch_home() / "daemon-spawn.log", "ab")
+    except OSError:
+        log = subprocess.DEVNULL
+    subprocess.Popen(
+        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
+    )
+    return exe
+
+
+def cmd_open(args: argparse.Namespace, broker: str, token: str) -> int:
+    """Open the desktop UI in its own window — the tray's "Open Inbox" without
+    the tray.
+
+    Worth having even on a machine whose tray is running: a full menu bar drops
+    the icons that don't fit, Windows has no tray app at all, and neither of
+    those should be the difference between having a UI and not having one.
+    """
+    config = _load_config()
+    port = _local_port(config)
+
+    if args.shortcut:
+        try:
+            path = desktop.install_shortcut()
+        except OSError as e:
+            raise CliError(str(e))
+        _emit(args, {"status": "installed", "shortcut": str(path)},
+              f"Installed “{desktop.SHORTCUT_NAME}” → {path}\n"
+              f"  {desktop.shortcut_hint()}")
+        return 0
+
+    started_with = None
+    if not desktop.daemon_alive(port):
+        # The UI is served BY the daemon, so "open the app" has to mean "start
+        # it if it isn't up" — otherwise the window is a connection error.
+        started_with = _spawn_local_daemon()
+        if not desktop.wait_for_daemon(port):
+            raise CliError(
+                f"started {Path(started_with).name} but nothing is serving "
+                f"http://127.0.0.1:{port} yet. Check "
+                f"{_dispatch_home() / 'daemon-spawn.log'} and run `dispatch doctor`."
+            )
+
+    url = desktop.app_url(port, _local_token(), args.dispatch_id)
+
+    if args.url:
+        # Printed, not opened: for piping into another browser, another machine's
+        # port forward, or a script.
+        _emit(args, {"url": url, "port": port}, url)
+        return 0
+
+    mode, exe = desktop.open_window(url, prefer_browser=args.browser)
+    if mode == "app":
+        human = f"Opened the Dispatch window ({Path(exe).stem})."
+    else:
+        human = ("Opened Dispatch in your default browser — install Chrome or "
+                 "Edge for a real app window."
+                 if not args.browser else "Opened Dispatch in your default browser.")
+    if started_with:
+        human += f" (Started {Path(started_with).name} first.)"
+    _emit(args, {"status": "opened", "mode": mode, "url": url,
+                 "browser": str(exe) if exe else None,
+                 "daemon_started": bool(started_with)}, human)
+    return 0
+
+
 def cmd_cancel(args: argparse.Namespace, broker: str, token: str) -> int:
     # Cancel on the dispatch's home broker (a wrong broker 404s harmlessly).
     _home, result = _probe_brokers(
@@ -2059,6 +2148,23 @@ def build_parser() -> argparse.ArgumentParser:
     # Launch the menu-bar app (no broker creds needed).
     add("tray", "Launch the macOS menu-bar app (always-on daemon supervisor).",
         cmd_tray).set_defaults(no_auth=True)
+
+    # Open the desktop UI directly. Registered next to `tray` because that's
+    # where someone looking for "how do I get the window up" will look, but
+    # it's local_only: the UI is served by this machine's daemon, and the
+    # broker is not involved.
+    p_open = add("open",
+                 "Open the desktop UI in its own window (no menu bar needed).",
+                 cmd_open)
+    p_open.set_defaults(local_only=True)
+    p_open.add_argument("dispatch_id", nargs="?", default=None,
+                        help="Optional dispatch id to open directly.")
+    p_open.add_argument("--browser", action="store_true", default=False,
+                        help="Use the default browser instead of an app window.")
+    p_open.add_argument("--url", action="store_true", default=False,
+                        help="Print the URL instead of opening anything.")
+    p_open.add_argument("--shortcut", action="store_true", default=False,
+                        help="Install a launcher (Spotlight / Start menu) and exit.")
 
     # Self-update the installed package (no broker creds needed).
     p_update = add("update",

@@ -169,7 +169,13 @@ dispatch decline <id>                    # decline an inbound dispatch
 dispatch approvals                       # list tool calls awaiting allow/deny right now
 dispatch approve <id> <request_id>       # allow ONE pending tool call (manual-edge gating)
 dispatch deny <id> <request_id>          # deny ONE pending tool call
+dispatch open [<id>]                     # open the desktop UI in its own window
+  [--shortcut]                           #   install a Spotlight / Start-menu launcher
 ```
+
+`dispatch open` is the answer when the human can't reach the ⬡ tray - a full
+menu bar, or Windows, where there is no tray at all. It starts the daemon if
+one isn't already up, so it doubles as "get me a working UI from nothing".
 
 Add `--json` to any command for machine-readable output (works before or after
 the subcommand). `--broker` / `--token` override the saved config. The
