@@ -121,7 +121,8 @@ the immediate error you're seeing, but the cleanup was worth doing anyway.
 
    | Variable | Required | Notes |
    |---|---|---|
-   | `DATABASE_URL` | **Yes** | Postgres connection string, e.g. from Neon. `asyncpg` needs a standard `postgresql://user:pass@host/db?sslmode=require` URL — copy Neon's *pooled* connection string and keep the `sslmode=require` query param. Without this the broker raises `RuntimeError("DATABASE_URL is not set...")` on startup and the healthcheck will never pass. |
+   | `DATABASE_URL` | **Yes** | Postgres connection string, e.g. from Neon. `asyncpg` needs a standard `postgresql://user:pass@host/db?sslmode=require` URL — copy Neon's *pooled* connection string and keep the `sslmode=require` query param. Without this the broker raises `RuntimeError("DATABASE_URL is not set...")` on startup and the healthcheck will never pass. (Railway's own Postgres add-on also works and injects this variable for you — but see the free-plan note below: a Railway-hosted Postgres does *not* scale to zero the way Neon does.) |
+   | `DISPATCH_JWT_SECRET` | **Yes** | 32+ random chars (`openssl rand -hex 32`). The broker mints the daemon/session tokens with it (`shared/identity.py`). **Easy to miss:** unlike `DATABASE_URL` this does *not* crash startup — `lifespan` only logs a warning, so the deploy goes green and `/health` returns `ok`, then every sign-in and device-auth approval fails with a 500 at runtime. Rotating it invalidates all issued tokens. |
    | `DISPATCH_PUBLIC_URL` | No | Overrides the auto-derived URL; only set if you're fronting Railway with a custom domain/proxy. |
    | `RAILWAY_PUBLIC_DOMAIN` | No | Set automatically by Railway once you generate a domain (step 5) — don't set it by hand. |
    | `CLERK_PUBLISHABLE_KEY`, `CLERK_FRONTEND_API`, `CLERK_JWT_TEMPLATE` | No | Only needed if the broker's web UI does Clerk auth; defaults to empty/`"dispatch"` and the `/config.js` route just ships blanks if unset. |
