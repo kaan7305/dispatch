@@ -522,7 +522,7 @@ def make_app(
         xdg-open on Linux) instead.
         """
         import subprocess, sys
-        url = local_state.broker_url.rstrip("/") or "https://web-production-700f0.up.railway.app"
+        url = local_state.broker_url.rstrip("/") or "https://dispatch-production-99d1.up.railway.app"
         # Hand the daemon's broker JWT to the browser so it lands signed in as
         # the same account, instead of the cold Clerk sign-in landing at "/".
         # The token rides the URL *fragment* (never sent to the broker, kept

@@ -31,10 +31,13 @@ from dispatch.tray import notify
 from dispatch.tray.config import Config
 from dispatch.tray.window import open_native_window
 
-BROKER_URL = (
-    os.environ.get("DISPATCH_BROKER", "https://web-production-700f0.up.railway.app")
-    .rstrip("/")
-)
+# An explicitly-set DISPATCH_BROKER overrides saved config; the default is only
+# a last resort for a first run with no config yet. Kept separate because
+# folding them into one constant makes the override unconditional — it would
+# clobber the broker install.sh just wrote into ~/.dispatch/config.json.
+BROKER_ENV = (os.environ.get("DISPATCH_BROKER") or "").rstrip("/")
+DEFAULT_BROKER_URL = "https://dispatch-production-99d1.up.railway.app"
+BROKER_URL = BROKER_ENV or DEFAULT_BROKER_URL
 
 ICON_OK     = "⬡ Dispatch"
 ICON_BUSY   = "◌ Dispatch"
@@ -103,8 +106,9 @@ class DispatchTrayApp(rumps.App):
 
         self.config = Config.load()
         # CLI env var wins over saved config, so a tester can point at staging.
-        if BROKER_URL:
-            self.config.broker = BROKER_URL
+        # Only an *explicit* env var overrides; otherwise saved config stands.
+        if BROKER_ENV:
+            self.config.broker = BROKER_ENV
 
         # Register the dispatch:// URL handler before rumps takes over the
         # run loop. macOS routes Apple-Event URL opens here.
