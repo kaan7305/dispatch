@@ -541,6 +541,150 @@ fi
     return PlainTextResponse(content=script, media_type="text/x-shellscript")
 
 
+@app.get("/install.ps1")
+async def install_script_windows() -> PlainTextResponse:
+    """The same one-shot installer, for Windows.
+
+    Usage on the recipient's machine (PowerShell):
+        irm <broker>/install.ps1 | iex     # then follow the prompt
+    or non-interactively:
+        & ([scriptblock]::Create((irm <broker>/install.ps1))) -Token <jwt> [-ApiKey <key>]
+
+    A Windows recipient had no install path at all: /install.sh is bash, and a
+    stock Windows machine has no bash, no curl behaving like curl (the
+    `curl` alias is Invoke-WebRequest), and no `umask`. The one-liner the
+    broker handed them could not run, so onboarding stopped at "copy this
+    command".
+
+    Deliberately mirrors install.sh step for step so the two stay comparable:
+    ensure pipx, install the package, write config, start the daemon.
+    """
+    broker = _public_url()
+    spec = _daemon_install_spec()
+    script = f"""#Requires -Version 5.1
+<#
+  Dispatch recipient installer (Windows).
+  Installs the daemon, saves your broker + token, and starts it.
+#>
+[CmdletBinding()]
+param(
+  [string]$Token  = $env:DISPATCH_TOKEN,
+  [string]$ApiKey = $env:ANTHROPIC_API_KEY
+)
+
+$ErrorActionPreference = 'Stop'
+$Broker      = '{broker}'
+$InstallSpec = '{spec}'
+
+if (-not $Token) {{
+  Write-Host 'dispatch: paste the token from the install page.' -ForegroundColor Yellow
+  $Token = (Read-Host 'Token').Trim()
+}}
+if (-not $Token) {{
+  Write-Error "dispatch: no token supplied. Re-run with:  -Token <your-token>"
+  exit 1
+}}
+
+Write-Host 'dispatch: installing the recipient daemon...'
+
+# 1. A Python to build on. The Store alias (a zero-byte stub that opens the
+#    Store when run) shadows a real python on a stock machine, so resolve it
+#    by asking for a version rather than by presence on PATH.
+function Get-Python {{
+  foreach ($candidate in @('py -3', 'python3', 'python')) {{
+    $parts = $candidate.Split(' ')
+    $exe = Get-Command $parts[0] -ErrorAction SilentlyContinue
+    if (-not $exe) {{ continue }}
+    try {{
+      $v = & $parts[0] @($parts[1..($parts.Length-1)]) '-c' 'import sys;print(sys.version_info[0])' 2>$null
+      if ($LASTEXITCODE -eq 0 -and $v -eq '3') {{ return $candidate }}
+    }} catch {{ }}
+  }}
+  return $null
+}}
+
+$py = Get-Python
+if (-not $py) {{
+  Write-Error @'
+dispatch: no Python 3 found.
+  Install it from https://www.python.org/downloads/windows/ (tick
+  "Add python.exe to PATH"), or run:  winget install Python.Python.3.12
+  Then re-run this installer.
+'@
+  exit 1
+}}
+$pyParts = $py.Split(' ')
+$pyExe   = $pyParts[0]
+$pyArgs  = @($pyParts[1..($pyParts.Length-1)])
+
+# 2. Ensure pipx.
+if (-not (Get-Command pipx -ErrorAction SilentlyContinue)) {{
+  Write-Host 'dispatch: installing pipx...'
+  & $pyExe @pyArgs -m pip install --user --upgrade pipx
+}}
+$pipx = Get-Command pipx -ErrorAction SilentlyContinue
+if ($pipx) {{ & $pipx.Source ensurepath *> $null }}
+else        {{ & $pyExe @pyArgs -m pipx ensurepath *> $null }}
+
+# 3. Install (or upgrade) the daemon, with the tray extra so the machine gets
+#    the always-on supervisor rather than a process that dies with the console.
+$installArgs = @('install', '--force', "dispatch-agent[tray] @ $InstallSpec")
+if ($pipx) {{ & $pipx.Source @installArgs }}
+else        {{ & $pyExe @pyArgs -m pipx @installArgs }}
+if ($LASTEXITCODE -ne 0) {{ Write-Error 'dispatch: pipx install failed.'; exit 1 }}
+
+# 4. Save broker + token. Written owner-only: on Windows a file inherits the
+#    profile ACL, which is readable by every administrator, and this one holds
+#    a bearer token.
+$home_ = if ($env:USERPROFILE) {{ $env:USERPROFILE }} else {{ $HOME }}
+$dir   = Join-Path $home_ '.dispatch'
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$cfg   = Join-Path $dir 'config.json'
+$json  = @{{ broker = $Broker; token = $Token }} | ConvertTo-Json
+[System.IO.File]::WriteAllText($cfg, $json, (New-Object System.Text.UTF8Encoding($false)))
+icacls $dir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" *> $null
+icacls $cfg /inheritance:r /grant:r "$($env:USERNAME):F" *> $null
+
+# 5. Start the tray (which hosts the daemon and gives the notification-area
+#    indicator), falling back to the bare daemon.
+$binDir = Join-Path $home_ '.local\\bin'
+function Resolve-Dispatch($name) {{
+  $c = Get-Command $name -ErrorAction SilentlyContinue
+  if ($c) {{ return $c.Source }}
+  $p = Join-Path $binDir "$name.exe"
+  if (Test-Path $p) {{ return $p }}
+  return $null
+}}
+
+if ($ApiKey) {{
+  $daemon = Resolve-Dispatch 'dispatch-daemon'
+  if ($daemon) {{ Start-Process -FilePath $daemon -ArgumentList @('--anthropic-key', $ApiKey) -WindowStyle Hidden }}
+}} else {{
+  $tray = Resolve-Dispatch 'dispatch-tray'
+  if ($tray) {{ Start-Process -FilePath $tray -WindowStyle Hidden }}
+  else {{
+    $daemon = Resolve-Dispatch 'dispatch-daemon'
+    if ($daemon) {{ Start-Process -FilePath $daemon -WindowStyle Hidden }}
+  }}
+  Write-Host ''
+  Write-Host 'dispatch: no ANTHROPIC_API_KEY given - the daemon runs, but accepting a'
+  Write-Host '          dispatch needs a key. Add one later with:'
+  Write-Host '          dispatch-daemon --anthropic-key sk-ant-...'
+}}
+
+Write-Host ''
+Write-Host 'dispatch: installed.' -ForegroundColor Green
+Write-Host '  Look for the Dispatch icon in the notification area (the ^ by the clock).'
+Write-Host '  Check it with:  dispatch doctor'
+Write-Host '  Open the inbox: dispatch open'
+if (-not (Get-Command dispatch -ErrorAction SilentlyContinue)) {{
+  Write-Host ''
+  Write-Host "  Open a NEW terminal first - pipx just added $binDir to your PATH." -ForegroundColor Yellow
+}}
+"""
+    return PlainTextResponse(content=script, media_type="text/plain; charset=utf-8")
+
+
 @app.get("/health")
 async def health() -> dict:
     """Liveness check. Railway polls this continuously, so it must never

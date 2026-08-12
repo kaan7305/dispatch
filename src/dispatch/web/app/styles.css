@@ -164,6 +164,21 @@ button, .primary-link {
 button:hover, .primary-link:hover { opacity: 0.9; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Platform picker above the install command. Unselected tabs are outlined so
+   the pair reads as a choice rather than as two actions. */
+button.os-tab {
+  background: transparent;
+  color: var(--muted, #666);
+  border-color: var(--border, #ccc);
+  padding: 5px 12px;
+  font-size: 13px;
+}
+button.os-tab.active {
+  background: var(--text);
+  color: white;
+  border-color: var(--text);
+}
+
 #login-btn {
   width: 100%;
   padding: 10px 16px;

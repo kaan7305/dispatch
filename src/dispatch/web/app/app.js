@@ -21,6 +21,48 @@ const deviceCode  = deviceParam && deviceParam !== "1" ? deviceParam : "";
 const authStatus   = document.getElementById("auth-status");
 const installPanel = document.getElementById("install-panel");
 const installCmd   = document.getElementById("install-cmd");
+
+// Which install command to show. Guessed from the browser, because the page
+// used to offer a bash one-liner unconditionally — and a Windows visitor has
+// no bash to paste it into, so the install simply stopped there. The guess is
+// only a default; the tabs let anyone pick the other one (you might be reading
+// this page on a Mac to set up a Windows box).
+function guessOs() {
+  const hint = (navigator.userAgentData && navigator.userAgentData.platform) ||
+               navigator.platform || navigator.userAgent || "";
+  return /win/i.test(hint) ? "windows" : "posix";
+}
+let installOs = guessOs();
+
+function installCommandFor(os) {
+  if (os === "windows") {
+    return `& ([scriptblock]::Create((irm ${location.origin}/install.ps1))) -Token ${token}`;
+  }
+  return `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
+}
+
+function renderInstallCommand() {
+  if (!installCmd) return;
+  installCmd.textContent = installCommandFor(installOs);
+  document.querySelectorAll("#install-os-tabs .os-tab").forEach((btn) => {
+    const active = btn.dataset.os === installOs;
+    btn.setAttribute("aria-pressed", String(active));
+    btn.classList.toggle("active", active);
+  });
+  const surface = document.getElementById("install-surface");
+  if (surface) {
+    surface.textContent = installOs === "windows"
+      ? "A Dispatch icon appears in the notification area (the ^ next to the clock)."
+      : "A menu-bar icon appears.";
+  }
+}
+
+document.querySelectorAll("#install-os-tabs .os-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    installOs = btn.dataset.os;
+    renderInstallCommand();
+  });
+});
 const tokenDisplay = document.getElementById("token-display");
 const loginBtn     = document.getElementById("login-btn");
 const logoutBtn    = document.getElementById("logout");
@@ -36,8 +78,7 @@ function refreshAuth() {
     authStatus.className = "status done";
     installPanel.hidden = false;
     tokenDisplay.textContent = token;
-    installCmd.textContent =
-      `curl -fsSL ${location.origin}/install.sh | bash -s -- ${token}`;
+    renderInstallCommand();
     // Open the running local app's inbox. The daemon serves the same SPA on
     // its loopback port (browsers allow http://127.0.0.1 from an https page),
     // and it already has its own credentials from `dispatch login` / the

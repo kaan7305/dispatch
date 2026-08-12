@@ -80,11 +80,16 @@
           Run this once in your terminal. It installs the daemon, saves your
           sign-in, generates this machine's device key, and starts it:
         </p>
+        <div class="row" id="install-os-tabs" style="gap:6px;margin-bottom:8px">
+          <button type="button" data-os="posix" class="os-tab">macOS / Linux</button>
+          <button type="button" data-os="windows" class="os-tab">Windows</button>
+        </div>
         <pre id="install-cmd"></pre>
         <button id="copy-install" type="button">Copy install command</button>
 
         <p style="margin-top:14px">
-          A menu-bar icon appears. Or, if you use Claude Code, just install the
+          <span id="install-surface">A menu-bar icon appears.</span>
+          Or, if you use Claude Code, just install the
           plugin (<code>/plugin install dispatch@dispatch</code>) and it starts
           the daemon for you. Either way, come back here and click
           <strong>Open in Dispatch app</strong>.

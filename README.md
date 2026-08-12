@@ -174,8 +174,8 @@ or run the **installer** so it's always on.
 Install the Dispatch **plugin** for whichever agent you use. It bundles the
 `/dispatch` skill *and* an MCP server (`dispatch-mcp`) that the host launches
 each session. The MCP server is a **thin client**: on startup it checks for a
-running daemon and, if there isn't one, spawns it detached (the menu-bar **tray**
-on macOS, which hosts the daemon; a bare `dispatch-daemon` elsewhere). It then
+running daemon and, if there isn't one, spawns it detached (the **tray**, which
+hosts the daemon, on macOS and Windows; a bare `dispatch-daemon` elsewhere). It then
 drives that daemon over its loopback API - it never opens its own broker
 connection.
 
@@ -271,7 +271,13 @@ Everyone - sender and recipient - runs a daemon. After signing in to the
 broker, the page shows a one-line installer:
 
 ```bash
+# macOS / Linux
 curl -fsSL https://your-broker/install.sh | bash -s -- <your-token>
+```
+
+```powershell
+# Windows (PowerShell)
+& ([scriptblock]::Create((irm https://your-broker/install.ps1))) -Token <your-token>
 ```
 
 To set your Anthropic API key in the same step (the recipient runs the agent
@@ -279,6 +285,10 @@ on their own key), pass it as a second argument:
 
 ```bash
 curl -fsSL https://your-broker/install.sh | bash -s -- <your-token> sk-ant-...
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://your-broker/install.ps1))) -Token <your-token> -ApiKey sk-ant-...
 ```
 
 It installs `pipx` if needed, installs the `dispatch-daemon` command, saves
@@ -316,7 +326,7 @@ Two pieces ship with the package:
    # Setup / lifecycle:
    dispatch login [--broker URL]            # device-code sign-in; saves config
    dispatch update                          # update the package (+ plugin if changed)
-   dispatch tray                            # launch the menu-bar tray (hosts the daemon)
+   dispatch tray                            # launch the tray (hosts the daemon)
    dispatch open [<id>] [--shortcut]        # open the desktop UI in its own window
    dispatch codex [status|install]          # wire Dispatch into the Codex CLI
 
@@ -408,7 +418,8 @@ in flight on that edge and refuses new dispatches immediately.
 | POST | `/auth/device` → `/approve` → `/token` | – / Bearer | device-code flow for the CLI (`dispatch login`) |
 | POST | `/auth/login` | – | dev/CLI login (username → JWT) |
 | POST | `/auth/signout` | Bearer | sign out |
-| GET | `/install.sh` | – | the daemon installer script |
+| GET | `/install.sh` | – | the daemon installer script (macOS / Linux) |
+| GET | `/install.ps1` | – | the daemon installer script (Windows PowerShell) |
 | GET | `/health` | – | liveness + DB check |
 | GET | `/me`, `/me/phone` · POST `/me/phone` | Bearer | identity / SMS-notify number |
 | POST | `/devices/enroll` | Bearer | register a device public key |
@@ -479,7 +490,11 @@ src/dispatch/
     nonces.py     durable replay-nonce store
     identity.py   device keypair, keychain, enrollment, key pins
   tray/
-    app.py        dispatch-tray - macOS menu-bar indicator that hosts the daemon
+    __init__.py   dispatch-tray - picks the implementation for this platform
+    supervisor.py the daemon supervisor both trays drive (thread, restart, updates)
+    app.py        macOS menu-bar indicator (rumps)
+    win_app.py    Windows notification-area indicator (pystray)
+    winident.py   Windows AUMID + dispatch:// registration (the .app bundle's job)
   web/desktop/    the React web UI (served by the broker and each daemon)
 
 skills/dispatch/       the /dispatch skill - one copy, both hosts
