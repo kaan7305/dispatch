@@ -1,3 +1,5 @@
-from dispatch.tray.app import main
+import sys
 
-main()
+from dispatch.tray import main
+
+sys.exit(main())

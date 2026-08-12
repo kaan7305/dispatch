@@ -1,13 +1,23 @@
-"""Auto-start at login via macOS LaunchAgents.
+"""Start the tray at login.
 
-We write a plist to ~/Library/LaunchAgents/com.dispatch.tray.plist that
-runs the installed dispatch-tray binary (or the bundled .app's executable
-in a PyInstaller-frozen distribution) on user login.
+macOS uses a LaunchAgent plist. We deliberately avoid SMAppService: it requires
+the app to be code-signed + notarized + registered as a Login Item against a
+bundled main app — too heavy for the dev/personal-use phase. The LaunchAgent
+route works for everyone today, including a bare ``pip install``.
 
-We deliberately avoid SMAppService here because it requires the app to be
-code-signed + notarized + Login Items registered against a bundled main
-app — too heavy for the dev/personal-use phase. The LaunchAgent route
-works for everyone today, including bare `pip install`.
+Windows uses the per-user ``Run`` registry key. A Startup-folder shortcut would
+be the other option, but a .lnk has to be built through COM and can be written
+successfully while pointing at nothing (the same class of silent failure the
+desktop shortcut had); a registry value is a string, either right or absent.
+Both surfaces are equally visible to the user — Task Manager's Startup tab
+lists Run-key entries — and neither needs administrator rights.
+
+Every function here is a dispatcher on ``sys.platform``. The previous version
+was not: ``PLIST_PATH`` was computed at import as ``~/Library/LaunchAgents/…``
+with no guard, so on Windows ``is_enabled()`` was permanently False and
+``enable()`` cheerfully created a ``%USERPROFILE%\\Library\\LaunchAgents``
+directory containing a plist nothing would ever read, then failed on a missing
+``launchctl`` — reporting success for an autostart that did not exist.
 """
 from __future__ import annotations
 
@@ -19,7 +29,24 @@ import sys
 from pathlib import Path
 
 LABEL = "com.dispatch.tray"
-PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+
+# The Run-key value name on Windows. Stable: renaming it orphans the old entry
+# and the tray would start twice.
+RUN_VALUE = "Dispatch"
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+_IS_WINDOWS = sys.platform == "win32"
+_IS_MAC = sys.platform == "darwin"
+
+
+def plist_path() -> Path:
+    """The macOS LaunchAgent path. Meaningless elsewhere; kept as a function so
+    importing this module on Windows does not compute a nonsense path."""
+    return Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+
+
+# Retained for callers that referenced the old module constant.
+PLIST_PATH = plist_path()
 
 
 def _program_arguments() -> list[str]:
@@ -44,12 +71,44 @@ def _program_arguments() -> list[str]:
     return [found or sys.executable]
 
 
+def _windows_command() -> str:
+    """The command line Windows should run at login.
+
+    Quoted because the interpreter path contains spaces on almost every real
+    install (``C:\\Users\\First Last\\...``), and an unquoted Run value is
+    split on the first space and silently fails to launch.
+    """
+    from dispatch.tray.winident import tray_executable
+
+    exe = tray_executable()
+    return exe if exe.startswith('"') else f'"{exe}"'
+
+
 def is_enabled() -> bool:
-    return PLIST_PATH.exists()
+    if _IS_WINDOWS:
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+                value, _ = winreg.QueryValueEx(key, RUN_VALUE)
+                return bool(value)
+        except OSError:
+            return False
+    return plist_path().exists()
 
 
 def enable() -> None:
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _IS_WINDOWS:
+        import winreg
+
+        with winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_WRITE
+        ) as key:
+            winreg.SetValueEx(key, RUN_VALUE, 0, winreg.REG_SZ, _windows_command())
+        return
+
+    path = plist_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     plist: dict = {
         "Label": LABEL,
         "ProgramArguments": _program_arguments(),
@@ -59,24 +118,44 @@ def enable() -> None:
         "StandardErrorPath": str(Path.home() / ".dispatch" / "tray.log"),
         "ProcessType": "Interactive",
     }
-    with PLIST_PATH.open("wb") as fh:
+    with path.open("wb") as fh:
         plistlib.dump(plist, fh)
     # Best-effort load; ignore launchctl exit code so a missing launchctl
     # (CI, container) doesn't break the flow.
     subprocess.run(
-        ["launchctl", "load", "-w", str(PLIST_PATH)],
+        ["launchctl", "load", "-w", str(path)],
         check=False, capture_output=True,
     )
 
 
 def disable() -> None:
-    if not PLIST_PATH.exists():
+    if _IS_WINDOWS:
+        import winreg
+
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE
+            ) as key:
+                winreg.DeleteValue(key, RUN_VALUE)
+        except OSError:
+            pass  # already absent
+        return
+
+    path = plist_path()
+    if not path.exists():
         return
     subprocess.run(
-        ["launchctl", "unload", "-w", str(PLIST_PATH)],
+        ["launchctl", "unload", "-w", str(path)],
         check=False, capture_output=True,
     )
     try:
-        os.remove(PLIST_PATH)
+        os.remove(path)
     except FileNotFoundError:
         pass
+
+
+def describe() -> str:
+    """Where autostart is configured, for `dispatch` to print."""
+    if _IS_WINDOWS:
+        return rf"HKCU\{_RUN_KEY}\{RUN_VALUE}"
+    return str(plist_path())

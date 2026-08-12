@@ -41,21 +41,34 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# macOS tray app — only needed on the recipient's laptop if they want the
-# menu bar supervisor instead of running `dispatch-daemon` in a terminal.
+# The tray app — only needed on the recipient's machine if they want the
+# always-on supervisor instead of running `dispatch-daemon` in a terminal.
+# Per-platform: the macOS menu-bar app is rumps + pyobjc, the Windows
+# notification-area app is pystray + Pillow (which draws the icon states at
+# runtime, so no binary asset ships). Marking every entry darwin-only made
+# `pip install dispatch-agent[tray]` resolve to nothing on Windows and exit 0,
+# so the install looked like it had worked.
 tray = [
   "rumps>=0.4; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
   "pyobjc-framework-WebKit>=10.0; sys_platform == 'darwin'",
   "pyobjc-framework-UserNotifications>=10.0; sys_platform == 'darwin'",
+  "pystray>=0.19; sys_platform == 'win32'",
+  "pillow>=10; sys_platform == 'win32'",
 ]
 
 [project.scripts]
 dispatch         = "dispatch.cli:main"
 dispatch-daemon  = "dispatch.daemon.main:main"
-dispatch-tray    = "dispatch.tray.app:main"
 dispatch-mcp     = "dispatch.mcp_server:main"
 dispatch-browser = "dispatch.browser:main"
+
+# The tray has no console UI, and on Windows a console-subsystem launcher pops
+# a black window that stays for the life of the process. gui-scripts binds it
+# to pythonw.exe instead; on POSIX setuptools generates exactly the same script
+# as [project.scripts], so this costs macOS nothing.
+[project.gui-scripts]
+dispatch-tray    = "dispatch.tray:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/dispatch"
