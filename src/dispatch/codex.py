@@ -70,11 +70,30 @@ def skills_dir() -> Path:
     return codex_home() / "skills"
 
 
+def codex_on_path() -> bool:
+    """Is there a `codex` on PATH that this machine can actually spawn?
+
+    Not `shutil.which`. On Windows the npm package installs `codex`,
+    `codex.cmd` and `codex.ps1`, all of which satisfy a PATH lookup and none of
+    which is an image CreateProcess can start. `doctor` printed a tick for that
+    machine, which is the worst possible answer: the user is told the thing
+    they need to fix is already fine.
+
+    Imported from `dispatch.shared.proc`, not from `dispatch.executor.runtime`:
+    the latter would execute `dispatch/executor/__init__.py` first, which pulls
+    in the Agent SDK — measured at ~1.2s and 20-odd modules, on a path that
+    `dispatch doctor` walks twice.
+    """
+    from dispatch.shared.proc import native_exe
+
+    return native_exe("codex") is not None
+
+
 def codex_installed() -> bool:
     """Is the `codex` CLI on PATH, or has it at least written a config? Either
     is enough to treat this machine as a Codex machine (the vendored runtime
     puts `codex` on PATH without the user ever running it themselves)."""
-    return shutil.which("codex") is not None or config_path().exists()
+    return codex_on_path() or config_path().exists()
 
 
 # ----------------------------------------------------------------------------
@@ -324,7 +343,7 @@ def install(*, force: bool = False, skill_text: Optional[str] = None) -> dict:
     report: dict[str, Any] = {
         "codex_home": str(codex_home()),
         "config_path": str(config_path()),
-        "codex_on_path": shutil.which("codex") is not None,
+        "codex_on_path": codex_on_path(),
     }
 
     path = config_path()
@@ -428,7 +447,13 @@ def status() -> dict:
     entry = server_entry()
     skill = skills_dir() / SKILL_NAME / "SKILL.md"
     return {
-        "codex_on_path": shutil.which("codex") is not None,
+        "codex_on_path": codex_on_path(),
+        # A `codex.cmd`/`codex.ps1` shim satisfies a PATH lookup but cannot be
+        # spawned; doctor needs to tell that apart from "not installed", since
+        # the fix is different and the user believes they already installed it.
+        "codex_shim_only": (
+            shutil.which("codex") is not None and not codex_on_path()
+        ),
         "config_path": str(config_path()),
         "config_exists": config_path().exists(),
         "mcp_server_installed": entry is not None,

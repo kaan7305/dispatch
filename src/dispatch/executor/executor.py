@@ -12,6 +12,8 @@ tool execution. The executor just wires it through to the SDK.
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -86,31 +88,63 @@ DELEGATED_TASK_SYSTEM_PROMPT = (
 )
 
 
-# Told to the agent ONLY when Bash is in scope: Dispatch ships a browser
-# controller it can drive through Bash. Without this, agents wrongly conclude
-# they "can't control playback / click / type" and give up — the YouTube
-# "I'm a text-based agent" failure. The helper speaks CDP, so it works on any
-# machine with Chrome and needs no extra setup or OS permission grants.
-BROWSER_CAPABILITY_NOTE = (
-    "\n\nBROWSER CONTROL: you can drive a real Chrome browser through Bash via "
-    "`python -m dispatch.browser <command>` (works on this machine — it ships "
-    "with Dispatch). Use it whenever a task needs a live browser: open pages, "
-    "control video, click, type, read rendered text, screenshot. Do NOT claim "
-    "you cannot interact with web pages or control playback — you can. Commands "
-    "(each prints one JSON line):\n"
-    "  python -m dispatch.browser open <url>\n"
-    "  python -m dispatch.browser video play|pause|toggle      # the page's <video>\n"
-    "  python -m dispatch.browser video seek <fraction 0..1>   # 0.5 = halfway\n"
-    "  python -m dispatch.browser status                       # url, title, video state\n"
-    "  python -m dispatch.browser click '<css-selector>'\n"
-    "  python -m dispatch.browser type '<css-selector>' '<text>'\n"
-    "  python -m dispatch.browser eval '<javascript>'          # returns JSON\n"
-    "  python -m dispatch.browser text [<css-selector>]        # visible text\n"
-    "  python -m dispatch.browser screenshot <path.png>\n"
-    "It opens a dedicated automation window (not signed into the user's "
-    "accounts), reused across commands in this task. If `open` reports no "
-    "browser found, report that Chrome isn't installed — don't improvise."
-)
+def _browser_command() -> str | None:
+    """How to invoke the bundled browser controller from a Bash tool call here,
+    or None if there is no way to invoke it on this machine.
+
+    This used to be a module-level constant that hardcoded `python -m
+    dispatch.browser`. On a stock Windows 11 the bare name `python` resolves to
+    the Microsoft Store app-execution alias — a zero-byte reparse point that
+    opens the Store and exits 9009 — so the command was a no-op, and the note
+    told the agent it had a capability that could not be exercised. The agent
+    has no way to detect that: it reads the promise, tries the command, gets
+    nothing usable, and improvises. Resolve it here instead, at the moment we
+    decide whether to make the promise at all.
+    """
+    launcher = shutil.which("dispatch-browser")
+    if launcher:
+        return f'"{launcher}"'
+    # A frozen build's sys.executable is the Dispatch app, not an interpreter:
+    # `-m` would be ignored and the app would relaunch itself, which is worse
+    # than saying nothing.
+    if sys.executable and not getattr(sys, "frozen", False):
+        return f'"{sys.executable}" -m dispatch.browser'
+    return None
+
+
+def _browser_capability_note() -> str:
+    """Told to the agent ONLY when Bash is in scope: Dispatch ships a browser
+    controller it can drive through Bash. Without this, agents wrongly conclude
+    they "can't control playback / click / type" and give up — the YouTube
+    "I'm a text-based agent" failure. The helper speaks CDP, so it works on any
+    machine with Chrome and needs no extra setup or OS permission grants.
+
+    Empty when nothing on this machine can run the controller — an unkeepable
+    promise costs more than the missing capability does.
+    """
+    cmd = _browser_command()
+    if cmd is None:
+        return ""
+    return (
+        "\n\nBROWSER CONTROL: you can drive a real Chrome browser through Bash via "
+        f"`{cmd} <command>` (works on this machine — it ships "
+        "with Dispatch). Use it whenever a task needs a live browser: open pages, "
+        "control video, click, type, read rendered text, screenshot. Do NOT claim "
+        "you cannot interact with web pages or control playback — you can. Commands "
+        "(each prints one JSON line):\n"
+        f"  {cmd} open <url>\n"
+        f"  {cmd} video play|pause|toggle      # the page's <video>\n"
+        f"  {cmd} video seek <fraction 0..1>   # 0.5 = halfway\n"
+        f"  {cmd} status                       # url, title, video state\n"
+        f"  {cmd} click '<css-selector>'\n"
+        f"  {cmd} type '<css-selector>' '<text>'\n"
+        f"  {cmd} eval '<javascript>'          # returns JSON\n"
+        f"  {cmd} text [<css-selector>]        # visible text\n"
+        f"  {cmd} screenshot <path.png>\n"
+        "It opens a dedicated automation window (not signed into the user's "
+        "accounts), reused across commands in this task. If `open` reports no "
+        "browser found, report that Chrome isn't installed — don't improvise."
+    )
 
 
 def _scope_notice(in_scope: list[str], disallowed: list[str]) -> str:
@@ -304,9 +338,10 @@ async def run_dispatch(
         (system_prompt or DELEGATED_TASK_SYSTEM_PROMPT) + _scope_notice(in_scope, disallowed)
     )
     # Surface the bundled browser controller only when the agent can actually
-    # invoke it (it runs through Bash). Read-only edges never see it.
+    # invoke it: it runs through Bash (read-only edges never see it) *and* the
+    # invocation has to resolve on this machine.
     if "Bash" in in_scope:
-        effective_system_prompt += BROWSER_CAPABILITY_NOTE
+        effective_system_prompt += _browser_capability_note()
     if extra_system_prompt:
         effective_system_prompt += "\n\n" + extra_system_prompt
 

@@ -26,6 +26,7 @@ import json
 import logging
 import math
 import re
+import sys
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from uuid import UUID
@@ -33,6 +34,7 @@ from uuid import UUID
 import httpx
 
 from dispatch.executor import run_dispatch
+from dispatch.shared import winpath
 from dispatch.shared.schema import (
     DispatchPayload,
     NodeState,
@@ -48,6 +50,23 @@ _TEMPLATE_RE = re.compile(r"\{\{\s*([A-Za-z_][\w.]*)\s*\}\}")
 
 # Sentinel used in keyword args where None is a legitimate value.
 _MISSING = object()
+
+# notify.sound speaks macOS sound names because that is where the workflow
+# builder's picker came from. Windows exposes registry-backed event aliases
+# instead of a sound library, so the palette collapses onto the three that
+# mean something to a user: notice / error / warning. Keys are lowercased at
+# lookup, and a name that is not here is not an error — see
+# _play_sound_windows.
+_WINDOWS_SOUND_ALIASES = {
+    "ping": "SystemAsterisk",
+    "tink": "SystemAsterisk",
+    "pop": "SystemAsterisk",
+    "basso": "SystemHand",
+    "funk": "SystemHand",
+    "sosumi": "SystemExclamation",
+    "glass": "SystemExclamation",
+    "default": "SystemDefault",
+}
 
 
 def _utcnow() -> datetime:
@@ -271,11 +290,11 @@ class WorkflowEngine:
                     elif ntype == "datetime":
                         output = self._run_datetime_node(node, node_states, input_)
                     elif ntype == "file.read":
-                        output = self._run_file_read_node(node, node_states, input_, workspace)
+                        output = await self._run_file_read_node(node, node_states, input_, workspace)
                     elif ntype == "file.write":
-                        output = self._run_file_write_node(node, node_states, input_, workspace)
+                        output = await self._run_file_write_node(node, node_states, input_, workspace)
                     elif ntype == "context":
-                        output = self._run_context_node(node, node_states, input_, workspace)
+                        output = await self._run_context_node(node, node_states, input_, workspace)
                     elif ntype == "ai.classify":
                         output = await self._run_ai_classify_node(
                             node, node_states, input_,
@@ -823,9 +842,30 @@ class WorkflowEngine:
             candidate.relative_to(ws)
         except ValueError:
             raise _NodeError(f"path outside workspace: {raw!r}")
+        # Containment is necessary but not sufficient on Windows: a device
+        # name resolves *inside* the workspace and passes the check above,
+        # yet addresses the object manager rather than the directory. A
+        # file.write node targeting <workspace>/NUL used to report success
+        # with a byte count and write nothing at all.
+        try:
+            winpath.reject_reserved(candidate)
+            winpath.reject_too_long(candidate)
+        except winpath.WindowsPathError as exc:
+            raise _NodeError(f"path not usable on this platform: {exc}")
         return candidate
 
-    def _run_file_read_node(
+    # The three filesystem nodes below do their IO on a worker thread. The
+    # engine runs on the daemon's event loop, shared with the local UI, the
+    # broker WebSocket and every other in-flight dispatch — so a single
+    # synchronous open() that does not return wedges all of them, not just
+    # this run. That is not hypothetical: a remote sender asking to read
+    # `CON` opens the console input device and blocks until something types
+    # at a console the daemon does not have. The device-name filter in
+    # _resolve_workspace_path is the first line of defence; this is the one
+    # that bounds the damage from whatever the filter does not know about
+    # (a network share that stops answering, a file on a sleeping drive).
+
+    async def _run_file_read_node(
         self, node: dict, node_states: dict[str, dict], input_: dict, workspace,
     ) -> dict:
         params = node.get("params", {}) or {}
@@ -834,7 +874,7 @@ class WorkflowEngine:
             raise _NodeError("file.read: 'path' is required")
         target = self._resolve_workspace_path(path_tpl, workspace)
         try:
-            content = target.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(target.read_text, encoding="utf-8")
         except FileNotFoundError:
             raise _NodeError(f"file.read: not found: {path_tpl}")
         except OSError as exc:
@@ -844,9 +884,9 @@ class WorkflowEngine:
         truncated = len(content) > max_bytes
         if truncated:
             content = content[:max_bytes]
-        return {"path": str(target), "content": content, "truncated": truncated}
+        return {"path": target.as_posix(), "content": content, "truncated": truncated}
 
-    def _run_file_write_node(
+    async def _run_file_write_node(
         self, node: dict, node_states: dict[str, dict], input_: dict, workspace,
     ) -> dict:
         params = node.get("params", {}) or {}
@@ -856,16 +896,44 @@ class WorkflowEngine:
         content = _hydrate(str(params.get("content", "")), node_states, input_)
         append = bool(params.get("append", False))
         target = self._resolve_workspace_path(path_tpl, workspace)
-        target.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
-        try:
-            with open(target, mode, encoding="utf-8") as fh:
+
+        # len(content) is a character count; a file's size is bytes, and the
+        # two differ for any non-ASCII content. Encoding once here gives an
+        # honest bytes_written *and* something verify_written can compare to.
+        payload = content.encode("utf-8")
+
+        def _write() -> int:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            before = target.stat().st_size if append and target.exists() else 0
+            # newline="" disables universal-newline translation on write, so a
+            # "\n" in the sender's content stays one byte on Windows too.
+            # Otherwise the same workflow produces different bytes — and a
+            # different hash — depending on which OS the recipient runs.
+            with open(target, mode, encoding="utf-8", newline="") as fh:
                 fh.write(content)
+            return before + len(payload)
+
+        try:
+            expected_total = await asyncio.to_thread(_write)
         except OSError as exc:
             raise _NodeError(f"file.write: {exc}")
-        return {"path": str(target), "bytes_written": len(content), "append": append}
 
-    def _run_context_node(
+        # Confirm the bytes landed under the name we used. On Windows a path
+        # can be accepted, report a byte count, and address a device instead of
+        # a file — the write "succeeds" and the data is gone.
+        try:
+            await asyncio.to_thread(winpath.verify_written, target, expected_total)
+        except winpath.WindowsPathError as exc:
+            raise _NodeError(f"file.write: {exc}")
+
+        return {
+            "path": target.as_posix(),
+            "bytes_written": len(payload),
+            "append": append,
+        }
+
+    async def _run_context_node(
         self,
         node: dict,
         node_states: dict[str, dict],
@@ -906,12 +974,19 @@ class WorkflowEngine:
                 raise _NodeError("context file is missing 'path'")
             content = _hydrate(str(entry.get("content", "")), node_states, input_)
             target = self._resolve_workspace_path(path_raw, workspace)
-            target.parent.mkdir(parents=True, exist_ok=True)
+
+            def _write(target=target, content=content) -> None:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # A context pack is content-addressed by downstream agents, so
+                # newline="" keeps its bytes — and its hash — identical on
+                # every recipient rather than picking up CRLF on Windows.
+                target.write_text(content, encoding="utf-8", newline="")
+
             try:
-                target.write_text(content, encoding="utf-8")
+                await asyncio.to_thread(_write)
             except OSError as exc:
                 raise _NodeError(f"context: write {path_raw}: {exc}")
-            written.append({"path": str(target), "bytes": len(content)})
+            written.append({"path": target.as_posix(), "bytes": len(content)})
 
         return {
             "system_prompt": system_prompt,
@@ -922,13 +997,24 @@ class WorkflowEngine:
     async def _run_sound_node(
         self, node: dict, node_states: dict[str, dict], input_: dict,
     ) -> dict:
-        """Play a macOS system sound via afplay. Sound name must match a
-        file in /System/Library/Sounds (without .aiff)."""
+        """Play a system chime. Sound names are the macOS ones — on Windows
+        they map onto the nearest system alias.
+
+        A chime is decoration, so a chime that will not play reports
+        ``played: false`` and lets the run continue. Only a malformed sound
+        *name* still fails the node: that is a bug in the workflow the sender
+        wrote, and it would be the same bug on every recipient.
+        """
         params = node.get("params", {}) or {}
         sound = str(params.get("sound", "Ping")).strip() or "Ping"
-        # Allow only alphanumerics — afplay path is built from this.
+        # Allow only alphanumerics — the afplay path is built from this, and
+        # on Windows it is a registry alias lookup.
         if not sound.replace("_", "").isalnum():
             raise _NodeError(f"notify.sound: invalid sound name {sound!r}")
+
+        if sys.platform == "win32":
+            return await self._play_sound_windows(sound)
+
         path = f"/System/Library/Sounds/{sound}.aiff"
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -938,14 +1024,59 @@ class WorkflowEngine:
             )
             await asyncio.wait_for(proc.wait(), timeout=10.0)
         except FileNotFoundError:
-            raise _NodeError("notify.sound: afplay not available (not macOS?)")
+            # Used to be a _NodeError, which failed the whole run on any host
+            # without afplay — the sender got "workflow failed" for a missing
+            # ding.
+            return {"sound": sound, "played": False,
+                    "error": "afplay not available (not macOS?)"}
         except asyncio.TimeoutError:
             try:
                 proc.kill()
             except ProcessLookupError:
                 pass
-            raise _NodeError("notify.sound: afplay timed out")
-        return {"sound": sound, "exit_code": proc.returncode}
+            return {"sound": sound, "played": False, "error": "afplay timed out"}
+        return {
+            "sound": sound,
+            "played": proc.returncode == 0,
+            "exit_code": proc.returncode,
+        }
+
+    async def _play_sound_windows(self, sound: str) -> dict:
+        """Ring the nearest Windows system alias for a macOS sound name.
+
+        Windows has no per-sound file library to point at; it has a handful of
+        named events the user has themselves assigned sounds to (and may have
+        assigned silence to). So the macOS palette collapses onto the three
+        that carry meaning — an alert, an error, a warning — and anything
+        unrecognised gets MessageBeep, which always makes *some* noise.
+
+        winsound is stdlib on Windows but blocking even with SND_ASYNC: it has
+        to look the alias up in the registry first, and that is a disk read on
+        the daemon's event loop.
+        """
+        import winsound
+
+        alias = _WINDOWS_SOUND_ALIASES.get(sound.lower())
+
+        def _play() -> bool:
+            try:
+                if alias is None:
+                    winsound.MessageBeep(winsound.MB_OK)
+                else:
+                    winsound.PlaySound(
+                        alias, winsound.SND_ALIAS | winsound.SND_ASYNC
+                    )
+                return True
+            except RuntimeError:
+                # PlaySound raises this when the alias resolves to nothing
+                # playable — a muted device, or a sound scheme set to "None".
+                return False
+
+        try:
+            played = await asyncio.to_thread(_play)
+        except OSError:
+            played = False
+        return {"sound": sound, "played": played, "alias": alias or "MessageBeep"}
 
     # ── AI convenience nodes (all delegate to _invoke_llm) ─────────────
 
