@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -55,13 +57,51 @@ _MARKERS = (
     "pom.xml", "build.gradle", "Gemfile", "CMakeLists.txt",
 )
 # Home children that are never project roots — system-owned, media, or
-# package noise (covers macOS / Linux / Windows homes).
-_SKIP_DIRS = {
+# package noise. Which names those are is not the same on every platform, and
+# getting it wrong here is the one mistake that empties the whole index.
+_SKIP_DIRS_COMMON = {
     "Library", "Applications", "Music", "Movies", "Pictures", "Public",
-    "AppData", "OneDrive", "Dropbox (Old)",
+    "AppData", "Dropbox (Old)",
     "node_modules", "__pycache__", ".venv", "venv", ".cache", ".npm",
     "site-packages", "dist", "build",
 }
+# OneDrive is a sync mirror on macOS, but on Windows 11 it is where the work
+# actually lives: Known Folder Move ships ON by default and relocates Desktop,
+# Documents and Pictures into ~/OneDrive (or ~/"OneDrive - Employer"). Skipping
+# it there skipped precisely the directories users keep projects in, and the
+# failure was invisible — the scan returned an empty list, so resolve_cwd could
+# never pin a cwd and every dispatch fell through to the cold "Glob the whole
+# user profile" start this module exists to prevent.
+_SKIP_DIRS_POSIX = {"OneDrive"}
+# The Windows profile's real noise instead. Most of these are the Win9x-era
+# compatibility junctions (Application Data -> AppData\Roaming) that the
+# reparse-point check below also catches, but Searches, Saved Games and
+# 3D Objects are ordinary directories that only a name can exclude.
+_SKIP_DIRS_WINDOWS = {
+    "Application Data", "Local Settings", "My Documents", "NetHood",
+    "PrintHood", "Recent", "SendTo", "Start Menu", "Templates", "Cookies",
+    "Searches", "3D Objects", "Saved Games", "$RECYCLE.BIN",
+}
+_SKIP_DIRS = _SKIP_DIRS_COMMON | (
+    _SKIP_DIRS_WINDOWS if sys.platform == "win32" else _SKIP_DIRS_POSIX
+)
+# Hidden-ness on Windows is an attribute bit, not a leading dot, so the
+# `name.startswith(".")` filter below sees none of the profile's noise: the
+# legacy compatibility junctions ("Application Data" -> AppData\Roaming, "My
+# Documents" -> Documents) are all HIDDEN|SYSTEM, which is what takes them out.
+#
+# Reparse points are deliberately NOT in this mask. Junctions are how people
+# reach a projects tree that lives on another drive, and skipping them makes
+# that tree invisible — the exact failure this module exists to prevent, just
+# on a less common machine. The two real hazards a junction poses — walking a
+# cycle forever, and indexing one tree twice under two names, which makes
+# match_task refuse to pin either — are handled where they belong, by keying
+# the walk on each directory's resolved identity rather than on the path used
+# to reach it.
+_WIN_SKIP_ATTRS = (
+    0x2    # FILE_ATTRIBUTE_HIDDEN
+    | 0x4  # FILE_ATTRIBUTE_SYSTEM
+)
 # Project names too generic to pin a cwd on — a task containing "test" or
 # "docs" must not hijack the run into ~/test.
 _STOP_NAMES = {
@@ -80,43 +120,166 @@ def _is_project(p: Path) -> bool:
         return False
 
 
-def _scan() -> list[dict[str, Any]]:
-    """Walk the home directory (bounded) and collect project roots."""
+def _is_win_noise(entry: os.DirEntry) -> bool:
+    """Is this dirent hidden, system-owned, or a reparse point? (win32 only)
+
+    The attributes come off the directory entry Windows already handed us, so
+    this costs no extra syscall — os.scandir caches them, unlike os.stat.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        attrs = entry.stat(follow_symlinks=False).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attrs & _WIN_SKIP_ATTRS)
+
+
+# Shell folder IDs for SHGetKnownFolderPath.
+_FOLDERID_DESKTOP = "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
+_FOLDERID_DOCUMENTS = "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}"
+
+
+def _known_folder(folder_id: str) -> Path | None:
+    """Where Windows *currently* keeps a shell folder, or None.
+
+    ``~/Desktop`` is a guess; this is the answer. Known Folder Move rewrites
+    the registry entry to a OneDrive path whose name carries the employer's
+    tenant ("OneDrive - Contoso"), which no amount of joining onto the home
+    directory will reproduce.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    class _GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", wintypes.DWORD),
+            ("Data2", wintypes.WORD),
+            ("Data3", wintypes.WORD),
+            ("Data4", ctypes.c_byte * 8),
+        ]
+
+    ole32 = ctypes.WinDLL("ole32")
+    shell32 = ctypes.WinDLL("shell32")
+    ole32.CLSIDFromString.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(_GUID)]
+    ole32.CLSIDFromString.restype = ctypes.c_long
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole32.CoTaskMemFree.restype = None
+    shell32.SHGetKnownFolderPath.argtypes = [
+        ctypes.POINTER(_GUID), wintypes.DWORD, wintypes.HANDLE,
+        ctypes.POINTER(ctypes.c_wchar_p),
+    ]
+    shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+
+    guid = _GUID()
+    if ole32.CLSIDFromString(folder_id, ctypes.byref(guid)) != 0:
+        return None
+    out = ctypes.c_wchar_p()
+    if shell32.SHGetKnownFolderPath(
+        ctypes.byref(guid), 0, None, ctypes.byref(out)
+    ) != 0:
+        return None
+    try:
+        return Path(out.value) if out.value else None
+    finally:
+        # The shell allocated this with CoTaskMemAlloc; ctypes will not free it.
+        ole32.CoTaskMemFree(ctypes.cast(out, ctypes.c_void_p))
+
+
+def _scan_roots() -> list[Path]:
+    """Directories the walk starts from, outermost redirect first.
+
+    Home alone is the right answer everywhere except a Windows profile whose
+    known folders have been redirected: ~/OneDrive/Desktop sits a level deeper
+    than ~/Desktop, so the same _SCAN_DEPTH reaches one level less of the
+    user's actual tree. Seeding the redirected folder as its own root gives it
+    back the full budget, and it comes before home so home's walk finds it
+    already visited rather than re-walking it shallower.
+
+    A known folder redirected *outside* home is deliberately not seeded: this
+    index's contract, everywhere else in the module, is "projects under the
+    user's home", and widening what the daemon indexes is not a portability
+    fix.
+    """
     home = Path.home()
+    roots: list[Path] = []
+    if sys.platform == "win32":
+        for folder_id in (_FOLDERID_DESKTOP, _FOLDERID_DOCUMENTS):
+            try:
+                kf = _known_folder(folder_id)
+            except (OSError, AttributeError, ValueError):
+                continue
+            if kf is None or kf == home or kf.parent == home:
+                continue  # already reached at full depth by home's own walk
+            try:
+                if kf.is_relative_to(home):
+                    roots.append(kf)
+            except (OSError, ValueError):
+                continue
+    roots.append(home)
+    return roots
+
+
+def _scan() -> list[dict[str, Any]]:
+    """Walk the home directory (bounded) and collect project roots.
+
+    Roots can overlap — see _scan_roots — so the walk tracks where it has
+    already been.
+    """
     found: list[dict[str, Any]] = []
     visited = 0
+    walked: set[str] = set()
 
     def walk(d: Path, depth: int) -> None:
         nonlocal visited
         if len(found) >= MAX_PROJECTS or visited >= _MAX_DIRS_VISITED:
             return
+        # Keyed on the directory's real identity, not on the path we arrived
+        # by. Overlapping roots (a redirected Desktop lives under home too) and
+        # junctions both reach one tree by two names; indexing it twice is the
+        # exact ambiguity match_task refuses to resolve, so it would silently
+        # disable resolve_cwd for every project underneath. Resolving also
+        # makes a junction cycle terminate on its second visit rather than
+        # relying on _SCAN_DEPTH to run out.
+        try:
+            key = os.path.normcase(os.path.realpath(d))
+        except OSError:
+            key = os.path.normcase(str(d))
+        if key in walked:
+            return
+        walked.add(key)
         visited += 1
         try:
-            children = sorted(d.iterdir())
+            with os.scandir(d) as it:
+                children = sorted(it, key=lambda e: e.name)
         except OSError:
             return
         for c in children:
             if len(found) >= MAX_PROJECTS or visited >= _MAX_DIRS_VISITED:
                 return
             try:
-                if not c.is_dir() or c.is_symlink():
+                if not c.is_dir(follow_symlinks=False):
                     continue
             except OSError:
                 continue
             if c.name.startswith(".") or c.name in _SKIP_DIRS:
                 continue
-            if _is_project(c):
+            if _is_win_noise(c):
+                continue
+            p = Path(c.path)
+            if _is_project(p):
                 try:
                     mtime = c.stat().st_mtime
                 except OSError:
                     mtime = 0.0
-                found.append({"path": str(c), "name": c.name, "mtime": mtime})
+                found.append({"path": str(p), "name": c.name, "mtime": mtime})
                 # Don't descend into a project — nested repos are noise.
                 continue
             if depth < _SCAN_DEPTH:
-                walk(c, depth + 1)
+                walk(p, depth + 1)
 
-    walk(home, 1)
+    for root in _scan_roots():
+        walk(root, 1)
     found.sort(key=lambda e: e.get("mtime", 0.0), reverse=True)
     return found
 

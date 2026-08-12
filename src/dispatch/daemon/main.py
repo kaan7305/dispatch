@@ -68,6 +68,7 @@ from dispatch.daemon import machine_index
 from dispatch.daemon import memory as run_memory
 from dispatch import codex
 from dispatch.shared import config as shared_config
+from dispatch.shared import fsperm
 from dispatch.shared.config import BrokerLink
 from dispatch.executor import run_dispatch
 from dispatch.shared import crypto
@@ -169,38 +170,57 @@ def _evict_port(port: int) -> None:
     import socket as _s
     import time
 
+    from dispatch.shared.net import probe_bindable
+    from dispatch.shared.proc import kill_pid, run_quiet
+
     def port_free() -> bool:
-        s = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
-        try:
-            s.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-        finally:
-            s.close()
+        return probe_bindable("127.0.0.1", port)
 
     if port_free():
         return
 
-    # Try lsof in the common macOS paths — the bundled .app has a minimal PATH.
-    for lsof in ("/usr/sbin/lsof", "/usr/bin/lsof", "lsof"):
+    if sys.platform == "win32":
+        # No lsof. `netstat -ano` is present on every Windows install and its
+        # last column is the owning pid, which is all we need. (psutil would be
+        # tidier but is not a dependency, and this runs at most once a start.)
         try:
-            result = subprocess.run(
-                [lsof, "-ti", f":{port}"],
-                capture_output=True, text=True, timeout=3,
-            )
-            for pid_str in result.stdout.strip().splitlines():
+            result = run_quiet(["netstat", "-ano", "-p", "TCP"], timeout=8.0)
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                # proto  local-addr  foreign-addr  state  pid
+                if len(parts) < 5 or parts[3].upper() != "LISTENING":
+                    continue
+                local = parts[1]
+                # Match the port only, not a substring of the address.
+                if local.rsplit(":", 1)[-1] != str(port):
+                    continue
                 try:
-                    pid = int(pid_str)
-                    if pid != os.getpid():
-                        os.kill(pid, signal.SIGKILL)
-                        print(f"[daemon] killed pid={pid} on port {port}", flush=True)
-                except (ValueError, ProcessLookupError, OSError):
-                    pass
-            break
-        except (FileNotFoundError, subprocess.SubprocessError):
-            continue
+                    pid = int(parts[4])
+                except ValueError:
+                    continue
+                if pid and pid != os.getpid() and kill_pid(pid):
+                    print(f"[daemon] killed pid={pid} on port {port}", flush=True)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        # Try lsof in the common macOS paths — the bundled .app has a minimal PATH.
+        for lsof in ("/usr/sbin/lsof", "/usr/bin/lsof", "lsof"):
+            try:
+                result = subprocess.run(
+                    [lsof, "-ti", f":{port}"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                for pid_str in result.stdout.strip().splitlines():
+                    try:
+                        pid = int(pid_str)
+                        if pid != os.getpid():
+                            os.kill(pid, signal.SIGKILL)
+                            print(f"[daemon] killed pid={pid} on port {port}", flush=True)
+                    except (ValueError, ProcessLookupError, OSError):
+                        pass
+                break
+            except (FileNotFoundError, subprocess.SubprocessError):
+                continue
 
     # Wait up to 8s for the kernel to actually free the port — covers both
     # "the holder we just killed" and "the previous in-process server's TIME_WAIT".
@@ -218,10 +238,17 @@ def _config_path() -> Path:
 
 
 def _load_config() -> dict:
-    """Reads the daemon config JSON. Returns {} if absent or malformed."""
+    """Reads the daemon config JSON. Returns {} if absent or malformed.
+
+    utf-8-sig, not the locale default: on Windows the implicit encoding is the
+    ANSI codepage (cp1252 on most installs), so a config file containing a
+    non-ASCII broker label — or one saved by Notepad, which writes a UTF-8 BOM
+    — decodes to mojibake or raises, and the daemon silently starts with no
+    broker configured.
+    """
     try:
-        return json.loads(_config_path().read_text())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return json.loads(_config_path().read_text(encoding="utf-8-sig"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
         return {}
 
 
@@ -233,8 +260,11 @@ def _save_config(**fields: object) -> None:
     path = _config_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config, indent=2))
-        path.chmod(0o600)  # bearer token lives here — keep it private
+        fsperm.harden_dir(path.parent)
+        path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        # Bearer token lives here — keep it private. On Windows a chmod would
+        # only toggle the read-only attribute, so this sets a real DACL.
+        fsperm.harden_file(path)
     except OSError:
         logger.warning("could not save config to %s", path)
 
@@ -2129,15 +2159,38 @@ def main() -> int:
         for task in asyncio.all_tasks(loop):
             task.cancel()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, _shutdown)
-        except NotImplementedError:
-            pass
+    if sys.platform == "win32":
+        # add_signal_handler is not implemented on any Windows event loop, so
+        # the daemon used to have no graceful shutdown at all here: Ctrl-C
+        # raised KeyboardInterrupt straight through run_until_complete, past
+        # the CancelledError handler below, leaving the broker WebSocket and
+        # the connection lock to be torn down by process death instead of
+        # unwound. signal.signal works on Windows for SIGINT and SIGBREAK
+        # (the latter is what a console CTRL_BREAK_EVENT delivers, which is
+        # how a detached daemon in its own process group is asked to stop).
+        def _win_shutdown(_signum, _frame):
+            loop.call_soon_threadsafe(_shutdown)
+
+        for sig_name in ("SIGINT", "SIGBREAK", "SIGTERM"):
+            sig = getattr(signal, sig_name, None)
+            if sig is None:
+                continue
+            try:
+                signal.signal(sig, _win_shutdown)
+            except (ValueError, OSError):
+                pass  # not the main thread, or unsupported for this signal
+    else:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _shutdown)
+            except NotImplementedError:
+                pass
 
     try:
         return loop.run_until_complete(run_session(args))
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # KeyboardInterrupt can still win the race on Windows if Ctrl-C lands
+        # between the handler firing and the loop noticing the cancellation.
         return 0
     finally:
         loop.close()

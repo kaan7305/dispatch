@@ -16,7 +16,7 @@ from pathlib import Path
 import httpx
 import keyring
 
-from dispatch.shared import crypto
+from dispatch.shared import crypto, fsperm
 
 KEYRING_SERVICE = "dispatch-daemon"
 KEYRING_ACCOUNT = "device-private-key"
@@ -39,8 +39,8 @@ def _key_file() -> Path:
 def get_private_key() -> bytes | None:
     if _use_file_backend():
         try:
-            return crypto.b64decode(_key_file().read_text().strip())
-        except (FileNotFoundError, OSError, ValueError):
+            return crypto.b64decode(_key_file().read_text(encoding="utf-8").strip())
+        except (FileNotFoundError, OSError, ValueError, UnicodeDecodeError):
             return None
     stored = keyring.get_password(KEYRING_SERVICE, KEYRING_ACCOUNT)
     return crypto.b64decode(stored) if stored else None
@@ -49,10 +49,13 @@ def get_private_key() -> bytes | None:
 def set_private_key(private_key: bytes) -> None:
     encoded = crypto.b64encode(private_key)
     if _use_file_backend():
-        path = _key_file()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(encoded)
-        path.chmod(0o600)
+        # This is the device's Ed25519 signing key: the one secret on the
+        # machine whose disclosure lets someone impersonate this device to the
+        # broker. write_private_text hardens the directory *before* creating
+        # the file, so on Windows the key is never briefly readable under the
+        # inherited profile ACL while waiting for a follow-up chmod that would
+        # not have restricted anything anyway.
+        fsperm.write_private_text(_key_file(), encoded)
         return
     keyring.set_password(KEYRING_SERVICE, KEYRING_ACCOUNT, encoded)
 
@@ -74,17 +77,17 @@ def _pins_file() -> Path:
 def load_pins() -> dict:
     """device_id → base64 public key, pinned on first sight (TOFU)."""
     try:
-        return json.loads(_pins_file().read_text())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return json.loads(_pins_file().read_text(encoding="utf-8-sig"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
         return {}
 
 
 def save_pins(pins: dict) -> None:
-    path = _pins_file()
+    # Not a secret, but integrity matters: these pins are what stop a
+    # compromised broker substituting a sender's key, so they get the same
+    # owner-only protection as the key itself.
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(pins, indent=2))
-        path.chmod(0o600)
+        fsperm.write_private_text(_pins_file(), json.dumps(pins, indent=2))
     except OSError:
         pass
 

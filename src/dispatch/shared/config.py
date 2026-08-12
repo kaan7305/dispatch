@@ -40,18 +40,25 @@ def config_path() -> Path:
 
 
 def load_config() -> dict:
+    # utf-8-sig rather than the locale default: on Windows the implicit
+    # encoding is the ANSI codepage, which mangles a non-ASCII broker label and
+    # chokes on the BOM Notepad writes — either way the caller sees "no
+    # brokers configured" instead of an error it could act on.
     try:
-        return json.loads(config_path().read_text())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return json.loads(config_path().read_text(encoding="utf-8-sig"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
         return {}
 
 
 def save_config(config: dict) -> None:
+    from dispatch.shared import fsperm
+
     path = config_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config, indent=2))
-        path.chmod(0o600)  # bearer tokens live here
+        fsperm.harden_dir(path.parent)
+        path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        fsperm.harden_file(path)  # bearer tokens live here
     except OSError:
         pass
 

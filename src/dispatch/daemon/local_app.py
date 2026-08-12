@@ -96,6 +96,25 @@ def _resolve_static_dir() -> Path:
 
 STATIC_DIR = _resolve_static_dir()
 
+# Pin the content types the SPA cannot load without.
+#
+# Python's mimetypes seeds itself from the registry on Windows, and HKCR\.js
+# carrying `Content Type = text/plain` is a well-known, easily-acquired machine
+# state (several installers and older security tools set it). Starlette then
+# serves the Vite ES-module bundle as text/plain, the browser refuses to
+# execute it under strict MIME checking, and the desktop UI is a blank page —
+# on that machine only, with nothing in the daemon log. add_type writes into
+# the same types_map Starlette reads, so this deterministically wins.
+for _suffix, _ctype in (
+    (".js", "text/javascript"),
+    (".mjs", "text/javascript"),
+    (".css", "text/css"),
+    (".json", "application/json"),
+    (".svg", "image/svg+xml"),
+    (".wasm", "application/wasm"),
+):
+    mimetypes.add_type(_ctype, _suffix)
+
 
 @dataclass
 class InboxEntry:
@@ -517,11 +536,12 @@ def make_app(
     async def open_broker() -> dict:
         """Open the broker page in the user's default browser.
 
-        The desktop UI runs inside a WKWebView that can't spawn external
-        browser windows, so we shell out to macOS's `open` command (or
-        xdg-open on Linux) instead.
+        The desktop UI runs inside a window that can't spawn external browser
+        windows of its own (a WKWebView on macOS, an app-mode Chromium
+        elsewhere), so we ask the OS to open it instead.
         """
-        import subprocess, sys
+        from dispatch.shared.proc import open_external
+
         url = local_state.broker_url.rstrip("/") or "https://dispatch-production-99d1.up.railway.app"
         # Hand the daemon's broker JWT to the browser so it lands signed in as
         # the same account, instead of the cold Clerk sign-in landing at "/".
@@ -531,11 +551,12 @@ def make_app(
         # the app route and the SPA falls back to its normal sign-in.
         token = (local_state.broker_token or "").strip()
         target = f"{url}/app#t={token}" if token else url
-        opener = "open" if sys.platform == "darwin" else "xdg-open"
         try:
-            subprocess.Popen([opener, target])
-        except FileNotFoundError:
-            raise HTTPException(status_code=500, detail=f"no `{opener}` command available")
+            open_external(target)
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"could not open a browser: {e}"
+            )
         # Don't echo the JWT back to the caller; the base URL is enough.
         return {"status": "opened", "url": url}
 
@@ -543,11 +564,22 @@ def make_app(
     async def install_command() -> dict:
         """Render the install one-liner the user paste-installs on a new
         device. We assemble it daemon-side so the broker JWT never has to
-        appear as its own field in any SPA response."""
+        appear as its own field in any SPA response.
+
+        Both shells are returned, not just the one this machine uses: the
+        device being enrolled is by definition a *different* machine, and it is
+        just as likely to be the Windows laptop as another Mac. `command` stays
+        the POSIX form so existing callers keep working.
+        """
         broker = local_state.broker_url.rstrip("/")
         token = local_state.broker_token
+        posix = f"curl -fsSL {broker}/install.sh | bash -s -- {token}"
+        powershell = (
+            f"& ([scriptblock]::Create((irm {broker}/install.ps1))) -Token {token}"
+        )
         return {
-            "command": f"curl -fsSL {broker}/install.sh | bash -s -- {token}",
+            "command": posix,
+            "commands": {"posix": posix, "powershell": powershell},
             "broker": broker,
         }
 
@@ -1376,19 +1408,28 @@ def spawn(
     the listen socket so the next iteration of a reconnect loop can
     re-bind.
 
-    We pre-bind the socket with SO_REUSEADDR + SO_REUSEPORT so a reconnect
+    On POSIX we pre-bind with SO_REUSEADDR + SO_REUSEPORT so a reconnect
     immediately following a server stop can rebind without waiting for the
-    kernel's TIME_WAIT.
+    kernel's TIME_WAIT. On Windows those flags would instead let *any* local
+    process bind on top of this listener and intercept requests to the local
+    API, so that platform gets SO_EXCLUSIVEADDRUSE — see dispatch.shared.net.
+    Windows does not need the TIME_WAIT escape hatch: a closed listening
+    socket's port is immediately reusable there.
     """
     import socket as _s
+    import sys as _sys
     import uvicorn
+
+    from dispatch.shared.net import apply_reuse_policy
+
     app = make_app(local_state, daemon_state, local_token, workflow_engine=workflow_engine)
     sock = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
-    sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
-    try:
-        sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEPORT, 1)
-    except (AttributeError, OSError):
-        pass  # not all platforms have SO_REUSEPORT
+    apply_reuse_policy(sock)
+    if _sys.platform != "win32":
+        try:
+            sock.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEPORT, 1)
+        except (AttributeError, OSError):
+            pass  # not all platforms have SO_REUSEPORT
     sock.bind((host, port))
     sock.listen(128)
     sock.setblocking(False)

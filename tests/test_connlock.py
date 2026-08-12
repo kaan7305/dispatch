@@ -8,17 +8,22 @@ open file description in the same process as a conflicting holder — and the
 daemon wedges forever on "another process owns the broker connection;
 standing by…". These tests pin the lock's contract so that regression can't
 come back silently.
+
+They run on Windows too. That matters more there than anywhere: the Windows
+path used to have no lock at all, so ``acquire()`` returned True for every
+caller and the "exactly one owner" invariant these tests exist to protect was
+not merely untested but actively false.
 """
 import os
 
 import pytest
 
+from dispatch.daemon import connlock
 from dispatch.daemon.connlock import ConnectionLock
 
 pytestmark = pytest.mark.skipif(
-    not hasattr(__import__("dispatch.daemon.connlock", fromlist=["_HAVE_FCNTL"]), "_HAVE_FCNTL")
-    or not __import__("dispatch.daemon.connlock", fromlist=["_HAVE_FCNTL"])._HAVE_FCNTL,
-    reason="flock unavailable on this platform",
+    not connlock._HAVE_LOCKING,
+    reason="no byte-range/advisory locking available on this platform",
 )
 
 

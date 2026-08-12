@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -128,6 +129,21 @@ class RunHarvester:
 
     _PATH_KEYS = ("file_path", "path", "cwd", "notebook_path")
 
+    @staticmethod
+    def _is_rooted(raw: str) -> bool:
+        """Is this tool argument an absolute location worth remembering?
+
+        Relative arguments ("src", "*.py") are meaningless outside the run that
+        produced them, so only rooted paths are harvested. The check must be
+        platform-aware: testing solely for a leading "/" or "~" — as this did —
+        matches nothing on Windows, where every absolute path starts with a
+        drive letter. The effect was not a crash but a silent one: the whole
+        cross-run memory feature harvested zero entries on Windows, so every
+        dispatch kept paying the cold-start filesystem search this module
+        exists to eliminate.
+        """
+        return raw.startswith(("/", "~")) or os.path.isabs(raw)
+
     def __init__(self) -> None:
         self._inputs: dict[str, dict[str, Any]] = {}
         self._ok_paths: list[str] = []
@@ -145,7 +161,7 @@ class RunHarvester:
             if tool_input:
                 for key in self._PATH_KEYS:
                     v = tool_input.get(key)
-                    if isinstance(v, str) and v.startswith(("/", "~")):
+                    if isinstance(v, str) and self._is_rooted(v):
                         self._ok_paths.append(v)
 
     def finish(self, bucket: str, run_cwd: Path | None = None) -> None:
