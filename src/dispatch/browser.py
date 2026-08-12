@@ -42,9 +42,7 @@ import argparse
 import asyncio
 import json
 import os
-import shutil
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.error
@@ -53,52 +51,37 @@ from pathlib import Path
 
 import websockets
 
+from dispatch.desktop import chromium_candidates
+from dispatch.shared.proc import spawn_detached
+
 DEBUG_PORT = int(os.environ.get("DISPATCH_BROWSER_PORT", "9333"))
 PROFILE_DIR = Path(tempfile.gettempdir()) / "dispatch-browser-profile"
 _READY_TIMEOUT_S = 20.0
+
+# The DevTools endpoint is on loopback, so it must not be handed to a proxy.
+# ``urlopen`` consults ``getproxies()``, which on Windows reads HKCU Internet
+# Settings — a configured system proxy (routine on managed machines) swallows
+# the probe, ``_devtools_targets`` returns None, and browser control reports
+# itself unavailable on a machine where Chrome is running and reachable.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 # ── Chrome discovery ────────────────────────────────────────────────────
 
 def _chrome_binary() -> str | None:
-    """Absolute path to a Chrome/Chromium/Edge binary, or None."""
+    """Absolute path to a Chrome/Chromium/Edge binary, or None.
+
+    The candidate list is ``dispatch.desktop``'s: this used to keep a second,
+    shorter table, and the two disagreed — notably the Windows arm here listed
+    neither Brave nor Chromium while the error message below offered both.
+    """
     env = os.environ.get("DISPATCH_BROWSER_BINARY")
     if env and Path(env).exists():
         return env
 
-    if sys.platform == "darwin":
-        candidates = [
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        ]
-    elif sys.platform.startswith("win"):
-        pf = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        pfx86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
-        local = os.environ.get("LOCALAPPDATA", "")
-        candidates = [
-            rf"{pf}\Google\Chrome\Application\chrome.exe",
-            rf"{pfx86}\Google\Chrome\Application\chrome.exe",
-            rf"{local}\Google\Chrome\Application\chrome.exe",
-            rf"{pf}\Microsoft\Edge\Application\msedge.exe",
-            rf"{pfx86}\Microsoft\Edge\Application\msedge.exe",
-        ]
-    else:  # linux / other unix
-        names = [
-            "google-chrome", "google-chrome-stable", "chromium",
-            "chromium-browser", "brave-browser", "microsoft-edge",
-        ]
-        found = [shutil.which(n) for n in names]
-        candidates = [p for p in found if p]
-        candidates += [
-            "/usr/bin/google-chrome", "/usr/bin/chromium",
-            "/snap/bin/chromium",
-        ]
-
-    for c in candidates:
-        if c and Path(c).exists():
-            return c
+    for path in chromium_candidates():
+        if path.exists():
+            return str(path)
     return None
 
 
@@ -106,7 +89,7 @@ def _chrome_binary() -> str | None:
 
 def _devtools_targets() -> list[dict] | None:
     try:
-        raw = urllib.request.urlopen(
+        raw = _DIRECT.open(
             f"http://127.0.0.1:{DEBUG_PORT}/json", timeout=1.0
         ).read()
         return json.loads(raw)
@@ -137,12 +120,7 @@ def _ensure_browser(initial_url: str | None = None) -> dict:
         if initial_url:
             args.append(initial_url)
         # Detach so the browser outlives this short-lived CLI invocation.
-        kwargs: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-        if sys.platform.startswith("win"):
-            kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED | NEW_GROUP
-        else:
-            kwargs["start_new_session"] = True
-        subprocess.Popen(args, **kwargs)
+        spawn_detached(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         deadline = time.time() + _READY_TIMEOUT_S
         while time.time() < deadline:
@@ -315,7 +293,7 @@ async def cmd_close() -> dict:
     for t in targets:
         if t.get("type") == "page":
             try:
-                urllib.request.urlopen(
+                _DIRECT.open(
                     f"http://127.0.0.1:{DEBUG_PORT}/json/close/{t['id']}", timeout=1.0
                 )
             except OSError:

@@ -606,6 +606,29 @@ def cmd_brokers(args: argparse.Namespace, broker: str, token: str) -> int:
     return 0
 
 
+def _start_daemon_hint() -> str:
+    """How to start a daemon *on this machine*.
+
+    `dispatch tray` was printed unconditionally. On a platform without a tray
+    that is a dead end, and even on Windows — which now has one — `dispatch
+    open` is the better first suggestion: it starts the daemon *and* shows the
+    UI, so the user ends up somewhere rather than back at a prompt.
+    """
+    if sys.platform == "darwin":
+        return "`dispatch tray`"
+    if _tray_supported():
+        return "`dispatch open` (or `dispatch tray` to run it in the background)"
+    return "`dispatch open`"
+
+
+def _reload_hint() -> str:
+    """How to get a running daemon onto freshly-installed code."""
+    if _tray_supported():
+        surface = "⬡ Dispatch tray" if sys.platform == "darwin" else "Dispatch tray icon"
+        return f"reload the {surface} (or restart it with `dispatch tray`)"
+    return "restart `dispatch-daemon`, or run `dispatch update --restart`"
+
+
 def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     """Connectivity check: is the local daemon up, and is it connected to the
     broker? (Receiving dispatches needs the daemon's broker WS to be up.)"""
@@ -686,7 +709,7 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
     print(f"  {mark(daemon_up)} local daemon       {base}"
           + ("" if daemon_up
              else "  — not running (open Claude Code or Codex with the plugin, "
-                  "or `dispatch tray`)"))
+                  f"or {_start_daemon_hint()})"))
     if daemon_up:
         print(f"  {mark(report['broker_connected'])} daemon ↔ broker    "
               + ("online — ready to receive dispatches" if report["broker_connected"]
@@ -704,7 +727,7 @@ def cmd_doctor(args: argparse.Namespace, broker: str, token: str) -> int:
         elif code_stale:
             print(f"  {mark(False)} code version       daemon {running_commit[:7]}  ≠ "
                   f"installed {installed_commit[:7]}  — daemon on OLD code")
-            print("                       reload the ⬡ Dispatch tray (or restart `dispatch tray`)")
+            print(f"                       {_reload_hint()}")
         else:
             print(f"  {mark(True)} code version       daemon {running_commit[:7]}  (matches installed)")
     print(f"  {mark(broker_ok)} broker reachable   {report['broker_url']}")
@@ -1377,6 +1400,34 @@ DEFAULT_INSTALL_REPO = "git+https://github.com/kaan7305/dispatch.git"
 _UPDATE_MARKER = Path.home() / ".dispatch" / "installed_commit"
 
 
+def _quote(arg: str) -> str:
+    """Quote a printed command argument for the user's actual shell.
+
+    Every copy-pasteable command this CLI prints used POSIX single quotes.
+    cmd.exe does not treat those as quoting at all — it passes the quote
+    characters through as part of the argument — so a pasted
+    ``pipx install --force 'dispatch-agent[tray] @ git+https://…'`` tries to
+    install a package whose name begins with an apostrophe.
+    """
+    if not arg or any(c in arg for c in " \t\"'()[]{}&|<>^;,"):
+        if sys.platform == "win32":
+            return '"' + arg.replace('"', '""') + '"'
+        return "'" + arg.replace("'", "'\\''") + "'"
+    return arg
+
+
+def _and_then(*commands: str) -> str:
+    """Join printed commands so the result runs in the user's default shell.
+
+    ``&&`` is a parse error in Windows PowerShell 5.1 — still the default shell
+    on a stock Windows 11 — so a one-liner joined with it fails before running
+    anything. A newline works in every shell we target.
+    """
+    if sys.platform == "win32":
+        return "\n    ".join(commands)
+    return " && ".join(commands)
+
+
 def _install_spec(*, tray: bool) -> str:
     """The pip/pipx requirement to (re)install. With `tray`, carry the [tray]
     extra so the menu-bar app's pyobjc/rumps deps come along."""
@@ -1387,10 +1438,32 @@ def _install_spec(*, tray: bool) -> str:
     return spec
 
 
+# What the [tray] extra actually pulls in, per platform. The macOS menu-bar
+# app is rumps + pyobjc; the Windows notification-area app is pystray + Pillow.
+_TRAY_MODULES = {
+    "darwin": ("objc", "rumps"),
+    "win32": ("pystray", "PIL"),
+}
+
+
+def _tray_supported() -> bool:
+    return sys.platform in _TRAY_MODULES
+
+
 def _tray_installed() -> bool:
-    """Is the [tray] extra present in this (the installed) venv?"""
+    """Is the [tray] extra present in this (the installed) venv?
+
+    Platform-keyed: probing for objc/rumps on Windows always answered False,
+    which made `dispatch tray` believe an install could fix it — and the
+    install it then ran resolved to nothing, because every dependency in the
+    extra was marked darwin-only.
+    """
     import importlib.util
-    return all(importlib.util.find_spec(m) is not None for m in ("objc", "rumps"))
+
+    modules = _TRAY_MODULES.get(sys.platform)
+    if not modules:
+        return False
+    return all(importlib.util.find_spec(m) is not None for m in modules)
 
 
 def _git_url_of(spec: str) -> Optional[str]:
@@ -1432,7 +1505,93 @@ def _pipx_install(spec: str, *, capture: bool):
         return subprocess.run(cmd, capture_output=capture, text=True)
     except FileNotFoundError:
         raise CliError("pipx not found. Install pipx, or reinstall dispatch manually:\n"
-                       f"    pipx install --force '{spec}'")
+                       f"    pipx install --force {_quote(spec)}")
+
+
+UPDATE_LOG = Path.home() / ".dispatch" / "update.log"
+
+
+def _self_replacing_install() -> bool:
+    """Would a pipx reinstall have to delete files this process is running from?
+
+    On POSIX, replacing a running program's file is routine — the kernel keeps
+    the open inode alive and the process runs happily to completion on the old
+    image. Windows holds an exclusive section lock on every loaded executable
+    and DLL, so ``pipx install --force`` cannot remove either ``dispatch.exe``
+    or the interpreter behind it while ``dispatch update`` is the thing running.
+    It fails partway with WinError 5/32 — sometimes after having already
+    deleted part of the venv.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        exe = Path(sys.executable).resolve()
+    except OSError:
+        return False
+    # pipx keeps each app in its own venv under PIPX_HOME (default
+    # %USERPROFILE%\pipx or ~/.local/pipx). If our interpreter lives inside one,
+    # a reinstall of that app is a reinstall of us.
+    return any(part.lower() == "pipx" for part in exe.parts)
+
+
+def _deferred_pipx_install(spec: str, commit: Optional[str]) -> Path:
+    """Hand the reinstall to a process that outlives this one.
+
+    PowerShell rather than a Python helper on purpose: a helper run with this
+    venv's interpreter would itself hold the lock we are trying to escape.
+    ``Wait-Process`` blocks until we exit, and pipx lives in its own venv, so
+    by the time it runs nothing is holding the target.
+    """
+    import shutil
+
+    from dispatch.shared.proc import spawn_detached
+
+    pipx = shutil.which("pipx")
+    invoke = (
+        f"& {_ps_literal(pipx)} install --force {_ps_literal(spec)}"
+        if pipx
+        else f"& {_ps_literal(sys.executable)} -m pipx install --force {_ps_literal(spec)}"
+    )
+    steps = [
+        f"Wait-Process -Id {os.getpid()} -Timeout 120 -ErrorAction SilentlyContinue",
+        f"Start-Transcript -Path {_ps_literal(str(UPDATE_LOG))} -Force | Out-Null",
+        invoke,
+        "$code = $LASTEXITCODE",
+    ]
+    if commit:
+        # Only stamp the marker if pipx actually succeeded, or `doctor` would
+        # report the daemon as running stale code against a version that was
+        # never installed.
+        steps.append(
+            f"if ($code -eq 0) {{ Set-Content -Path {_ps_literal(str(_UPDATE_MARKER))} "
+            f"-Value {_ps_literal(commit)} -Encoding utf8 -NoNewline }}"
+        )
+    steps.append("Stop-Transcript | Out-Null")
+
+    UPDATE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    spawn_detached([
+        _powershell_path(), "-NoProfile", "-NonInteractive",
+        "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+        "-Command", "; ".join(steps),
+    ])
+    return UPDATE_LOG
+
+
+def _ps_literal(value: str) -> str:
+    """A PowerShell single-quoted literal (doubling embedded quotes)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _powershell_path() -> str:
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    candidate = os.path.join(
+        root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"
+    )
+    if os.path.exists(candidate):
+        return candidate
+    import shutil
+
+    return shutil.which("powershell") or "powershell.exe"
 
 
 # Files that ship in a plugin bundle (served by the host's marketplace, NOT by
@@ -1522,26 +1681,17 @@ def _daemon_inflight(config: dict) -> list:
 def _standalone_daemon_pids() -> list:
     """PIDs of standalone `dispatch-daemon` OS processes. Distinguishes a
     daemon we can safely restart from one hosted in-process by the tray
-    (`dispatch-tray`) or an in-session MCP host — those we must not evict."""
-    import shutil
-    import subprocess
-    pgrep = shutil.which("pgrep")
-    if not pgrep:
-        return []
-    try:
-        r = subprocess.run([pgrep, "-f", "dispatch-daemon"],
-                           capture_output=True, text=True, timeout=5)
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return []
-    if r.returncode != 0:
-        return []
-    pids = []
-    for tok in r.stdout.split():
-        try:
-            pids.append(int(tok))
-        except ValueError:
-            pass
-    return pids
+    (`dispatch-tray`) or an in-session MCP host — those we must not evict.
+
+    Both platforms are handled by shared.proc; the old `pgrep`-only version
+    returned [] unconditionally on Windows, so `dispatch update --restart`
+    concluded the daemon must be hosted by another process and told the user to
+    "restart that session" — advice that could not work, while the real
+    standalone daemon kept running pre-update code indefinitely.
+    """
+    from dispatch.shared.proc import pids_matching
+
+    return pids_matching("dispatch-daemon", image="dispatch-daemon.exe")
 
 
 def _spawn_daemon() -> Optional[int]:
@@ -1555,11 +1705,12 @@ def _spawn_daemon() -> Optional[int]:
     if not exe:
         return None
     try:
-        log = open(_dispatch_home() / "daemon.log", "a")
+        log = open(_dispatch_home() / "daemon.log", "a", encoding="utf-8", errors="replace")
     except OSError:
         log = subprocess.DEVNULL
-    proc = subprocess.Popen([exe], stdout=log, stderr=log, start_new_session=True)
-    return proc.pid
+    from dispatch.shared.proc import spawn_detached
+
+    return spawn_detached([exe], stdout=log).pid
 
 
 def _runtime_restart(args: argparse.Namespace, config: dict,
@@ -1670,6 +1821,24 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
         return 0
 
     sys.stderr.write(f"dispatch: updating from {spec} …\n")
+
+    if _self_replacing_install():
+        # Windows cannot overwrite the running image, so the install has to
+        # happen after we exit. That makes the outcome unknowable from here:
+        # report what was started and where to look, rather than claiming a
+        # success we cannot observe.
+        log = _deferred_pipx_install(spec, remote)
+        _emit(
+            args,
+            {"status": "scheduled", "spec": spec, "commit": remote, "log": str(log)},
+            "Update scheduled. Windows can't replace a running program, so the "
+            "install starts the moment this command exits — give it a few "
+            f"seconds.\n  Progress: {log}\n"
+            "  Then run `dispatch doctor` to confirm, and restart any running "
+            "daemon, tray, or agent session so they pick up the new code.",
+        )
+        return 0
+
     proc = _pipx_install(spec, capture=not args.json)
     if proc.returncode != 0:
         raise CliError(f"update failed (pipx exit {proc.returncode}). "
@@ -1705,10 +1874,11 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
 
     _plugin_refresh = (
         "refresh the plugin too — in Claude Code run `/plugin marketplace update "
-        "dispatch`, or from a terminal run `claude plugin marketplace update "
-        "dispatch && claude plugin update dispatch`. In Codex, reinstall from "
-        "`/plugins` (or re-run `dispatch codex install --force` if you wired it "
-        "up with the CLI)."
+        "dispatch`, or from a terminal run "
+        + _and_then("claude plugin marketplace update dispatch",
+                    "claude plugin update dispatch")
+        + ". In Codex, reinstall from `/plugins` (or re-run "
+        "`dispatch codex install --force` if you wired it up with the CLI)."
     )
     if plugin_changed is True:
         message += " The plugin's skill/manifest changed — " + _plugin_refresh
@@ -1724,30 +1894,55 @@ def cmd_update(args: argparse.Namespace, broker: str, token: str) -> int:
 
 
 def _tray_running() -> bool:
-    """Is a dispatch-tray already running? (avoids a duplicate menu-bar icon)."""
-    import shutil
-    import subprocess
-    pgrep = shutil.which("pgrep")
-    if not pgrep:
-        return False
-    try:
-        r = subprocess.run([pgrep, "-f", "dispatch-tray"],
-                           capture_output=True, text=True, timeout=5)
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0 and bool(r.stdout.strip())
+    """Is a tray already running? (avoids a duplicate indicator.)
+
+    On Windows the tray publishes a named mutex for exactly this question, so
+    ask that rather than scanning the process table: it is one syscall, and it
+    cannot be confused by a half-dead process still listed by tasklist.
+    """
+    if sys.platform == "win32":
+        try:
+            from dispatch.tray.win_app import tray_already_running
+
+            return tray_already_running()
+        except Exception:
+            from dispatch.shared.proc import pids_matching
+
+            return bool(pids_matching("dispatch-tray", image="dispatch-tray.exe"))
+    from dispatch.shared.proc import pids_matching
+
+    return bool(pids_matching("dispatch-tray"))
+
+
+# Where the indicator appears, in the words the user would use to look for it.
+_TRAY_SURFACE = {
+    "darwin": "look for ⬡ Dispatch in your menu bar",
+    "win32": "look for the Dispatch hexagon in the notification area "
+             "(the ^ next to the clock)",
+}
 
 
 def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
-    """Launch the macOS menu-bar app (always-on daemon supervisor) in the
-    background and return, so your terminal stays free. Self-heals the [tray]
-    extra (pyobjc/rumps) if missing — the bare install doesn't include those."""
+    """Launch the tray (always-on daemon supervisor) in the background and
+    return, so your terminal stays free. Self-heals the [tray] extra if
+    missing — the bare install doesn't include it."""
     import shutil
     import subprocess
+
+    from dispatch.shared.proc import spawn_detached
+
+    if not _tray_supported():
+        raise CliError(
+            "there is no tray for this platform yet. Run `dispatch open` to "
+            "start the daemon and open the UI, or run `dispatch-daemon` "
+            "directly."
+        )
+
     exe = shutil.which("dispatch-tray")
     if not exe or not _tray_installed():
+        missing = "/".join(_TRAY_MODULES[sys.platform])
         sys.stderr.write(
-            "dispatch: tray dependencies (pyobjc/rumps) missing — installing the "
+            f"dispatch: tray dependencies ({missing}) missing — installing the "
             "[tray] extra …\n"
         )
         proc = _pipx_install(_install_spec(tray=True), capture=not args.json)
@@ -1755,31 +1950,28 @@ def cmd_tray(args: argparse.Namespace, broker: str, token: str) -> int:
             raise CliError(
                 f"could not install the tray extra (pipx exit {proc.returncode}). "
                 "Install it manually:\n"
-                f"    pipx install --force '{_install_spec(tray=True)}'"
+                f"    pipx install --force {_quote(_install_spec(tray=True))}"
             )
         exe = shutil.which("dispatch-tray") or exe
         if not exe:
             raise CliError("dispatch-tray still not found after installing the extra.")
 
+    surface = _TRAY_SURFACE.get(sys.platform, "look for the Dispatch indicator")
     if _tray_running():
         _emit(args, {"status": "already_running"},
-              "dispatch tray is already running — look for ⬡ Dispatch in your menu bar.")
+              f"dispatch tray is already running — {surface}.")
         return 0
 
-    # Detach so the terminal is free. start_new_session=True puts it in its own
-    # session/process group, so closing the terminal won't kill it.
     log_path = Path.home() / ".dispatch" / "tray.log"
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log = open(log_path, "ab")
     except OSError:
         log = subprocess.DEVNULL
-    subprocess.Popen(
-        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
-    )
+    # Detached, so closing the terminal doesn't take the tray with it.
+    spawn_detached([exe], stdout=log)
     _emit(args, {"status": "launched"},
-          "Launched dispatch tray in the background — look for ⬡ Dispatch in your "
-          f"menu bar. Logs: {log_path}")
+          f"Launched dispatch tray in the background — {surface}. Logs: {log_path}")
     return 0
 
 
@@ -1787,15 +1979,18 @@ def _spawn_local_daemon() -> str:
     """Start a daemon detached and return the executable used.
 
     Same preference order as ``dispatch.mcp_server._spawn_daemon`` — the tray
-    on macOS (it hosts the daemon *and* gives the indicator), the bare daemon
-    everywhere else — duplicated rather than imported so the CLI never pulls in
-    the MCP SDK just to start a process. Both read broker/token/port from
-    ~/.dispatch/config.json, so neither needs arguments.
+    wherever one exists (it hosts the daemon *and* gives the indicator), the
+    bare daemon otherwise — duplicated rather than imported so the CLI never
+    pulls in the MCP SDK just to start a process. Both read broker/token/port
+    from ~/.dispatch/config.json, so neither needs arguments.
     """
     import shutil
     import subprocess
+
+    from dispatch.shared.proc import spawn_detached
+
     exe = None
-    if sys.platform == "darwin" and _tray_installed():
+    if _tray_supported() and _tray_installed():
         exe = shutil.which("dispatch-tray")
     if not exe:
         exe = shutil.which("dispatch-daemon")
@@ -1809,9 +2004,7 @@ def _spawn_local_daemon() -> str:
         log = open(_dispatch_home() / "daemon-spawn.log", "ab")
     except OSError:
         log = subprocess.DEVNULL
-    subprocess.Popen(
-        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
-    )
+    spawn_detached([exe], stdout=log)
     return exe
 
 

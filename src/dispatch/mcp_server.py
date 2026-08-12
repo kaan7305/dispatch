@@ -212,18 +212,35 @@ async def _ping(base: str, token: str) -> Optional[dict]:
 
 
 def _tray_available() -> bool:
-    """Is the macOS [tray] extra (pyobjc/rumps) importable in this venv?"""
+    """Is the [tray] extra for this platform importable in this venv?"""
     import importlib.util
-    return all(importlib.util.find_spec(m) is not None for m in ("objc", "rumps"))
+
+    modules = {"darwin": ("objc", "rumps"), "win32": ("pystray", "PIL")}.get(
+        sys.platform
+    )
+    if not modules:
+        return False
+    return all(importlib.util.find_spec(m) is not None for m in modules)
 
 
 def _spawn_daemon(*, prefer_tray: bool) -> None:
-    """Launch a daemon detached so it outlives this session. On macOS we prefer
-    the tray (it hosts the daemon AND gives the menu-bar indicator); elsewhere,
-    or if the tray extra is missing, the bare daemon. Both read broker/token/
-    port from ~/.dispatch/config.json, so no args are needed."""
+    """Launch a daemon detached so it outlives this session.
+
+    We prefer the tray wherever one exists (it hosts the daemon AND gives the
+    indicator); otherwise, or if the tray extra is missing, the bare daemon.
+    Both read broker/token/port from ~/.dispatch/config.json, so no args are
+    needed.
+
+    "Detached" is the whole point of this function, and it did not hold on
+    Windows: ``start_new_session=True`` is accepted and discarded there, so the
+    daemon stayed in the MCP host's process group and died with the agent
+    session that spawned it — the opposite of the always-on process the caller
+    asked for. shared.proc.spawn_detached applies the right flags per platform.
+    """
+    from dispatch.shared.proc import spawn_detached
+
     exe = None
-    if prefer_tray and sys.platform == "darwin" and _tray_available():
+    if prefer_tray and _tray_available():
         exe = shutil.which("dispatch-tray")
     if not exe:
         exe = shutil.which("dispatch-daemon")
@@ -233,9 +250,7 @@ def _spawn_daemon(*, prefer_tray: bool) -> None:
         log = open(dispatch_home() / "daemon-spawn.log", "ab")
     except OSError:
         log = subprocess.DEVNULL
-    subprocess.Popen(
-        [exe], stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True
-    )
+    spawn_detached([exe], stdout=log)
     logger.info("dispatch-mcp spawned a daemon via %s", exe)
 
 
@@ -509,12 +524,29 @@ async def _notify_local_approval(
         await ctx.info(
             f"Dispatch: {sender} needs approval for "
             f"{_fmt_tool_call(info.get('tool', '?'), info.get('input'))} "
-            f"(dispatch {dispatch_id[:8]}…). Answer it in the ⬡ Dispatch tray or at "
-            f"http://127.0.0.1:{_local_port()} — this session keeps watching. "
+            f"(dispatch {dispatch_id[:8]}…). Answer it {_approval_surfaces()} "
+            "— this session keeps watching. "
             "Unanswered calls are denied after ~120s."
         )
     except Exception:  # noqa: BLE001 — a client without logging must not break the run
         pass
+
+
+def _approval_surfaces() -> str:
+    """Where the human can actually answer, on this machine.
+
+    Built at call time rather than baked into the string. The message used to
+    name "the ⬡ Dispatch tray" unconditionally, so on a machine without one it
+    directed the user to a surface that did not exist — and this message is
+    sent precisely when a run is blocked waiting for them, so the cost of
+    pointing at nothing is a dispatch that stalls until it auto-denies.
+    """
+    local = f"http://127.0.0.1:{_local_port()}"
+    if sys.platform == "darwin":
+        return f"in the ⬡ Dispatch tray or at {local}"
+    if sys.platform == "win32":
+        return f"from the Dispatch tray icon (Open Inbox) or at {local}"
+    return f"at {local}"
 
 
 def _approval_needed(dispatch_id: str, sender: str, request_id: str, info: dict) -> dict:
