@@ -4498,6 +4498,27 @@ let curX = 60, curY = 60;
 function cursorShow() { demoCursor.style.opacity = "1"; }
 function cursorHide() { demoCursor.style.opacity = "0"; }
 
+/* park the cursor without animating it there. cursorShow only raises the
+   opacity, so without this the arrow fades in wherever it was last left — on
+   a fresh load that is the css default, translate(60px, 60px), which sits on
+   the sender window's title bar: a black speck at the top of the frame that
+   reads as grit on the lens. park it in the body of the pane it is about to
+   act in and the fade-in always lands on something. dx/dy are desk px off the
+   target's centre — the cursor lives outside the camera transform, so desk px
+   is the only offset that means the same thing at every zoom. the transform
+   gets no transition, so it snaps; opacity keeps its fade */
+function cursorPark(target, dx = 0, dy = 0) {
+  if (!target) return;
+  const dr = stageDesk.getBoundingClientRect();
+  const r = target.getBoundingClientRect();
+  const s = dr.width / (stageDesk.offsetWidth || dr.width) || 1;
+  curX = (r.left - dr.left + r.width / 2) / s + dx;
+  curY = (r.top - dr.top + r.height / 2) / s + dy;
+  demoCursor.style.transition = "opacity 250ms";
+  demoCursor.style.transform = `translate(${curX}px, ${curY}px)`;
+  void demoCursor.offsetHeight;   /* flush, so the next walk eases from here */
+}
+
 async function cursorTo(target, token, dur = 600) {
   if (!target) return;
   const dr = stageDesk.getBoundingClientRect();
@@ -4986,6 +5007,7 @@ function waitChoice(yesBtn, noBtn, token, { autopilotMs = null, autoPick = "yes"
       timer = setTimeout(async () => {
         await pauseGate();
         if (userTouched || token !== runToken) return;
+        cursorPark(autoPick === "yes" ? yesBtn : noBtn, 50, 110);
         cursorShow();
         await cursorTo(autoPick === "yes" ? yesBtn : noBtn, token, 750);
         if (userTouched || token !== runToken) return;
@@ -5095,7 +5117,9 @@ async function chCompose(token) {
   await dsleep(250); if (token !== runToken) return;
   senderWindow.classList.add("attn");
 
-  /* Kaan's cursor walks to Compose and clicks it */
+  /* Kaan's cursor walks to Compose and clicks it — parked down in his inbox
+     first, so it fades in on the list and not on the window's title bar */
+  cursorPark(composeBtn, 200, 250);
   cursorShow();
   await cursorTo(composeBtn, token, 650); if (token !== runToken) return;
   await cursorPress(token); if (token !== runToken) return;
@@ -5216,13 +5240,13 @@ async function chApprove(token) {
 
   /* it lands while the camera is still wide, so you watch it cross the desk:
      Kaan's window on one side, yours lighting up on the other. a beat to read
-     that, then back onto your machine — the establishing shot, then the row.
-     both stay inside the window, so the frame never opens onto sky or a
-     sliver of Kaan's screen */
+     that, then one move onto the row. it used to go in two — a full-screen
+     cut to your window, then a push onto the row — and the halt between them
+     read as a stutter, two zooms where the story only has one. one longer push
+     covers the same ground and never stops. the clamp still holds it inside
+     your window, so the frame never opens onto sky or Kaan's screen */
   await dsleep(560); if (token !== runToken) return;
-  await camTo(recipientWindow, { pad: 0, cover: true, within: recipientWindow }); if (token !== runToken) return;
-  await dsleep(260); if (token !== runToken) return;
-  await camTo(newRow, { pad: 32, within: recipientWindow }); if (token !== runToken) return;
+  await camTo(newRow, { pad: 32, dur: 980, within: recipientWindow }); if (token !== runToken) return;
 
   demoStatus.className = "demo-status";
   demoStatus.textContent = "";
